@@ -6,7 +6,7 @@
 
 **Approach:** Start with a minimal milestone: introduce a simple damaging motion on Long Sword, then scale to full Hunter Arts system with meter, multiple arts, and eventual MHXX motion import.
 
-**Current Phase:** Milestone 1 — Add a simple new damaging move to Long Sword via cloning an existing action, editing damage values, and rewiring triggers.
+**Current Phase:** Native Valor system prototype — replace the incompatible 2021 `ValorLS.dll`, render an in-game gauge, then connect it to the Valor FSM state.
 
 ---
 
@@ -58,6 +58,7 @@
 3. **WorldChunkTool** ([GitHub](https://github.com/mhvuze/WorldChunkTool)) — Alternative chunk extractor (older).
 4. **MHW Editor** — Opens `.pak`, `.lmt`, `.ctc`, and other game files for editing.
 5. **Ezekial711/MonsterHunterWorldModding** ([GitHub Wiki](https://github.com/Ezekial711/MonsterHunterWorldModding/wiki)) — Weapon IDs, Action IDs, FSM editor, moveset editing reference.
+6. **Visual Studio 2022 C++ toolchain:** Installed at `E:\MSVC2022`; used to build native x64 Stracker plugins.
 
 ### Extraction Workflow
 ```bash
@@ -82,14 +83,22 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 ### ✅ Completed
 - **Task #1:** Extracted Long Sword data from chunkG0.bin and identified file structure
 - Located Long Sword data at `chunkG0/wp/mus/` with motion files (`.lmt`), state machines (`_fs.lmt`), chain data (`.ctc`), and model files
+- Installed and tested the MHW Valor nativePC assets; the FSM/motion changes work without the original DLL.
+- Confirmed the original `ValorLS.dll` is incompatible with the current game build and fails Stracker initialization.
+- Built `ValorGauge.dll`, a native C++ Stracker plugin with no SharpPluginLoader dependency.
+- Hooked the DirectX 11 swap-chain Present call using Kiero and MinHook.
+- Rendered a blue ImGui Valor gauge inside the game frame and verified it in-game.
+- Added `F8` gauge visibility toggle and `nativePC/plugins/ValorGauge.log` diagnostics.
 
 ### 🔄 In Progress
-- **Task #2:** Opening Long Sword data in MHW Editor to map where damage/attack values and action definitions are stored
+- Find the player/weapon FSM pointer and the Valor-related state or variable.
+- Replace the fixed 65% prototype value with live game state.
 
 ### ⏳ Pending
-- **Task #3:** Pick a clone-able action in the LS moveset to use as template
-- **Task #4:** Clone the action, set damage + trigger, save
-- **Task #5:** Install to nativePC and test in-game
+- Detect Valor charge gains and depletion.
+- Detect entry into and exit from Valor mode.
+- Reimplement skill selection and activation previously provided by `ValorLS.dll`.
+- Match the original Valor gauge placement and behavior.
 
 ---
 
@@ -139,9 +148,28 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 
 ### Installation Status
 - **Stracker's Loader:** ✅ Installed (`loader.dll`, `dinput8.dll`, `loader-config.json` present)
+- **CRC Bypass:** ✅ Installed as `nativePC/plugins/!CRCBypass.dll`
+- **MSVC 2022:** ✅ Installed at `E:\MSVC2022`
+- **ValorGauge:** ✅ Built, installed, and verified in-game under DirectX 11
 - **MHWNoChunk:** ✅ Available for extraction
-- **MHW Editor:** ⏳ To be installed/used
+- **MHW Editor:** ✅ Available under `tools/MHWEditor`
 - **Chunk Extraction:** ✅ G0 fully extracted, other chunks partially extracted
+
+### Native Gauge Plugin
+- **Source:** `ValorGauge/`
+- **Output:** `ValorGauge/build/Release/ValorGauge.dll`
+- **Install path:** `nativePC/plugins/ValorGauge.dll`
+- **Runtime log:** `nativePC/plugins/ValorGauge.log`
+- **Renderer:** DirectX 11 (`EnableDX12=OFF` in the active game configuration)
+- **Libraries:** Dear ImGui, Kiero, and MinHook
+- **Current behavior:** Displays a fixed 65% blue gauge; `F8` toggles visibility
+
+Build command:
+
+```powershell
+& 'E:\MSVC2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' -S ValorGauge -B ValorGauge\build -A x64
+& 'E:\MSVC2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' --build ValorGauge\build --config Release
+```
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
@@ -187,5 +215,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2025-07-19*
-*Current Milestone: Add simple damaging motion to Long Sword*
+*Last Updated: 2026-07-23*
+*Current Milestone: Connect the native Valor gauge to live FSM state*
