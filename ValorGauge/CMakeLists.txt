@@ -38,7 +38,7 @@ target_include_directories(ValorGauge PRIVATE
 )
 
 target_compile_definitions(ValorGauge PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_link_libraries(ValorGauge PRIVATE minhook d3d11 dxgi)
+target_link_libraries(ValorGauge PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorGauge PROPERTIES OUTPUT_NAME "ValorGauge")
 
 add_custom_command(TARGET ValorGauge POST_BUILD
