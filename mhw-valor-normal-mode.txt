@@ -1,0 +1,9 @@
+3:7 Step slash from sheath
+3:85 Step slash after draw
+3:87 Overhead slash (the attack after step slash)
+3:79 Thrust
+3:80 Rising slash
+3:11 Spirit 1 from sheath
+3:16 Spirit 1 after draw
+3:67 Spirit 2
+3:68 Spirit 3

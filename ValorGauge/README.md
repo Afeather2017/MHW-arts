@@ -3,9 +3,15 @@
 Native Stracker Loader plugin that renders a prototype Valor gauge inside MHW's
 DirectX 11 frame. It does not require SharpPluginLoader.
 
-The current milestone displays a fixed 65% 100-pixel gauge at the top-left of
-the screen, with the current player action set/id shown in large red text on
-its right. Press `F8` to hide or show it.
+The 100-pixel gauge at the top-left starts at 0% and gains 10% when a mapped
+normal-mode Long Sword attack transition occurs. The current charge and player
+action set/id are shown in large red text on its right; full charge displays
+`VALOR READY`. Press `F8` to hide or show it.
+
+At full charge, the plugin resolves the documented Long Sword weapon pointer at
+`player + 0x76B0`, then the spirit level at `weapon + 0x2370`. It sets the aura
+to red (`3`), matching the strongest level used by the working Lua Long Sword
+mod. The overlay changes from blue to red and logs the resolved address.
 Runtime diagnostics are written to `nativePC/plugins/ValorGauge.log`.
 
 The plugin signature-scans and hooks `ActionController::DoAction`. Long Sword
