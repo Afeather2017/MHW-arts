@@ -8,6 +8,8 @@
 
 **Current Phase:** Native Valor mode prototype — normal Long Sword actions charge a live blue gauge, full charge forces red spirit level and successfully enables the Valor FSM branches.
 
+**Valor attack model:** Normal mode uses Step Slash, Thrust, and Spirit Slash I/II/III. Valor mode changes the Spirit input chain to Valor Spirit I, Valor Spirit II, Lai Slash, and Spirit Iaido Slash. Valor Spirit I is entered through the Foresight Slash input and carries the FSM-provided guard-point behavior; this is separate from the numeric Long Sword aura/spirit level.
+
 ---
 
 ## Game Architecture & Data Location
@@ -96,11 +98,11 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - Confirmed in game that spirit level 2 (yellow) or 3 (red) enables the modified Valor FSM branches; the prototype writes level 3 at full charge and enters Valor mode successfully.
 
 ### 🔄 In Progress
-- Add red Valor-mode depletion and return to normal mode at zero.
+- Validate FSM-owned Valor-mode depletion and return to normal mode.
 - Refine per-move charge gains and prevent charging while already in Valor mode.
 
 ### ⏳ Pending
-- Detect Valor-mode exit and restore the previous Long Sword spirit level safely.
+- Detect the FSM's Valor-to-normal transition without treating aura level as mode state.
 - Reimplement skill selection and activation previously provided by `ValorLS.dll`.
 - Match the original Valor gauge placement and behavior.
 
@@ -166,7 +168,7 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - **Runtime log:** `nativePC/plugins/ValorGauge.log`
 - **Renderer:** DirectX 11 (`EnableDX12=OFF` in the active game configuration)
 - **Libraries:** Dear ImGui, Kiero, and MinHook
-- **Current behavior:** Displays a 100 px blue charge gauge at `(0,0)`, logs and shows the live action `set:id`, gains 10% from mapped normal attacks, then writes Long Sword spirit level 3 and changes to a red `VALOR MODE` gauge at full charge. `F8` toggles visibility.
+- **Current behavior:** Logs and shows the live action `set:id`, gains 10% from mapped normal attacks, writes Long Sword spirit level 3 at full charge to enter Valor, then detects the first normal-mode action after the FSM exits Valor and re-arms charging. Native Valor and spirit gauges remain responsible for their own display and depletion. `F8` toggles visibility.
 
 ### Live Valor/FSM Discoveries
 - `ActionController::DoAction` signature: `48 8D 41 07 48 C1 E0 04 46 3B 04 08`, function start at match `- 10`.
@@ -174,6 +176,8 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - Live FSM fields are available at `player + 0x6274` (target) and `player + 0x6278` (id).
 - Current weapon pointer is stored at `player + 0x76B0`.
 - Long Sword spirit level is `int32` at `weapon + 0x2370`: 0 none, 1 white, 2 yellow, 3 red.
+- Aura/spirit level is an entry condition, not the Valor attack state; do not use its transitions as the mode exit signal.
+- The FSM owns Valor-to-normal transition and the Valor Spirit guard point. The DLL only supplies normal-to-Valor entry by writing level 3.
 - The Valor FSM does not use a custom `南风焓` runtime property; that text is an author label on nodes/links.
 - Exported `wp03_action.xml` showed that the relevant alternate branches test the standard `オーラレベル白以上` condition, but runtime testing established that yellow/red activates the intended Valor behavior while white alone did not.
 
