@@ -50,7 +50,7 @@ std::optional<ActionInfo> g_lastLongSwordAction;
 std::atomic_uint32_t g_actionDiagnosticCount = 0;
 std::atomic_uint32_t g_valorCharge = 0;
 std::atomic_bool g_valorMode = false;
-std::optional<std::int32_t> g_spiritLevelBeforeValor;
+std::atomic_int32_t g_lastObservedSpiritLevel = -1;
 
 bool IsNormalModeChargingAction(const ActionInfo& action) {
     if (action.actionSet != 3) {
@@ -181,14 +181,35 @@ void ActivateValorMode(void* controller) {
     }
 
     const auto previous = *level;
-    g_spiritLevelBeforeValor = previous;
     *level = 3; // Red aura: strongest Long Sword level and confirmed writable by the Lua mod.
+    g_lastObservedSpiritLevel = 3;
     g_valorMode = true;
 
     std::ostringstream message;
     message << "Valor mode activated: Long Sword level " << previous << " -> 3 at 0x"
             << std::hex << std::uppercase << reinterpret_cast<std::uintptr_t>(level);
     Log(message.str());
+}
+
+void PollValorLifecycle() {
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    auto* level = ResolveLongSwordLevel(controller);
+    if (!level) {
+        return;
+    }
+
+    const auto current = *level;
+    const auto previous = g_lastObservedSpiritLevel.exchange(current);
+    if (previous != current) {
+        std::ostringstream message;
+        message << "Long Sword spirit level changed: " << previous << " -> " << current;
+        Log(message.str());
+    }
+
 }
 
 std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::size_t length) {
@@ -294,7 +315,13 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             if (changed) {
                 g_lastLongSwordController = controller;
                 g_lastLongSwordAction = current;
-                if (IsNormalModeChargingAction(current)) {
+                const bool normalAction = IsNormalModeChargingAction(current);
+                if (g_valorMode.load() && normalAction) {
+                    g_valorMode = false;
+                    g_valorCharge = 0;
+                    Log("Valor mode exited via normal-mode action; charging re-enabled");
+                }
+                if (normalAction) {
                     const auto oldCharge = g_valorCharge.load();
                     const auto newCharge = std::min<std::uint32_t>(100, oldCharge + 10);
                     g_valorCharge = newCharge;
@@ -442,17 +469,9 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     }
     g_f7WasDown = f7Down;
     PollStateLogger();
+    PollValorLifecycle();
 
     if (g_visible) {
-        const auto charge = g_valorCharge.load();
-        const bool valorMode = g_valorMode.load();
-        const float value = static_cast<float>(charge) / 100.0f;
-        constexpr float gaugeWidth = 100.0f;
-        constexpr float gaugeHeight = 12.0f;
-        const ImVec2 minPoint(0.0f, 0.0f);
-        const ImVec2 maxPoint(minPoint.x + gaugeWidth, minPoint.y + gaugeHeight);
-        const ImVec2 fillPoint(minPoint.x + gaugeWidth * value, maxPoint.y);
-
         std::optional<ActionInfo> displayedAction;
         {
             std::scoped_lock lock(g_actionMutex);
@@ -460,36 +479,14 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         }
         char actionText[64]{};
         if (displayedAction) {
-            if (valorMode) {
-                snprintf(actionText, sizeof(actionText), "VALOR MODE  Action %d:%d",
-                         displayedAction->actionSet, displayedAction->actionId);
-            } else {
-                snprintf(actionText, sizeof(actionText), "Valor %u%%  Action %d:%d", charge,
-                         displayedAction->actionSet, displayedAction->actionId);
-            }
+            snprintf(actionText, sizeof(actionText), "Action %d:%d",
+                     displayedAction->actionSet, displayedAction->actionId);
         } else {
-            snprintf(actionText, sizeof(actionText), "Valor %u%%  Action --:--", charge);
+            snprintf(actionText, sizeof(actionText), "Action --:--");
         }
 
         ImDrawList* draw = ImGui::GetForegroundDrawList();
-        draw->AddRectFilled(minPoint, maxPoint, IM_COL32(5, 10, 18, 220), 1.0f);
-        draw->AddRectFilled(minPoint, maxPoint, IM_COL32(18, 35, 52, 230), 2.0f);
-        if (valorMode) {
-            draw->AddRectFilledMultiColor(minPoint, fillPoint,
-                                          IM_COL32(175, 20, 25, 245),
-                                          IM_COL32(255, 75, 55, 255),
-                                          IM_COL32(220, 35, 30, 255),
-                                          IM_COL32(120, 10, 20, 245));
-            draw->AddRect(minPoint, maxPoint, IM_COL32(255, 155, 135, 240), 1.0f, 0, 1.0f);
-        } else {
-            draw->AddRectFilledMultiColor(minPoint, fillPoint,
-                                          IM_COL32(30, 125, 220, 245),
-                                          IM_COL32(55, 205, 255, 255),
-                                          IM_COL32(35, 150, 235, 255),
-                                          IM_COL32(20, 90, 190, 245));
-            draw->AddRect(minPoint, maxPoint, IM_COL32(160, 225, 255, 230), 1.0f, 0, 1.0f);
-        }
-        draw->AddText(ImGui::GetFont(), 22.0f, ImVec2(maxPoint.x + 6.0f, minPoint.y),
+        draw->AddText(ImGui::GetFont(), 22.0f, ImVec2(0.0f, 0.0f),
                       IM_COL32(255, 55, 55, 255), actionText);
     }
 
