@@ -73,6 +73,21 @@ compact consecutive block and substantially overlap the Spirit Reckoning
 replacement set. Inspect them individually in Blender before deciding which
 three slots will host Sakura Slash's backward jump, dash/slash, and sheath.
 
+Confirmed visual identification of the Valor block so far:
+
+```text
+306 -> Special Sheathe
+307 -> Iai draw attack
+308 -> Spirit Roundslash followed by normal sheathing
+309 -> pending
+310 -> pending
+311 -> pending
+312 -> pending
+```
+
+Slots `306-308` are active Long Sword actions and should not be treated as safe
+replacement slots for Sakura Slash.
+
 The repeatable comparison script is:
 
 ```text
