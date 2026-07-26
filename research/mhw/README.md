@@ -98,3 +98,19 @@ The repeatable comparison script is:
 ```text
 research\mhw\compare_lmt_slots.py
 ```
+
+## Spirit Reckoning inspection
+
+Initial visual inspection of the slots changed only by the Spirit Reckoning
+migration found:
+
+```text
+357 -> Spirit Thrust-like motion
+364 -> Spirit Thrust-like motion
+367 -> Spirit Thrust-like motion
+```
+
+These are likely thrust variants or support entries rather than the complete
+Spirit Reckoning chain. The next inspection targets are `338-341`, which are
+changed by both Valor and Spirit Reckoning, followed by Spirit-specific slots
+`108` and `115`.
