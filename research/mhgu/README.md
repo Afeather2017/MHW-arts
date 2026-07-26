@@ -70,6 +70,26 @@ standalone path works:
 MHGU RomFS -> w07.arc -> w07_sa.lmt -> Revil Toolset -> animated GLB -> Blender
 ```
 
+For the MHW export workflow, keep Blender 5.2 as the interactive animation and
+retargeting environment. Blender 2.79c remains a headless Free Hyperkinetics
+encoder. The animated GLB can be bridged to 2.79c with:
+
+```text
+research/mhgu/convert_mhgu_glb_to_fbx.py
+```
+
+The generated `research/mhgu/mhgu_hunter_armature.fbx` was verified in Blender
+2.79c with one 34-bone armature and all eight embedded actions. In particular:
+
+```text
+Motion[1] frames 1-26
+Motion[2] frames 1-11
+Motion[3] frames 1-56
+```
+
+Do not try to open MHGU `w07_sa.lmt` with `MHW-LMT-Loader`; the formats differ.
+The animations are already embedded in Revil's `m_body001_out.glb` output.
+
 The current user is not familiar with Blender or other 3D modeling software.
 Future animation-identification instructions should therefore use explicit UI
 steps and avoid assuming knowledge of armatures, actions, timelines, the Dope
