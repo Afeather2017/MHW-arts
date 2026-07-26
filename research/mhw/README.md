@@ -79,14 +79,19 @@ Confirmed visual identification of the Valor block so far:
 306 -> Special Sheathe
 307 -> Iai draw attack
 308 -> Spirit Roundslash followed by normal sheathing
-309 -> pending
-310 -> pending
-311 -> pending
-312 -> pending
+309 -> visually empty
+310 -> visually empty
+311 -> visually empty
+312 -> Special Sheathe timeout transition to regular sheathing
 ```
 
-Slots `306-308` are active Long Sword actions and should not be treated as safe
-replacement slots for Sakura Slash.
+Special Sheathe can be held for approximately five seconds; slot `312` handles
+the transition back to regular sheathing after that timeout. Slots `309-311`
+look empty in Blender, but they are not empty LMT entries: each contains 82
+bone tracks and 14 event groups. They belong to the same active Special
+Sheathe/state block and must not be assumed safe based on their appearance.
+
+Slots `306-312` should not be treated as safe Sakura Slash replacement slots.
 
 The repeatable comparison script is:
 
