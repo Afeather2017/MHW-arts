@@ -111,6 +111,28 @@ migration found:
 ```
 
 These are likely thrust variants or support entries rather than the complete
-Spirit Reckoning chain. The next inspection targets are `338-341`, which are
-changed by both Valor and Spirit Reckoning, followed by Spirit-specific slots
-`108` and `115`.
+Spirit Reckoning chain.
+
+The Spirit Reckoning sequence has now been visually identified:
+
+```text
+338 -> Valor-style forward dash
+339 -> Iai attack following the dash
+340 -> second, shorter dash
+341 -> sheathing recovery after the complete Reckoning sequence
+```
+
+This is the best temporary Sakura Slash target found so far. It is a proven
+custom four-state action path that already activates and completes correctly in
+MHW. For the first animation-import test, keep its FSM unchanged and place the
+three MHGU Sakura motions as follows:
+
+```text
+338 <- MHGU Sakura Motion[1] (backward jump)
+339 <- MHGU Sakura Motion[2] (forward dash/slash)
+340 <- duplicate/reuse Motion[2] temporarily, or retain a short continuation
+341 <- MHGU Sakura Motion[3] (sheathing recovery)
+```
+
+After the retargeted animations play successfully in game, the FSM can be
+simplified to skip `340` or the Sakura dash can be divided across `339-340`.
