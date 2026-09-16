@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <intrin.h>
 #include <mutex>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -71,6 +72,13 @@ std::uint32_t g_forceSet = 3;
 std::uint32_t g_forceId = 104;
 float g_forceInvulnSec = 0.5f;
 double g_counterWindowSec = 0.6;
+std::atomic_uint32_t g_clangProbeLogCount{0};
+// The mined clang latch: player+0xB228 sets when the deflect presentation
+// starts (hit negated during a special evasion) and clears when it ends.
+// Silent on whiffs - log-verified 0 changes across 3 whiff runs vs set+reset
+// on every clang.
+std::uint32_t g_clangLatchPrev = 0;
+bool g_counterAutoForce = true;
 std::chrono::steady_clock::time_point g_counterWindowUntil{};
 bool g_counterCtrlWasDown = false;
 std::atomic<std::uintptr_t> g_moduleBase{0};
@@ -518,15 +526,30 @@ std::atomic_uint32_t g_clangCount{0};
 
 std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
     g_damageThisDispatch = false;
+    // The dispatcher resolves the interaction type at entry via vtable+8;
+    // type 6 (== case 0) is the damage path. Mirror that read so a damage-type
+    // interaction that never reached the damage calc = a negated hit.
+    long long interactType = -1;
+    if (a2 && IsReadable(a2, sizeof(void*))) {
+        void* obj = *reinterpret_cast<void**>(a2);
+        if (obj && IsReadable(obj, 0x10)) {
+            void* vtbl = *reinterpret_cast<void**>(obj);
+            if (IsReadable(reinterpret_cast<char*>(vtbl) + 8, sizeof(void*))) {
+                                using TypeGetterFn = long long(__fastcall*)(std::int64_t*);
+                auto fn = *reinterpret_cast<TypeGetterFn*>(
+                    reinterpret_cast<char*>(vtbl) + 8);
+                if (IsReadable(reinterpret_cast<const void*>(fn), 1)) {
+                    interactType = fn(a2);
+                }
+                (void)0;
+            }
+        }
+    }
     auto* result = g_originalHitDispatch(a1, a2);
     const auto code = reinterpret_cast<std::uintptr_t>(result);
-    // Log-verified codes: a rejected MONSTER attack returns a negative float
-    // (bit31 set, magnitude = damage-ish) or 0x6B; ambient body-push rejection
-    // while the window is open returns a positive float (0x42F3B65E) with no
-    // contact. Only treat the former as the clang.
-    const bool attackRejected =
-        (code & 0x80000000) != 0 || code == 0x6B;
-    if (attackRejected && !g_damageThisDispatch && ActionIsForesightSlash()) {
+    const bool attackRejected = interactType == 6 && code != 0xD &&
+                                !g_damageThisDispatch;
+    if (attackRejected && ActionIsForesightSlash()) {
         // A monster attack was just negated inside the parry window: open the
         // counter window and pre-inject the no-hit coverage.
         if (!g_clangLatch) {
@@ -547,15 +570,102 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
         if (g_fsdLogCount.load() < 4096) {
             ++g_fsdLogCount;
             const auto clangN = g_clangCount.fetch_add(1) + 1;
-            if (clangN <= 8) {
+            if (clangN <= 16) {
                 std::ostringstream m;
                 m << "HITDISPATCH #" << std::dec << clangN << ": rejected during 见切"
-                  << std::hex << std::uppercase << " (code=0x" << code << ")";
+                  << std::hex << std::uppercase << " (type=" << interactType
+                  << " code=0x" << code << ")";
                 Log(m.str());
             }
         }
     }
     return result;
+}
+
+// --- 見切り回避成功後の攻撃ヒット condition evaluator hook ---------------------
+void OpenCounterWindow(const char* reason);
+// FUN_14118bda0 resolves and evaluates FSM condition-tree VariableNodes; the
+// 見切り回避成功後の攻撃ヒット node carries the property-name pointer
+// 0x1430BA8F0 in its VariableInfo. Scan the node for that pointer: matching
+// calls evaluate THE vanilla success latch, and the return value is its
+// current state. A nonzero return = the vanilla 刚1 branch condition passed.
+constexpr std::uintptr_t kForesightSuccessName = 0x1430BA8F0;
+using CondEvalFn = long long(__fastcall*)(unsigned int, long long, long long);
+CondEvalFn g_originalCondEval = nullptr;
+std::atomic_uint32_t g_condEvalLogCount{0};
+
+long long __fastcall CondEvalHook(unsigned int a1, long long a2, long long a3) {
+    // Empirical layout probe: find pointers into the property-name string
+    // table (0x1430b0000..0x1430c0000) inside a2/a3 and log where they sit.
+    if (g_condEvalLogCount.load() < 24 && ActionIsForesightSlash()) {
+        auto scanNames = [&](long long base, const char* tag, std::ostringstream& m) {
+            if (!base || !IsReadable(reinterpret_cast<const void*>(base), 0x100)) {
+                return;
+            }
+            const auto* words = reinterpret_cast<const void* const*>(base);
+            for (int off = 0; off < 0x100; off += (int)sizeof(void*)) {
+                const auto v = reinterpret_cast<std::uintptr_t>(words[off / sizeof(void*)]);
+                if (v >= 0x1430b0000 && v < 0x1430c0000) {
+                    m << " " << tag << "+0x" << std::hex << std::uppercase << off << "=0x" << v;
+                }
+            }
+        };
+        std::ostringstream m;
+        m << "CONDSCAN" << std::hex << std::uppercase << " a2=0x" << a2 << " a3=0x" << a3;
+        scanNames(a2, "a2", m);
+        scanNames(a3, "a3", m);
+        Log(m.str());
+        ++g_condEvalLogCount;
+    }
+    bool isForesightSuccess = false;
+    if (a3 && IsReadable(reinterpret_cast<const void*>(a3), 0x100)) {
+        const auto* node = reinterpret_cast<const void* const*>(a3);
+        for (int off = 0; off < 0x100; off += (int)sizeof(void*)) {
+            if (node[off / sizeof(void*)] == reinterpret_cast<const void*>(kForesightSuccessName)) {
+                isForesightSuccess = true;
+                break;
+            }
+        }
+    }
+    if (a2 && IsReadable(reinterpret_cast<const void*>(a2), 0x100)) {
+        const auto* node = reinterpret_cast<const void* const*>(a2);
+        for (int off = 0; off < 0x100; off += (int)sizeof(void*)) {
+            if (node[off / sizeof(void*)] == reinterpret_cast<const void*>(kForesightSuccessName)) {
+                isForesightSuccess = true;
+                break;
+            }
+        }
+    }
+    const long long result = g_originalCondEval(a1, a2, a3);
+    if (isForesightSuccess) {
+        std::ostringstream m;
+        m << "COND631 evaluated -> " << std::dec << result;
+        Log(m.str());
+    }
+    if (isForesightSuccess && result != 0) {
+        // The vanilla success+hit latch just evaluated true: this is the exact
+        // 刚1 trigger moment. Open the counter window and arm the force.
+        if (!g_clangLatch) {
+            g_clangLatch = true;
+        }
+        OpenCounterWindow("vanilla success condition evaluated TRUE");
+        if (!g_forceArmed.exchange(true)) {
+            Log("COUNTER INPUT not needed: vanilla condition passed - force armed");
+        }
+    }
+    return result;
+}
+
+bool InstallCondEvalHook() {
+    void* target = reinterpret_cast<std::uint8_t*>(g_moduleBase.load()) + 0x118BDA0;
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&CondEvalHook),
+                      reinterpret_cast<void**>(&g_originalCondEval)) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        Log("Condition evaluator hook failed");
+        return false;
+    }
+    Log("Condition evaluator hook installed (RVA 0x118BDA0)");
+    return true;
 }
 
 // --- Wwise sound-event logging (叮 source hunt) --------------------------------
@@ -755,6 +865,7 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Sound post hook installed (RVA 0x26D4C50)");
     }
+    InstallCondEvalHook();
     if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x28B8FE0,
                       reinterpret_cast<void*>(&PostEventNameHook),
                       reinterpret_cast<void**>(&g_originalPostEventName)) != MH_OK ||
@@ -1105,10 +1216,16 @@ void LoadForceActionConfig() {
     if (input >> invulnSec && invulnSec >= 0.0f && invulnSec <= 3.0f) {
         g_forceInvulnSec = invulnSec;
     }
+    std::ifstream autoCfg("nativePC\plugins\ValorGauge.counter-auto.txt");
+    int autoForce = 1;
+    if (autoCfg >> autoForce) {
+        g_counterAutoForce = (autoForce != 0);
+    }
     std::ostringstream msg;
     msg << "Force action configured: F6/clang queues set=" << g_forceSet
         << " id=" << g_forceId << ", counter no-hit injection "
-        << g_forceInvulnSec << "s";
+        << g_forceInvulnSec << "s, auto-force="
+        << (g_counterAutoForce ? "on" : "off (Ctrl inside window)");
     Log(msg.str());
 }
 
@@ -1135,6 +1252,28 @@ std::int16_t g_watchPrev[kMaxWatchIds][3] = {};
 std::int16_t g_watchCur[kMaxWatchIds][3] = {};
 std::uint32_t g_watchKeys[kMaxWatchIds] = {};
 std::int16_t* g_watchCounters[kMaxWatchIds] = {};
+// Prop trigger: when this watched id/index INCREASES during 见切, open the
+// counter window (the vanilla success counter 222 idx2 = a hit was negated).
+// Config nativePC\plugins\ValorGauge.prop-trigger.txt: "<id> <index>",
+// id 0 disables.
+std::uint32_t g_triggerId = 222;
+std::uint32_t g_triggerIndex = 2;
+
+void OpenCounterWindow(const char* reason) {
+    g_counterWindowUntil = std::chrono::steady_clock::now() +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(g_counterWindowSec));
+    auto pool = g_lastPlayerPool.load();
+    if (pool != 0 && g_forceInvulnSec > 0.0f) {
+        auto* window = reinterpret_cast<float*>(pool + 0xE4);
+        if (IsWritable(window, sizeof(float))) {
+            *window = *window > g_forceInvulnSec ? *window : g_forceInvulnSec;
+        }
+    }
+    std::ostringstream m;
+    m << "COUNTER WINDOW OPEN (" << reason << ") - press the spirit key to counter";
+    Log(m.str());
+}
 
 std::int16_t* ResolvePropCounters(std::uint8_t* player, std::uint32_t id,
                                   std::uint32_t* keyOut) {
@@ -1293,6 +1432,43 @@ void PollReactionWatch() {
         }
     }
 
+    // 刚1 trigger: the mined clang latch at player+0xB228. Rising edge during
+    // a special evasion (见切 86 / iai 101/102) = a hit was just negated.
+    if (IsReadable(player + 0xB228, sizeof(std::uint32_t))) {
+        const auto latch = *reinterpret_cast<const std::uint32_t*>(player + 0xB228);
+        if (latch != 0 && g_clangLatchPrev == 0) {
+            bool validEvasion = false;
+            {
+                std::scoped_lock lock(g_actionMutex);
+                validEvasion = g_lastLongSwordAction &&
+                               g_lastLongSwordAction->actionSet == 3 &&
+                               (g_lastLongSwordAction->actionId == 86 ||
+                                g_lastLongSwordAction->actionId == 101 ||
+                                g_lastLongSwordAction->actionId == 102);
+            }
+            if (validEvasion) {
+                g_clangLatch = true;
+                OpenCounterWindow("clang latch rising edge (player+0xB228)");
+                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                    Log("CLANG latch set - auto-force armed");
+                }
+            }
+        }
+        g_clangLatchPrev = latch;
+    }
+
+    // Prop trigger: a successful negation increments the success counter.
+    if (g_rxnValid && g_triggerId != 0) {
+        for (int wi = 0; wi < g_watchCount; ++wi) {
+            if (g_watchIds[wi] != g_triggerId) continue;
+            const auto nowV = g_watchCur[wi][g_triggerIndex < 3 ? g_triggerIndex : 0];
+            const auto prevV = g_watchPrev[wi][g_triggerIndex < 3 ? g_triggerIndex : 0];
+            if (nowV > prevV && ActionIsForesightSlash()) {
+                OpenCounterWindow("success counter edge (prop trigger)");
+            }
+        }
+    }
+
     if (!g_rxnValid) {
         g_rxnStandby = standby;
         g_rxnNohit = nohit;
@@ -1371,6 +1547,17 @@ void PollReactionWatch() {
 // Optional nativePC\plugins\ValorGauge.prop-watch.txt: property ids to watch,
 // up to 6, e.g. "222 631".
 void LoadPropWatchConfig() {
+    std::ifstream trigger("nativePC\plugins\ValorGauge.prop-trigger.txt");
+    std::int32_t tid = 0;
+    std::int32_t tidx = 0;
+    if (trigger >> tid >> tidx && tid >= 0 && tidx >= 0) {
+        g_triggerId = static_cast<std::uint32_t>(tid);
+        g_triggerIndex = static_cast<std::uint32_t>(tidx);
+    }
+    std::ostringstream msg;
+    msg << "Prop trigger configured: id=" << g_triggerId << " idx=" << g_triggerIndex
+        << (g_triggerId == 0 ? " (disabled)" : "");
+    Log(msg.str());
     std::ifstream input("nativePC\\plugins\\ValorGauge.prop-watch.txt");
     std::int32_t id = 0;
     int count = 0;
@@ -1380,12 +1567,12 @@ void LoadPropWatchConfig() {
     if (count > 0) {
         g_watchCount = count;
     }
-    std::ostringstream msg;
-    msg << "Property watch list:";
+    std::ostringstream watchMsg;
+    watchMsg << "Property watch list:";
     for (int wi = 0; wi < g_watchCount; ++wi) {
-        msg << ' ' << g_watchIds[wi];
+        watchMsg << ' ' << g_watchIds[wi];
     }
-    Log(msg.str());
+    Log(watchMsg.str());
 }
 
 // --- F6 property write test (Shift+F6) ---------------------------------------
@@ -1469,6 +1656,292 @@ void TryPropertyWrite() {
     after << "PROPWRITE wrote " << g_propWriteValue << (directlyWritable ? "" : " (protected)")
           << "; readback=[" << counters[0] << ',' << counters[1] << ',' << counters[2] << ']';
     Log(after.str());
+}
+
+// --- F9 clang miner: paired-scenario state mining -----------------------------
+// F5 #1: start mining (phase 1). Each 见切 (3:86 entry) records one run of
+// per-frame memory deltas over weapon/mgr/pool/FSM regions plus HP.
+// F5 #2: advance to phase 2 (do the other scenario, e.g. real clangs).
+// F5 #3: stop and dump the analysis: offsets whose change pattern is
+// exclusive to one phase = candidate clang-state signals, no guessing.
+struct MinerChange { std::uint32_t key; std::uint32_t val; std::uint32_t frame; };
+struct MinerRun {
+    int phase = 0;
+    float hpStart = 0.0f;
+    float hpEnd = 0.0f;
+    std::uint32_t frames = 0;
+    std::vector<MinerChange> changes;
+};
+struct MinerRegionSpec {
+    std::uint8_t* base = nullptr;
+    std::size_t size = 0;
+    const char* name = "";
+    std::vector<std::uint8_t> prev;
+};
+std::vector<MinerRegionSpec> g_minerRegions;
+std::vector<MinerRun> g_minerRuns;
+MinerRun g_minerCur;
+bool g_minerInRun = false;
+int g_minerPhase = 0;
+bool g_minerActive = false;
+bool g_f9WasDown = false;
+std::uint32_t g_minerFrameInRun = 0;
+constexpr std::size_t kMinerMaxChanges = 30000;
+
+float MinerReadHealth(std::uint8_t* player) {
+    auto* hpBox = player + 0x7630; // {player+0x7630} + 0x64 (Lua engine layout)
+    if (!IsReadable(hpBox, sizeof(void*))) {
+        return -1.0f;
+    }
+    auto* box = *reinterpret_cast<std::uint8_t**>(hpBox);
+    if (!box || !IsReadable(box + 0x64, sizeof(float))) {
+        return -1.0f;
+    }
+    return *reinterpret_cast<const float*>(box + 0x64);
+}
+
+void MinerSetupRegions(std::uint8_t* player) {
+    g_minerRegions.clear();
+    auto* weaponSlot = player + 0x76B0;
+    if (IsReadable(weaponSlot, sizeof(void*)) && *reinterpret_cast<void**>(weaponSlot)) {
+        auto* weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
+        if (IsReadable(weapon, 0x2400)) {
+            g_minerRegions.push_back({weapon, 0x2400, "weapon", {}});
+        }
+    }
+    auto* mgrSlot = player + 0x7D20;
+    if (IsReadable(mgrSlot, sizeof(void*)) && *reinterpret_cast<void**>(mgrSlot)) {
+        auto* mgr = *reinterpret_cast<std::uint8_t**>(mgrSlot);
+        if (IsReadable(mgr, 0x800)) {
+            g_minerRegions.push_back({mgr, 0x800, "mgr", {}});
+            auto* pool = mgr + 0x28;
+            if (IsReadable(pool, 0x180)) {
+                g_minerRegions.push_back({pool, 0x180, "pool", {}});
+            }
+        }
+    }
+    // FSM fields on the player struct (controller + fsmTarget/id block).
+    if (IsReadable(player + 0x6100, 0x900)) {
+        g_minerRegions.push_back({player + 0x6100, 0x900, "playerFsm", {}});
+    }
+    // Player combat windows: event bit array (+0x8938!), flags, broad sweep.
+    struct PlayerWindow { std::size_t off; std::size_t size; const char* name; };
+    const PlayerWindow windows[] = {
+        {0x1000, 0x400, "pFlags"},
+        {0x1200, 0x7700, "pCore"},
+        {0x8900, 0x180, "pEventBits"},
+        {0x8A80, 0x2A80, "pTail"},
+    };
+    for (const auto& w : windows) {
+        if (IsReadable(player + w.off, w.size)) {
+            g_minerRegions.push_back({player + w.off, w.size, w.name, {}});
+        }
+    }
+    for (auto& r : g_minerRegions) {
+        r.prev.assign(r.base, r.base + r.size);
+    }
+}
+
+void MinerBeginRun(std::uint8_t* player) {
+    MinerSetupRegions(player);
+    g_minerCur = MinerRun{};
+    g_minerCur.phase = g_minerPhase;
+    g_minerCur.hpStart = MinerReadHealth(player);
+    g_minerFrameInRun = 0;
+    g_minerInRun = true;
+}
+
+void MinerEndRun() {
+    g_minerInRun = false;
+    g_minerRuns.push_back(std::move(g_minerCur));
+    g_minerCur = MinerRun{};
+    std::ostringstream m;
+    m << "MINER run " << g_minerRuns.size() << " (phase " << g_minerRuns.back().phase
+      << "): " << g_minerRuns.back().frames << " frames, "
+      << g_minerRuns.back().changes.size() << " changes, HP "
+      << g_minerRuns.back().hpStart << " -> " << g_minerRuns.back().hpEnd;
+    Log(m.str());
+}
+
+void MinerCaptureFrame() {
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    if (!g_minerActive) {
+        g_minerActive = true;
+        g_minerPhase = 1;
+        Log("MINER auto-started: recording every 见切 as phase 1. "
+            "F5 marks a new phase + dumps a snapshot.");
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+
+    bool is86 = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        is86 = g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 3 &&
+               g_lastLongSwordAction->actionId == 86;
+    }
+    if (is86 && !g_minerInRun) {
+        MinerBeginRun(player);
+    }
+    if (!is86 && g_minerInRun) {
+        MinerEndRun();
+        while (g_minerRuns.size() > 16) {
+            g_minerRuns.erase(g_minerRuns.begin());
+        }
+        return;
+    }
+    if (!g_minerInRun) {
+        return;
+    }
+    ++g_minerFrameInRun;
+    g_minerCur.frames = g_minerFrameInRun;
+    g_minerCur.hpEnd = MinerReadHealth(player);
+
+    for (std::size_t ri = 0; ri < g_minerRegions.size(); ++ri) {
+        auto& r = g_minerRegions[ri];
+        if (!IsReadable(r.base, r.size)) {
+            continue;
+        }
+        const auto* cur = reinterpret_cast<const std::uint32_t*>(r.base);
+        auto* prev = reinterpret_cast<std::uint32_t*>(r.prev.data());
+        const auto dwordCount = r.size / sizeof(std::uint32_t);
+        const auto regionTag = static_cast<std::uint32_t>(ri << 24);
+        for (std::size_t d = 0; d < dwordCount; ++d) {
+            if (cur[d] != prev[d]) {
+                prev[d] = cur[d];
+                if (g_minerCur.changes.size() < kMinerMaxChanges) {
+                    const auto offset = static_cast<std::uint32_t>(d * 4);
+                    g_minerCur.changes.push_back(
+                        {regionTag | offset, cur[d], g_minerFrameInRun});
+                }
+            }
+        }
+    }
+}
+
+void MinerDumpAnalysis() {
+    std::ostringstream header;
+    header << "MINER ANALYSIS: " << g_minerRuns.size() << " runs";
+    Log(header.str());
+    for (std::size_t i = 0; i < g_minerRuns.size(); ++i) {
+        std::ostringstream m;
+        m << "MINER run " << (i + 1) << " phase=" << g_minerRuns[i].phase
+          << " frames=" << g_minerRuns[i].frames << " changes="
+          << g_minerRuns[i].changes.size() << std::fixed << std::setprecision(1)
+          << " HP " << g_minerRuns[i].hpStart << "->" << g_minerRuns[i].hpEnd;
+        Log(m.str());
+    }
+    if (g_minerRuns.empty()) {
+        return;
+    }
+    // key -> per-phase stats {runsChanged, minFirstFrame}
+    struct KeyStat { int changed[3] = {}; int minFrame[3] = {}; };
+    std::map<std::uint32_t, KeyStat> stats;
+    for (const auto& run : g_minerRuns) {
+        if (run.phase < 1 || run.phase > 2) {
+            continue;
+        }
+        std::map<std::uint32_t, std::uint32_t> firstFrame;
+        for (const auto& c : run.changes) {
+            if (!firstFrame.count(c.key) || c.frame < firstFrame[c.key]) {
+                firstFrame[c.key] = c.frame;
+            }
+        }
+        for (const auto& [key, frame] : firstFrame) {
+            auto& st = stats[key];
+            ++st.changed[run.phase];
+            if (st.minFrame[run.phase] == 0 || frame < st.minFrame[run.phase]) {
+                st.minFrame[run.phase] = frame;
+            }
+        }
+    }
+    // Correlation-ranked report: keys whose change rate across ALL phase-2
+    // runs is higher than across ALL phase-1 runs, strongest first.
+    struct KeyInfo {
+        int changed[3] = {};
+        int minFrame[3] = {};
+    };
+    // Phase 1 = whiffs, every LATER phase = clangs (users often do mixed
+    // runs in phase 2 and clean clangs in 3+; all of them are clang data).
+    int phaseTotal[3] = {};
+    for (const auto& run : g_minerRuns) {
+        if (run.phase >= 1) {
+            ++phaseTotal[run.phase == 1 ? 1 : 2];
+        }
+    }
+    std::map<std::uint32_t, KeyInfo> kinfo;
+    for (const auto& run : g_minerRuns) {
+        if (run.phase < 1) {
+            continue;
+        }
+        const int slot = run.phase == 1 ? 1 : 2;
+        std::map<std::uint32_t, std::uint32_t> firstFrame;
+        for (const auto& c : run.changes) {
+            if (!firstFrame.count(c.key) || c.frame < firstFrame[c.key]) {
+                firstFrame[c.key] = c.frame;
+            }
+        }
+        for (const auto& [key, frame] : firstFrame) {
+            auto& ki = kinfo[key];
+            ++ki.changed[slot];
+            if (ki.minFrame[slot] == 0 || frame < ki.minFrame[slot]) {
+                ki.minFrame[slot] = frame;
+            }
+        }
+    }
+    std::vector<std::pair<std::uint32_t, KeyInfo>> ranked(kinfo.begin(), kinfo.end());
+    const double wTotal = phaseTotal[1] > 0 ? phaseTotal[1] : 1;
+    const double cTotal = phaseTotal[2] > 0 ? phaseTotal[2] : 1;
+    std::sort(ranked.begin(), ranked.end(),
+              [&](const auto& a, const auto& b) {
+                  const double sa = a.second.changed[2] / cTotal;
+                  const double sb = b.second.changed[2] / cTotal;
+                  const double wa = a.second.changed[1] / wTotal;
+                  const double wb = b.second.changed[1] / wTotal;
+                  return (sa - wa) > (sb - wb);
+              });
+    const char* regionNames[8] = {"weapon", "mgr", "pool", "playerFsm",
+                                  "pFlags", "pCore", "pEventBits", "pTail"};
+    int reported = 0;
+    for (const auto& [key, ki] : ranked) {
+        if (reported >= 60) {
+            break;
+        }
+        const int region = static_cast<int>((key >> 24) & 7);
+        const auto offset = key & 0x00FFFFFF;
+        if (reported == 0) {
+            std::ostringstream hdr;
+            hdr << "MINER CANDIDATES (whiff runs=" << std::dec << phaseTotal[1]
+                << ", clang runs=" << phaseTotal[2] << "):";
+            Log(hdr.str());
+        }
+        ++reported;
+        std::ostringstream m;
+        m << "MINER CANDIDATE " << regionNames[region] << "+0x" << std::hex
+          << std::uppercase << offset << std::dec << " whiff " << ki.changed[1] << '/'
+          << phaseTotal[1] << " clang " << ki.changed[2] << '/' << phaseTotal[2]
+          << " firstFrame w=" << ki.minFrame[1] << " c=" << ki.minFrame[2];
+        Log(m.str());
+    }
+    Log("MINER ANALYSIS END");
+}
+
+void MinerHandleF9() {
+    // Recording is ALWAYS on once the controller is locked; F5 tags upcoming
+    // runs with the next phase and dumps a ranked snapshot of everything so
+    // far. Nothing to start, nothing to stop.
+    ++g_minerPhase;
+    MinerDumpAnalysis();
+    std::ostringstream m;
+    m << "MINER: now tagging runs as phase " << g_minerPhase
+      << " (previous phases kept in the report)";
+    Log(m.str());
 }
 
 bool InstallActionHook() {
@@ -1945,6 +2418,13 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollDiffCapture();
     PollPropHistogram();
     PollReactionWatch();
+
+    MinerCaptureFrame();
+    const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+    if (f5Down && !g_f9WasDown) {
+        MinerHandleF9();
+    }
+    g_f9WasDown = f5Down;
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;
