@@ -1437,21 +1437,50 @@ void PollReactionWatch() {
     if (IsReadable(player + 0xB228, sizeof(std::uint32_t))) {
         const auto latch = *reinterpret_cast<const std::uint32_t*>(player + 0xB228);
         if (latch != 0 && g_clangLatchPrev == 0) {
-            bool validEvasion = false;
+            ActionInfo act{};
+            bool have = false;
             {
                 std::scoped_lock lock(g_actionMutex);
-                validEvasion = g_lastLongSwordAction &&
-                               g_lastLongSwordAction->actionSet == 3 &&
-                               (g_lastLongSwordAction->actionId == 86 ||
-                                g_lastLongSwordAction->actionId == 101 ||
-                                g_lastLongSwordAction->actionId == 102);
+                if (g_lastLongSwordAction) {
+                    act = *g_lastLongSwordAction;
+                    have = true;
+                }
             }
+            const bool validEvasion =
+                have && act.actionSet == 3 &&
+                (act.actionId == 86 || act.actionId == 101 || act.actionId == 102);
+            std::ostringstream m;
+            m << "LATCH RISING EDGE value=" << latch << " during act=";
+            if (have) {
+                m << act.actionSet << ':' << act.actionId;
+            } else {
+                m << "--";
+            }
+            Log(m.str());
             if (validEvasion) {
                 g_clangLatch = true;
                 OpenCounterWindow("clang latch rising edge (player+0xB228)");
                 if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
                     Log("CLANG latch set - auto-force armed");
                 }
+            }
+        }
+        // Periodic visibility: current latch value while in an evasion move.
+        if (g_rxnFrame % 15 == 0) {
+            bool inEvasion = false;
+            {
+                std::scoped_lock lock(g_actionMutex);
+                inEvasion = g_lastLongSwordAction &&
+                            g_lastLongSwordAction->actionSet == 3 &&
+                            (g_lastLongSwordAction->actionId == 86 ||
+                             g_lastLongSwordAction->actionId == 101 ||
+                             g_lastLongSwordAction->actionId == 102);
+            }
+            if (inEvasion && g_condEvalLogCount.load() < 40) {
+                ++g_condEvalLogCount;
+                std::ostringstream m;
+                m << "LATCHWATCH value=" << latch << " prev=" << g_clangLatchPrev;
+                Log(m.str());
             }
         }
         g_clangLatchPrev = latch;
