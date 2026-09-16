@@ -79,6 +79,8 @@ std::atomic_uint32_t g_clangProbeLogCount{0};
 // on every clang.
 std::uint32_t g_clangLatchPrev = 0;
 bool g_counterAutoForce = true;
+bool g_negBitPrev = false;
+float g_flashPrev = 0.0f;
 std::chrono::steady_clock::time_point g_counterWindowUntil{};
 bool g_counterCtrlWasDown = false;
 std::atomic<std::uintptr_t> g_moduleBase{0};
@@ -416,7 +418,8 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                 // Re-arm the clang latch only when a NEW foresight slash starts;
                 // resetting on every action change caused a force loop (the
                 // injected window kept producing rejections during the counter).
-                if (current.actionSet == 3 && current.actionId == 86) {
+                if (current.actionSet == 3 && (current.actionId == 86 ||
+                    current.actionId == 101 || current.actionId == 102)) {
                     g_clangLatch = false;
                 }
                 const bool normalAction = IsNormalModeChargingAction(current);
@@ -1315,6 +1318,42 @@ std::int16_t* ResolvePropCounters(std::uint8_t* player, std::uint32_t id,
     return reinterpret_cast<std::int16_t*>(row + 0x24);
 }
 
+// Full property-key table dump (ids 0..799): run once when the controller
+// locks. Diffing the dump before vs after adding an XFsm condition reveals
+// which property id that condition bound (its key goes 0 -> nonzero).
+void LogKeyTableDump(std::uint8_t* player) {
+    auto* componentSlot = player + 0x126D8;
+    if (!IsReadable(componentSlot, sizeof(void*))) {
+        Log("KEYDUMP: component slot unreadable");
+        return;
+    }
+    auto* comp = *reinterpret_cast<std::uint8_t**>(componentSlot);
+    if (!comp || g_moduleBase.load() == 0) {
+        Log("KEYDUMP: component unavailable");
+        return;
+    }
+    auto* registry = reinterpret_cast<std::uint8_t*>(g_moduleBase.load() + 0x5012048);
+    if (!IsReadable(registry, 0xD0)) {
+        Log("KEYDUMP: registry unreadable");
+        return;
+    }
+    Log("KEYDUMP BEGIN (key table, ids 0..799; format id=key)");
+    for (std::uint32_t base = 0; base < 800; base += 40) {
+        std::ostringstream m;
+        m << "KEYDUMP";
+        for (std::uint32_t id = base; id < base + 40 && id < 800; ++id) {
+            auto* keyAddress = comp + 0x84 + static_cast<std::size_t>(id) * 24;
+            int key = -1;
+            if (IsReadable(keyAddress, sizeof(std::int32_t))) {
+                key = *reinterpret_cast<const std::int32_t*>(keyAddress);
+            }
+            m << ' ' << id << '=' << key;
+        }
+        Log(m.str());
+    }
+    Log("KEYDUMP END");
+}
+
 // One line describing every link of the manager/property chain. Fired when a
 // watched row stays unresolved (including key==0 = property unbound).
 void LogChainDiagnostics(std::uint8_t* player, std::uint32_t id) {
@@ -1432,9 +1471,107 @@ void PollReactionWatch() {
         }
     }
 
-    // 刚1 trigger: the mined clang latch at player+0xB228. Rising edge during
-    // a special evasion (见切 86 / iai 101/102) = a hit was just negated.
-    if (IsReadable(player + 0xB228, sizeof(std::uint32_t))) {
+    // Mined-candidate probes: active only during special evasions. These
+    // offsets flipped in clang runs but never in whiff runs (F5 miner, 9 runs).
+    static std::uint32_t lpW2398 = 0, lpW23A0 = 0, lpB220 = 0, lpB224 = 0,
+                         lpB228 = 0, lpB240 = 0, lpB24C = 0, lpB260 = 0,
+                         lpB264 = 0, lpB268 = 0, lp8954 = 0, lp8984 = 0,
+                         lp89B4 = 0, lp89E4 = 0;
+    bool inEvasionNow = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        inEvasionNow = g_lastLongSwordAction &&
+                       g_lastLongSwordAction->actionSet == 3 &&
+                       (g_lastLongSwordAction->actionId == 86 ||
+                        g_lastLongSwordAction->actionId == 101 ||
+                        g_lastLongSwordAction->actionId == 102);
+    }
+    if (inEvasionNow && g_clangProbeLogCount.load() < 600) {
+        auto* weaponSlot = player + 0x76B0;
+        std::uint8_t* weapon = nullptr;
+        if (IsReadable(weaponSlot, sizeof(void*))) {
+            weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
+        }
+        struct MProbe {
+            std::uint8_t* addr;
+            std::uint32_t* last;
+            const char* tag;
+        };
+        MProbe mprobes[] = {
+            {weapon ? weapon + 0x2398 : nullptr, &lpW2398, "w2398"},
+            {weapon ? weapon + 0x23A0 : nullptr, &lpW23A0, "w23A0"},
+            {player + 0xB220, &lpB220, "pB220"},
+            {player + 0xB224, &lpB224, "pB224"},
+            {player + 0xB228, &lpB228, "pB228"},
+            {player + 0xB240, &lpB240, "pB240"},
+            {player + 0xB24C, &lpB24C, "pB24C"},
+            {player + 0xB260, &lpB260, "pB260"},
+            {player + 0xB264, &lpB264, "pB264"},
+            {player + 0xB268, &lpB268, "pB268"},
+            {player + 0x8954, &lp8954, "ev8954"},
+            {player + 0x8984, &lp8984, "ev8984"},
+            {player + 0x89B4, &lp89B4, "ev89B4"},
+            {player + 0x89E4, &lp89E4, "ev89E4"},
+        };
+        std::ostringstream changed;
+        for (auto& mp : mprobes) {
+            if (!mp.addr || !IsReadable(mp.addr, sizeof(std::uint32_t))) {
+                continue;
+            }
+            const auto v = *reinterpret_cast<const std::uint32_t*>(mp.addr);
+            if (v != *mp.last) {
+                changed << ' ' << mp.tag << '=' << v;
+                *mp.last = v;
+            }
+        }
+        if (!changed.str().empty()) {
+            ++g_clangProbeLogCount;
+            Log("EPROBE" + changed.str());
+        }
+        // IAI (101/102) NEGATION BIT: player+0x8954 bit 26 (event bit 250)
+        // sets when a hit is negated during the iai window (mined: clang iai
+        // dword 0x1C000000 vs whiff 0x18000000/0x18400000; self-clears).
+        auto* negBitAddr = reinterpret_cast<std::uint32_t*>(player + 0x8954);
+        if (IsReadable(negBitAddr, sizeof(std::uint32_t))) {
+            const bool negBit = (*negBitAddr & 0x04000000u) != 0;
+            if (negBit && !g_negBitPrev) {
+                g_clangLatch = true;
+                OpenCounterWindow("negation bit 250 set (player+0x8954)");
+                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                    Log("CLANG: negation bit set - auto-force armed");
+                }
+            }
+            g_negBitPrev = negBit;
+        }
+    }
+    // FORESIGHT (86) NEGATION: weapon+0x23A0 is the blue-flash intensity -
+    // jumps to 1.0 and decays only when the deflect presentation plays
+    // (mined: 4/4 clang runs, 0/5 whiff runs). Crossing 0.5 upward during
+    // 见切 = a hit was just negated.
+    if (ActionIsForesightSlash()) {
+        auto* weaponSlot = player + 0x76B0;
+        if (IsReadable(weaponSlot, sizeof(void*))) {
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
+            if (weapon && IsReadable(weapon + 0x23A0, sizeof(float))) {
+                const float flash =
+                    *reinterpret_cast<const float*>(weapon + 0x23A0);
+                if (flash > 0.5f && g_flashPrev <= 0.5f) {
+                    g_clangLatch = true;
+                    OpenCounterWindow("deflect flash (weapon+0x23A0)");
+                    if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                        Log("CLANG: deflect flash detected - auto-force armed");
+                    }
+                }
+                g_flashPrev = flash;
+            }
+        }
+    } else {
+        g_flashPrev = 0.0f;
+    }
+
+    // DISABLED: player+0xB228 turned out to be an attack-connect flag (sets
+    // on any connecting attack, incl. normal slashes) - not the negation.
+    if (false && IsReadable(player + 0xB228, sizeof(std::uint32_t))) {
         const auto latch = *reinterpret_cast<const std::uint32_t*>(player + 0xB228);
         if (latch != 0 && g_clangLatchPrev == 0) {
             ActionInfo act{};
@@ -1801,13 +1938,18 @@ void MinerCaptureFrame() {
     if (!controller) {
         return;
     }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
     if (!g_minerActive) {
         g_minerActive = true;
         g_minerPhase = 1;
         Log("MINER auto-started: recording every 见切 as phase 1. "
             "F5 marks a new phase + dumps a snapshot.");
+        static bool keyDumped = false;
+        if (!keyDumped) {
+            keyDumped = true;
+            LogKeyTableDump(player);
+        }
     }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
 
     bool is86 = false;
     {

@@ -225,6 +225,41 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - Consequences: every earlier "detector failed" result (stager / 南风 leaves / arbitration latch / 7C0 / 0xDE polls) ran against the unbound property — do not trust them as negative evidence. RXN poll + F6 now treat key==0 as "unbound" and say so in the log.
 - Fix path: re-add an FSM reference to R via XFsm — ideally the real 刚1 branch condition (VariableNode R / cFSMPl_W03), which both rebinds the property and implements the gating. Then reload the area/quest (binding happens at load) and rerun the whiff-vs-clang A/B with live DE values.
 
+### 2026-09-17 刚1 SUCCESS for iai (101/102); foresight detector built, deploy pending
+
+- **F5 paired-scenario state miner** (the tool that broke the deadlock): records
+  per-frame memory deltas per evasion run over weapon/mgr/pool/FSM/player
+  windows (incl. the event bit array at player+0x8938!), auto-tags phases per
+  F5 press, dumps a correlation-ranked report (clang-rate minus whiff-rate).
+  Always-on recording; F5 = phase marker + snapshot dump.
+- **Mined + verified: iai negation = event bit 250** at player+0x8954 bit 26
+  (dword 0x1C000000 vs whiff 0x18000000/0x18400000; self-clears when the
+  presentation ends). Trigger wired: bit rising during 86/101/102 → inject
+  pool+0xE4 no-hit 0.5s + counter window + auto-force 刚1 via DoAction.
+  **User-verified working for 小居合 101 AND 大居合 102**; whiffs silent.
+- **Foresight (86) detector built, not yet deployed-validated**: weapon+0x23A0
+  = blue-flash intensity, jumps to 1.0 and decays only when the deflect
+  presentation plays (mined 4/4 clang vs 0/5 whiff). Trigger: crossing 0.5
+  upward during 86. Was blocked by the game locking the DLL mid-test.
+- **Ruled out this session**: player+0xB228 (attack-connect flag - sets on ANY
+  connecting attack incl. normal slashes); Wwise event 1086158451 (shared
+  metal blade-ring family: draw attacks post it too); dispatcher non-0xD
+  codes (track the no-hit window state, not negation; rejected type-6 hits
+  never reach FUN_141f71960 at all); FUN_14118bda0 (editor/debug-only path,
+  never called in gameplay); weapon+0x2374 (slow linear float timer, likely
+  the red-spirit-gauge duration - useful later for gauge gating, NOT the
+  clang latch; flooding it masked other probes once).
+- User's mechanics input (authoritative): 见切 negation gates whether the
+  follow-up (大回旋 route) is possible - success has TWO parts (i-frame hit +
+  follow-up lands = condition 631); 居合 negation only drives the super-armor
+  frames - that is why iai has a clean standalone negation state and 见切
+  needs the presentation-side signal instead.
+- Config surface: force-action.txt "<set> <id> [invulnSec]"; counter-auto.txt
+  0/1 (auto-force vs Ctrl-gated inside the 0.6s window); prop-watch.txt ids;
+  prop-trigger.txt id/index; prop-write.txt id/index/value; state-address.txt.
+- Next: deploy the flash detector (game closed), validate 见切 clang → done.
+  Optional later: kenki-gauge gating via the 練気ゲージ判定 properties (628/629).
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
@@ -315,4 +350,4 @@ MHWNoChunk and MHWEditor
 ---
 
 *Last Updated: 2026-09-14*
-*Current Milestone: 刚1 counter-parry — mid-action interrupt WORKS (DoAction direct call, F6/counter-window); clang discriminator still open (sound event = shared blade ring, dispatcher codes track the window not the clang). Tomorrow: read reflection member 631 of cFSMPl_W03 via FUN_14118bda0's descriptor path = the vanilla latch; also respect kenki gauge. 见切 0.2s window live*
+*Current Milestone: 刚1 counter-parry — IAI (101/102) COMPLETE: event bit 250 (player+0x8954 bit26) = negation, wired to no-hit injection + auto-force, user-verified. Foresight (86) detector built (weapon+0x23A0 blue-flash >0.5), blocked on DLL deploy (game locked it). Next session: deploy, validate 见切, optionally kenki-gate via 628/629. Mid-action interrupt + no-hit injection all working*
