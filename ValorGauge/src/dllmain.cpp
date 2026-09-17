@@ -81,6 +81,7 @@ std::uint32_t g_clangLatchPrev = 0;
 bool g_counterAutoForce = true;
 bool g_negBitPrev = false;
 float g_flashPrev = 0.0f;
+bool g_fsuccBitPrev = false;
 std::chrono::steady_clock::time_point g_counterWindowUntil{};
 bool g_counterCtrlWasDown = false;
 std::atomic<std::uintptr_t> g_moduleBase{0};
@@ -463,6 +464,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
 // During 见切 (3:86): log every pool query and every damage-calc entry so a
 // whiff / clang / direct-eat comparison reveals the exact negation signal.
 std::atomic_uint32_t g_fsdLogCount{0};
+std::atomic_uint32_t g_vseekLogCount{0};
 bool ActionIsForesightSlash() {
     std::scoped_lock lock(g_actionMutex);
     auto& a = g_lastLongSwordAction;
@@ -1567,6 +1569,61 @@ void PollReactionWatch() {
         }
     } else {
         g_flashPrev = 0.0f;
+    }
+
+    // VANILLA FORESIGHT SUCCESS LATCH: the input remapper (FUN_14118c320)
+    // picks the success vs failure follow-up variant (763/764, 162/163) from
+    // event bit 15 at player+0x8938 - the same TIML event-bit array that
+    // carries iai negation (bit 250). mgr+0x660/661/662 (mgr=*(player+0x7D20))
+    // gate the whole special follow-up remap family. Log all four; trigger on
+    // bit15 rising during 3:86.
+    {
+        std::uint32_t ev0 = 0;
+        if (IsReadable(player + 0x8938, sizeof(std::uint32_t))) {
+            ev0 = *reinterpret_cast<const std::uint32_t*>(player + 0x8938);
+        }
+        std::uint8_t m660 = 0, m661 = 0, m662 = 0;
+        if (mgr && IsReadable(mgr + 0x660, 3)) {
+            m660 = mgr[0x660];
+            m661 = mgr[0x661];
+            m662 = mgr[0x662];
+        }
+        const bool bit15 = (ev0 & 0x8000u) != 0;
+        const bool in86 = ActionIsForesightSlash();
+        static std::uint8_t pm660 = 0, pm661 = 0, pm662 = 0;
+        static std::uint32_t pev0 = 0;
+        if (bit15 != g_fsuccBitPrev || m660 != pm660 || m661 != pm661 ||
+            m662 != pm662 || (in86 && ev0 != pev0)) {
+            if (g_vseekLogCount.load() < 240) {
+                ++g_vseekLogCount;
+                std::ostringstream m;
+                m << "VSEEK bit15=" << bit15 << std::hex << std::uppercase
+                  << " ev0=0x" << ev0 << std::dec
+                  << " m660=" << static_cast<int>(m660)
+                  << " m661=" << static_cast<int>(m661)
+                  << " m662=" << static_cast<int>(m662);
+                {
+                    std::scoped_lock lock(g_actionMutex);
+                    if (g_lastLongSwordAction) {
+                        m << " act=" << g_lastLongSwordAction->actionSet << ':'
+                          << g_lastLongSwordAction->actionId;
+                    }
+                }
+                Log(m.str());
+            }
+            pm660 = m660;
+            pm661 = m661;
+            pm662 = m662;
+            pev0 = ev0;
+        }
+        if (in86 && bit15 && !g_fsuccBitPrev) {
+            g_clangLatch = true;
+            OpenCounterWindow("foresight success bit15 (player+0x8938)");
+            if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                Log("CLANG: vanilla foresight success latch - auto-force armed");
+            }
+        }
+        g_fsuccBitPrev = bit15;
     }
 
     // DISABLED: player+0xB228 turned out to be an attack-connect flag (sets

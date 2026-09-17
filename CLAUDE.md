@@ -260,6 +260,49 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - Next: deploy the flash detector (game closed), validate 见切 clang → done.
   Optional later: kenki-gauge gating via the 練気ゲージ判定 properties (628/629).
 
+### 2026-09-17 (late) Vanilla 见切 success latch FOUND: event bit 15 at player+0x8938
+
+- User's model confirmed by decompile: 见切/居合 share the negation machinery,
+  见切 ADDS a success judgment; bit 250 is the IAI-specific negation event,
+  not "hit during i-frames" in general.
+- **The vanilla input remapper = FUN_14118c320** (registered per player-FSM
+  init in FUN_14118dca0/14118ddc0 as an action-request callback; IB variant
+  FUN_14118d3a0 chosen when player+0x7626 != 0). Signature
+  `(mgrCtx, out{state,id}, req{state,id})`; player at mgrCtx+0xD90,
+  weapon = *(player+0x76B0). It REMAPS buffered inputs into special actions:
+  - weapon+0x2368 (special-sheathe stance): 0→100, 1→101, 2→102, 3→103,
+    4→104, 0x12-0x22→105..0x7d family, 0x35/36→160/161, 0x8d→0x8e..0x95 by
+    FUN_14211f040(weapon).
+  - mgr+0x660/661/662 (mgr=*(player+0x7D20)) latched + req state==1:
+    0/9/99/13→762/766/764/764-family, **100/747→(bit15 ? 763 : 764)**,
+    7/8/101/748→763, 0x19d(413) with player+0xDDA0 action∈{97,101}→770.
+  - **Event bit 15 of player+0x8938 (`u32 & 0x8000`) is the vanilla
+    success/failure discriminator** for the 见切 follow-up remap (763 vs 764)
+    and the IB special-sheathe remap (162 vs 163). Same TIML event-bit array
+    that carries iai negation bit 250 (player+0x8954 bit26). This is the
+    "见切成功" latch the user hypothesized - set by the game itself, no FSM
+    edit needed.
+- Property 631 static facts ( closes the earlier lead): its registration
+  accessor SUB_140240720 = `xor al,al; ret` (stub) - condition 631 is NOT a
+  stored bool; the "value" lives in the remapper/state logic above. Per-weapon
+  condition descriptor tables at 0x143FD5590 (stride 0x130 per weapon type,
+  rows {i32 key, ptr, u32} @ block+0x20/+0x28) hold only 2-16 special-case
+  rows; global fallback 0x1434DA930 has 12 rows (keys 0x3E8-0x3F3). Name→index
+  resolver FUN_140b2e4e0 (giant strcmp chain): 0x1430BA8F0 = 見切り回避成功後の攻撃ヒット
+  → 0x277; neighbors 0x274 練気ゲージ判定(見切り 0x275 練気ゲージ判定(必殺 0x276 居合斬り.
+- New tools (Reverse/): `vadump.py <va> [len]` (dump bytes at VA from the
+  unpacked dump exe), `fsm_table.py` (parse condition descriptor tables),
+  `scan_277.py` (immediate-scan); `disasm_rva.py` now reads the dump exe by
+  default (on-disk exe .text is encrypted - capstone gets garbage).
+- DLL (deployed 862208B): VSEEK watcher logs bit15 + mgr660/661/662 edges
+  (`VSEEK bit15= ev0= m660= m661= m662= act=`); trigger = bit15 rising during
+  3:86 → counter window + no-hit + auto-force 刚1 (same flow as iai bit250).
+  Flash detector (weapon+0x23A0) still armed as a second 见切 signal; log
+  lines identify which fired.
+- Test matrix: whiff (no trigger expected); clang w/o follow-up hit (fires?
+  → bit15 = negation-only); clang + follow-up hit (full success). iai
+  101/102 regression must stay green.
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
@@ -350,4 +393,4 @@ MHWNoChunk and MHWEditor
 ---
 
 *Last Updated: 2026-09-14*
-*Current Milestone: 刚1 counter-parry — IAI (101/102) COMPLETE: event bit 250 (player+0x8954 bit26) = negation, wired to no-hit injection + auto-force, user-verified. Foresight (86) detector built (weapon+0x23A0 blue-flash >0.5), blocked on DLL deploy (game locked it). Next session: deploy, validate 见切, optionally kenki-gate via 628/629. Mid-action interrupt + no-hit injection all working*
+*Current Milestone: 刚1 counter-parry — IAI (101/102) COMPLETE (bit 250, user-verified). 见切: vanilla success latch FOUND = event bit 15 (player+0x8938 & 0x8000, read by remapper FUN_14118c320 to pick 763/764); DLL watches bit15 + mgr+0x660/661/662 and auto-forces 刚1 on bit15 rising during 3:86; flash detector (weapon+0x23A0) as backup. Next: user test matrix (whiff / clang-no-followup / clang+followup), then kenki-gate via 628/629*

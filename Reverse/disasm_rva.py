@@ -6,6 +6,7 @@ import struct
 import sys
 
 EXE = r"E:\SteamLibrary\steamapps\common\Monster Hunter World\MONSTERHUNTERWORLD.EXE"
+DUMP = r"E:\MHW-arts\Reverse\MonsterHunterWorld_dump.exe"
 
 
 def rva_to_file_offset(data, rva):
@@ -29,7 +30,8 @@ def rva_to_file_offset(data, rva):
 def main():
     rva = int(sys.argv[1], 16)
     length = int(sys.argv[2], 0) if len(sys.argv) > 2 else 160
-    with open(EXE, "rb") as f:
+    exe = DUMP if len(sys.argv) <= 3 else sys.argv[3]
+    with open(exe, "rb") as f:
         data = f.read()
     off, section = rva_to_file_offset(data, rva)
     if off is None:
