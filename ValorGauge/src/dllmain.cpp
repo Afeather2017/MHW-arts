@@ -50,6 +50,8 @@ std::once_flag g_imguiOnce;
 std::atomic_bool g_visible = true;
 bool g_f8WasDown = false;
 bool g_f7WasDown = false;
+bool g_f6WasDown = false;
+bool g_f9WasDown = false;
 std::atomic_bool g_stateLoggerEnabled = true;
 std::atomic_uintptr_t g_stateAddress = 0;
 std::optional<std::uint32_t> g_lastState;
@@ -109,6 +111,11 @@ bool IsNormalModeChargingAction(const ActionInfo& action) {
 }
 
 void Log(const char* message) {
+#ifdef VALOR_PROBE
+    constexpr const char* kLogFile = "nativePC/plugins/ValorProbe.log";
+#else
+    constexpr const char* kLogFile = "nativePC/plugins/ValorGauge.log";
+#endif
     std::scoped_lock lock(g_logMutex);
     std::ofstream out("nativePC\\plugins\\ValorGauge.log", std::ios::app);
     if (out) {
@@ -139,6 +146,7 @@ std::optional<std::uintptr_t> ParseAddress(std::string value) {
 }
 
 void LoadStateAddress() {
+#ifdef VALOR_PROBE
     std::ifstream input("nativePC\\plugins\\ValorGauge.state-address.txt");
     std::string value;
     if (!input || !std::getline(input, value)) {
@@ -161,6 +169,9 @@ void LoadStateAddress() {
     std::ostringstream message;
     message << "State logger watching 0x" << std::hex << std::uppercase << *parsed;
     Log(message.str());
+#else
+    (void)0; // state logger is probe-only
+#endif
 }
 
 bool IsReadable(const void* address, std::size_t size) {
@@ -575,10 +586,47 @@ bool IsLongSwordController(void* controller) {
     return humanController && IsReadable(humanController, sizeof(void*));
 }
 
+#ifndef VALOR_PROBE
+// --- Mod weapon gate ---------------------------------------------------------
+// The gameplay mod (gauge / clang counter / force) only drives the Long Sword.
+// Weapon type = *(int32*)(weapon + 0x9F8) - the same field the game's own
+// input remapper switches on; Long Sword = 2 (the remap branch that reads the
+// special-sheathe bytes at 0x2368 and remaps inputs to 100-104), 0xFF = none.
+// Override via nativePC/plugins/ValorGauge.weapon-type.txt if a patch
+// renumbers the enum.
+std::atomic<std::uint32_t> g_modWeaponType{2};
+
+bool ModWeaponActive() {
+    void* controller = g_lockedPlayerController;
+    if (!controller) {
+        return false;
+    }
+    auto* weaponSlot = static_cast<std::uint8_t*>(controller) - 0x61C8 + 0x76B0;
+    if (!IsReadable(weaponSlot, sizeof(void*))) {
+        return false;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
+    if (!weapon || !IsReadable(weapon + 0x9F8, sizeof(std::uint32_t))) {
+        return false;
+    }
+    const auto type = *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8);
+    return type == g_modWeaponType.load(std::memory_order_relaxed);
+}
+
+void LoadModWeaponTypeConfig() {
+    std::ifstream input("nativePC/plugins/ValorGauge.weapon-type.txt");
+    int type = 0;
+    if (input >> type && type >= 0 && type <= 0xFE) {
+        g_modWeaponType.store(static_cast<std::uint32_t>(type), std::memory_order_relaxed);
+    }
+}
+#endif
+
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
     if (validAction) {
+#ifdef VALOR_PROBE
         const auto sample = g_actionDiagnosticCount.fetch_add(1);
         if (sample < 32) {
             void* owner = nullptr;
@@ -627,8 +675,10 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         } else if (sample == 32) {
             Log("Action hook diagnostic sample limit reached");
         }
+#endif
     }
 
+#ifdef VALOR_PROBE
     if (validAction && action->actionSet == 3 && action->actionId >= 98 && action->actionId <= 102) {
         auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
         std::ostringstream special;
@@ -645,6 +695,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         read32(0x6284, "deriveSet"); read32(0x6288, "deriveId");
         Log(special.str().c_str());
     }
+#endif
 
     if (validAction && IsLongSwordController(controller)) {
         const ActionInfo current = *action;
@@ -692,6 +743,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             if (changed) {
                 g_lastLongSwordController = controller;
                 g_lastLongSwordAction = current;
+#ifndef VALOR_PROBE
                 // Re-arm the clang latch only when a NEW foresight slash starts;
                 // resetting on every action change caused a force loop (the
                 // injected window kept producing rejections during the counter).
@@ -718,6 +770,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                     }
                     Log(chargeMessage.str());
                 }
+#endif
             }
         }
         if (changed && isLockedPlayer) {
@@ -747,6 +800,7 @@ bool ActionIsForesightSlash() {
     return a && a->actionSet == 3 && a->actionId == 86;
 }
 
+#ifdef VALOR_PROBE
 float __fastcall Aee050Hook(void* pool, int reactionType) {
     const float result = g_originalAee050 ? g_originalAee050(pool, reactionType) : 0.0f;
     auto* p = static_cast<std::uint8_t*>(pool);
@@ -784,6 +838,7 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
     }
     return result;
 }
+#endif // VALOR_PROBE (pool query diagnostics)
 
 // --- 刚1 clang detector (hit dispatcher) --------------------------------------
 // FUN_141f71960 routes every hit attempt; 0xD returns are the per-frame
@@ -792,6 +847,7 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
 // (FUN_141f66dd0) is never entered; a real hit enters the damage calc. So:
 // clang = non-0xD return while action is 3:86 and no damage processing ran
 // for this dispatch. Fires on the game thread at the clang frame.
+#ifdef VALOR_PROBE
 using DmgCalcFn = long long(__fastcall*)(long long, long long, std::uint32_t*);
 DmgCalcFn g_originalDmgCalc = nullptr;
 bool g_damageThisDispatch = false; // game thread only
@@ -831,22 +887,10 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
     const bool attackRejected = interactType == 6 && code != 0xD &&
                                 !g_damageThisDispatch;
     if (attackRejected && ActionIsForesightSlash()) {
-        // A monster attack was just negated inside the parry window: open the
-        // counter window and pre-inject the no-hit coverage.
+        // Superseded trigger path (bit15/bit250 own the mod triggers now):
+        // probe keeps observation only - latch + capped log.
         if (!g_clangLatch) {
             g_clangLatch = true;
-            g_counterWindowUntil = std::chrono::steady_clock::now() +
-                std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                    std::chrono::duration<double>(g_counterWindowSec));
-            auto pool = g_lastPlayerPool.load();
-            if (pool != 0 && g_forceInvulnSec > 0.0f) {
-                auto* window = reinterpret_cast<float*>(pool + 0xE4);
-                if (IsWritable(window, sizeof(float))) {
-                    *window = *window > g_forceInvulnSec ? *window : g_forceInvulnSec;
-                }
-            }
-            Log("COUNTER WINDOW OPEN (attack negated during 见切) - press the "
-                "spirit key to counter");
         }
         if (g_fsdLogCount.load() < 4096) {
             ++g_fsdLogCount;
@@ -862,7 +906,9 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
     }
     return result;
 }
+#endif // VALOR_PROBE (hit dispatch + damage calc diagnostics)
 
+#ifndef VALOR_PROBE
 // --- 見切り回避成功後の攻撃ヒット condition evaluator hook ---------------------
 void OpenCounterWindow(const char* reason);
 // FUN_14118bda0 resolves and evaluates FSM condition-tree VariableNodes; the
@@ -923,7 +969,7 @@ long long __fastcall CondEvalHook(unsigned int a1, long long a2, long long a3) {
         m << "COND631 evaluated -> " << std::dec << result;
         Log(m.str());
     }
-    if (isForesightSuccess && result != 0) {
+    if (isForesightSuccess && result != 0 && ModWeaponActive()) {
         // The vanilla success+hit latch just evaluated true: this is the exact
         // 刚1 trigger moment. Open the counter window and arm the force.
         if (!g_clangLatch) {
@@ -948,8 +994,10 @@ bool InstallCondEvalHook() {
     Log("Condition evaluator hook installed");
     return true;
 }
+#endif // !VALOR_PROBE (condition evaluator = mod trigger path)
 
 // --- Wwise sound-event logging (叮 source hunt) --------------------------------
+#ifdef VALOR_PROBE
 // AK::SoundEngine::PostEvent wrappers in the current build. Log every posted
 // event (id + name) during 见切 so a clang run vs a whiff run reveals the
 // deflect sound's event id and its posting code path.
@@ -1096,15 +1144,18 @@ unsigned long long __fastcall PostEventNameHook(const char* name, unsigned long 
     return g_originalPostEventName(name, objId, flags, callback, cookie, extCount, extSrc);
 }
 
+#endif // VALOR_PROBE (wwise diagnostics)
+
 bool InstallPoolQueryHook() {
     const HMODULE game = GetModuleHandleW(nullptr);
     MODULEINFO module{};
     if (!game || !GetModuleInformation(GetCurrentProcess(), game, &module, sizeof(module))) {
-        Log("Pool query hook failed: module info unavailable");
+        Log("Hook install failed: module info unavailable");
         return false;
     }
     g_moduleBase = reinterpret_cast<std::uintptr_t>(module.lpBaseOfDll);
     InitMemoryMap();
+#ifdef VALOR_PROBE
     void* target = reinterpret_cast<void*>(g_hookAddr[HkPoolQuery]);
     if (MH_CreateHook(target, reinterpret_cast<void*>(&Aee050Hook),
                       reinterpret_cast<void**>(&g_originalAee050)) != MH_OK) {
@@ -1147,7 +1198,6 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Sound post hook installed");
     }
-    InstallCondEvalHook();
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventName]),
                       reinterpret_cast<void*>(&PostEventNameHook),
                       reinterpret_cast<void**>(&g_originalPostEventName)) != MH_OK ||
@@ -1156,11 +1206,14 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Wwise PostEvent(name) hook installed");
     }
-    ValidateMemoryMap();
     std::ostringstream m;
     m << "Pool query hook installed at 0x" << std::hex << std::uppercase
       << reinterpret_cast<std::uintptr_t>(target);
     Log(m.str());
+#else
+    InstallCondEvalHook();
+#endif
+    ValidateMemoryMap();
     return true;
 }
 
@@ -1221,6 +1274,7 @@ std::unordered_map<PropCallKey, PropCallStats, PropCallKeyHash> g_propCalls;
 bool g_propOverflow = false;
 std::atomic_bool g_propRegistryDumped{false};
 
+#ifdef VALOR_PROBE
 void RecordPropCall(const void* entity, std::uint32_t id, std::uint32_t index,
                     std::uint32_t kind, const void* caller, std::int32_t ret) {
     // Benign racy read: the pointer is only used to tag the player in the dump.
@@ -1248,7 +1302,9 @@ void RecordPropCall(const void* entity, std::uint32_t id, std::uint32_t index,
         stats.callers[stats.callerCount++] = callerRva;
     }
 }
+#endif // VALOR_PROBE (prop call histogram)
 
+#ifndef VALOR_PROBE
 // Game-thread consumer of an armed force request: calls DoAction directly -
 // the same entry the FSM's own link execution uses, so a mid-action interrupt
 // is architecturally identical to what the game itself does. Runs inside the
@@ -1263,6 +1319,9 @@ void TryQueuedForceWrite(const void* entity) {
         controller = g_lockedPlayerController;
     }
     if (!controller) {
+        return;
+    }
+    if (!ModWeaponActive()) {
         return;
     }
     const void* player = static_cast<const std::uint8_t*>(controller) - 0x61C8;
@@ -1291,6 +1350,39 @@ void TryQueuedForceWrite(const void* entity) {
 
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
+    const int result = g_originalPropInt(entity, id, index, defaultValue);
+#ifdef VALOR_PROBE
+    RecordPropCall(entity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(id)),
+                   index, 0, _ReturnAddress(), result);
+#endif
+    return result;
+}
+
+// The force path rides the property-int getter (game thread, every frame).
+// The probe build installs this via the F11 histogram; the mod build needs it
+// standalone.
+bool InstallForceHook() {
+    const HMODULE game = GetModuleHandleW(nullptr);
+    MODULEINFO module{};
+    if (!game || !GetModuleInformation(GetCurrentProcess(), game, &module, sizeof(module))) {
+        Log("Force hook failed: module info unavailable");
+        return false;
+    }
+    void* target = reinterpret_cast<void*>(g_hookAddr[HkPropInt]);
+    if (MH_CreateHook(target, reinterpret_cast<void*>(&PropIntHook),
+                      reinterpret_cast<void**>(&g_originalPropInt)) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        Log("Force hook (prop int getter) failed");
+        return false;
+    }
+    Log("Force hook (prop int getter) installed");
+    return true;
+}
+#endif // !VALOR_PROBE (force path via prop getter)
+
+#ifdef VALOR_PROBE
+// Probe variant of the int getter: histogram only, no force path.
+int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     const int result = g_originalPropInt(entity, id, index, defaultValue);
     RecordPropCall(entity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(id)),
                    index, 0, _ReturnAddress(), result);
@@ -1487,7 +1579,9 @@ bool InstallPropHistogramHooks() {
     }
     return allOk;
 }
+#endif // VALOR_PROBE (property histogram + F11)
 
+#ifndef VALOR_PROBE
 // Optional nativePC\plugins\ValorGauge.force-action.txt:
 // "<set> <id> [invulnSec]" (invulnSec: no-hit window injected at the clang).
 void LoadForceActionConfig() {
@@ -1513,8 +1607,47 @@ void LoadForceActionConfig() {
         << g_forceInvulnSec << "s, auto-force="
         << (g_counterAutoForce ? "on" : "off (Ctrl inside window)");
     Log(msg.str());
+    LoadModWeaponTypeConfig();
+    std::ostringstream wt;
+    wt << "Mod weapon gate: only weapon type "
+       << g_modWeaponType.load(std::memory_order_relaxed)
+       << " (Long Sword) activates the gauge/counter (ValorGauge.weapon-type.txt)";
+    Log(wt.str());
 }
 
+void OpenCounterWindow(const char* reason) {
+    g_counterWindowUntil = std::chrono::steady_clock::now() +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(g_counterWindowSec));
+    // Pool pointer derived straight from the player (mgr = *(player+0x7D20),
+    // pool = mgr+0x28) - the mod build installs no pool-query hook.
+    std::uintptr_t pool = 0;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lockedPlayerController) {
+            auto* player = static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+            if (IsReadable(player + 0x7D20, sizeof(void*))) {
+                auto* mgr = *reinterpret_cast<std::uint8_t**>(player + 0x7D20);
+                if (mgr && IsReadable(mgr + 0x28, sizeof(void*))) {
+                    pool = reinterpret_cast<std::uintptr_t>(
+                        *reinterpret_cast<void**>(mgr + 0x28));
+                }
+            }
+        }
+    }
+    if (pool != 0 && g_forceInvulnSec > 0.0f) {
+        auto* window = reinterpret_cast<float*>(pool + 0xE4);
+        if (IsWritable(window, sizeof(float))) {
+            *window = *window > g_forceInvulnSec ? *window : g_forceInvulnSec;
+        }
+    }
+    std::ostringstream m;
+    m << "COUNTER WINDOW OPEN (" << reason << ") - press the spirit key to counter";
+    Log(m.str());
+}
+#endif // !VALOR_PROBE (counter window / force config)
+
+#ifdef VALOR_PROBE
 // --- RXN watcher: reaction manager + configurable FSM property polling -------
 // mgr = *(player+0x7D20); mgr+0x7C0 arms at move start (NOT a clang detector).
 // Property chain (decompilation-verified): component = *(player+0x126D8);
@@ -1544,22 +1677,6 @@ std::int16_t* g_watchCounters[kMaxWatchIds] = {};
 // id 0 disables.
 std::uint32_t g_triggerId = 222;
 std::uint32_t g_triggerIndex = 2;
-
-void OpenCounterWindow(const char* reason) {
-    g_counterWindowUntil = std::chrono::steady_clock::now() +
-        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<double>(g_counterWindowSec));
-    auto pool = g_lastPlayerPool.load();
-    if (pool != 0 && g_forceInvulnSec > 0.0f) {
-        auto* window = reinterpret_cast<float*>(pool + 0xE4);
-        if (IsWritable(window, sizeof(float))) {
-            *window = *window > g_forceInvulnSec ? *window : g_forceInvulnSec;
-        }
-    }
-    std::ostringstream m;
-    m << "COUNTER WINDOW OPEN (" << reason << ") - press the spirit key to counter";
-    Log(m.str());
-}
 
 std::int16_t* ResolvePropCounters(std::uint8_t* player, std::uint32_t id,
                                   std::uint32_t* keyOut) {
@@ -1711,9 +1828,17 @@ void LogChainDiagnostics(std::uint8_t* player, std::uint32_t id) {
     }
     Log(m.str());
 }
+#endif // VALOR_PROBE (RXN watcher prop resolution + chain diagnostics)
 
-void PollReactionWatch() {
-    ++g_rxnFrame;
+#ifndef VALOR_PROBE
+// --- Mod per-frame trigger poll (gauge/counter build only) -------------------
+// Three independent clang triggers, any of which opens the counter window,
+// injects the no-hit coverage and (auto-force on) queues the 刚1 interrupt:
+//   1. iai negation     - event bit 250 (player+0x8954 bit 26) during 101/102
+//   2. foresight latch  - event bit 15 (player+0x8938) rising during 3:86
+//   3. deflect flash    - weapon+0x23A0 crossing 0.5 upward during 3:86
+// Everything is gated by ModWeaponActive(): other weapons never trigger.
+void PollModTriggers() {
     void* controller = nullptr;
     {
         std::scoped_lock lock(g_actionMutex);
@@ -1722,8 +1847,15 @@ void PollReactionWatch() {
     if (!controller) {
         return;
     }
+    if (!ModWeaponActive()) {
+        // Still track the latch so re-drawing the Long Sword does not see a
+        // stale rising edge.
+        g_fsuccBitPrev = false;
+        g_negBitPrev = false;
+        g_flashPrev = 0.0f;
+        return;
+    }
     auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-
     auto* mgrSlot = player + 0x7D20;
     std::uint8_t* mgr = nullptr;
     if (IsReadable(mgrSlot, sizeof(void*))) {
@@ -1736,10 +1868,6 @@ void PollReactionWatch() {
     }
     if (mgr && IsReadable(mgr + 0x28 + 0xE4, sizeof(float))) {
         nohit = *reinterpret_cast<const float*>(mgr + 0x28 + 0xE4);
-    }
-    std::uint8_t gate7626 = 0;
-    if (IsReadable(player + 0x7626, 1)) {
-        gate7626 = player[0x7626];
     }
 
     // Semantic sanity probes: if a game update shifts the struct layout these
@@ -1772,6 +1900,142 @@ void PollReactionWatch() {
                 }
             }
         }
+    }
+
+    bool inEvasionNow = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        inEvasionNow = g_lastLongSwordAction &&
+                       g_lastLongSwordAction->actionSet == 3 &&
+                       (g_lastLongSwordAction->actionId == 86 ||
+                        g_lastLongSwordAction->actionId == 101 ||
+                        g_lastLongSwordAction->actionId == 102);
+    }
+
+    // 1) IAI negation bit 250: player+0x8954 bit 26 (mined: clang dword
+    //    0x1C000000 vs whiff 0x18000000/0x18400000; self-clears).
+    if (inEvasionNow) {
+        auto* negBitAddr = reinterpret_cast<std::uint32_t*>(player + 0x8954);
+        if (IsReadable(negBitAddr, sizeof(std::uint32_t))) {
+            const bool negBit = (*negBitAddr & 0x04000000u) != 0;
+            if (negBit && !g_negBitPrev) {
+                g_clangLatch = true;
+                OpenCounterWindow("negation bit 250 set (player+0x8954)");
+                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                    Log("CLANG: negation bit set - auto-force armed");
+                }
+            }
+            g_negBitPrev = negBit;
+        }
+    } else {
+        g_negBitPrev = false;
+    }
+
+    // 2) Deflect flash: weapon+0x23A0 crosses 0.5 upward during 3:86
+    //    (mined 4/4 clang vs 0/5 whiff).
+    if (ActionIsForesightSlash()) {
+        auto* weaponSlot = player + 0x76B0;
+        if (IsReadable(weaponSlot, sizeof(void*))) {
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
+            if (weapon && IsReadable(weapon + 0x23A0, sizeof(float))) {
+                const float flash =
+                    *reinterpret_cast<const float*>(weapon + 0x23A0);
+                if (flash > 0.5f && g_flashPrev <= 0.5f) {
+                    g_clangLatch = true;
+                    OpenCounterWindow("deflect flash (weapon+0x23A0)");
+                    if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                        Log("CLANG: deflect flash detected - auto-force armed");
+                    }
+                }
+                g_flashPrev = flash;
+            }
+        }
+    } else {
+        g_flashPrev = 0.0f;
+    }
+
+    // 3) Vanilla foresight success latch: event bit 15 (player+0x8938) -
+    //    the input remapper FUN_14118C320 picks follow-up 763 vs 764 with it.
+    {
+        std::uint32_t ev0 = 0;
+        if (IsReadable(player + 0x8938, sizeof(std::uint32_t))) {
+            ev0 = *reinterpret_cast<const std::uint32_t*>(player + 0x8938);
+        }
+        std::uint8_t m660 = 0, m661 = 0, m662 = 0;
+        if (mgr && IsReadable(mgr + 0x660, 3)) {
+            m660 = mgr[0x660];
+            m661 = mgr[0x661];
+            m662 = mgr[0x662];
+        }
+        const bool bit15 = (ev0 & 0x8000u) != 0;
+        const bool in86 = ActionIsForesightSlash();
+        static std::uint8_t pm660 = 0, pm661 = 0, pm662 = 0;
+        static std::uint32_t pev0 = 0;
+        if (bit15 != g_fsuccBitPrev || m660 != pm660 || m661 != pm661 ||
+            m662 != pm662 || (in86 && ev0 != pev0)) {
+            if (g_vseekLogCount.load() < 240) {
+                ++g_vseekLogCount;
+                std::ostringstream m;
+                m << "VSEEK bit15=" << bit15 << std::hex << std::uppercase
+                  << " ev0=0x" << ev0 << std::dec
+                  << " m660=" << static_cast<int>(m660)
+                  << " m661=" << static_cast<int>(m661)
+                  << " m662=" << static_cast<int>(m662);
+                {
+                    std::scoped_lock lock(g_actionMutex);
+                    if (g_lastLongSwordAction) {
+                        m << " act=" << g_lastLongSwordAction->actionSet << ':'
+                          << g_lastLongSwordAction->actionId;
+                    }
+                }
+                Log(m.str());
+            }
+            pm660 = m660;
+            pm661 = m661;
+            pm662 = m662;
+            pev0 = ev0;
+        }
+        if (in86 && bit15 && !g_fsuccBitPrev) {
+            g_clangLatch = true;
+            OpenCounterWindow("foresight success bit15 (player+0x8938)");
+            if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                Log("CLANG: vanilla foresight success latch - auto-force armed");
+            }
+        }
+        g_fsuccBitPrev = bit15;
+    }
+}
+#endif // !VALOR_PROBE
+
+#ifdef VALOR_PROBE
+void PollReactionWatch() {
+    ++g_rxnFrame;
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+
+    auto* mgrSlot = player + 0x7D20;
+    std::uint8_t* mgr = nullptr;
+    if (IsReadable(mgrSlot, sizeof(void*))) {
+        mgr = *reinterpret_cast<std::uint8_t**>(mgrSlot);
+    }
+    std::uint32_t standby = 0;
+    float nohit = 0.0f;
+    if (mgr && IsReadable(mgr, 0x7D0)) {
+        standby = *reinterpret_cast<const std::uint32_t*>(mgr + 0x7C0);
+    }
+    if (mgr && IsReadable(mgr + 0x28 + 0xE4, sizeof(float))) {
+        nohit = *reinterpret_cast<const float*>(mgr + 0x28 + 0xE4);
+    }
+    std::uint8_t gate7626 = 0;
+    if (IsReadable(player + 0x7626, 1)) {
+        gate7626 = player[0x7626];
     }
 
     // Poll every watched property id.
@@ -1843,167 +2107,9 @@ void PollReactionWatch() {
             ++g_clangProbeLogCount;
             Log("EPROBE" + changed.str());
         }
-        // IAI (101/102) NEGATION BIT: player+0x8954 bit 26 (event bit 250)
-        // sets when a hit is negated during the iai window (mined: clang iai
-        // dword 0x1C000000 vs whiff 0x18000000/0x18400000; self-clears).
-        auto* negBitAddr = reinterpret_cast<std::uint32_t*>(player + 0x8954);
-        if (IsReadable(negBitAddr, sizeof(std::uint32_t))) {
-            const bool negBit = (*negBitAddr & 0x04000000u) != 0;
-            if (negBit && !g_negBitPrev) {
-                g_clangLatch = true;
-                OpenCounterWindow("negation bit 250 set (player+0x8954)");
-                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                    Log("CLANG: negation bit set - auto-force armed");
-                }
-            }
-            g_negBitPrev = negBit;
-        }
     }
-    // FORESIGHT (86) NEGATION: weapon+0x23A0 is the blue-flash intensity -
-    // jumps to 1.0 and decays only when the deflect presentation plays
-    // (mined: 4/4 clang runs, 0/5 whiff runs). Crossing 0.5 upward during
-    // 见切 = a hit was just negated.
-    if (ActionIsForesightSlash()) {
-        auto* weaponSlot = player + 0x76B0;
-        if (IsReadable(weaponSlot, sizeof(void*))) {
-            auto* weapon = *reinterpret_cast<std::uint8_t**>(weaponSlot);
-            if (weapon && IsReadable(weapon + 0x23A0, sizeof(float))) {
-                const float flash =
-                    *reinterpret_cast<const float*>(weapon + 0x23A0);
-                if (flash > 0.5f && g_flashPrev <= 0.5f) {
-                    g_clangLatch = true;
-                    OpenCounterWindow("deflect flash (weapon+0x23A0)");
-                    if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                        Log("CLANG: deflect flash detected - auto-force armed");
-                    }
-                }
-                g_flashPrev = flash;
-            }
-        }
-    } else {
-        g_flashPrev = 0.0f;
-    }
-
-    // VANILLA FORESIGHT SUCCESS LATCH: the input remapper (FUN_14118c320)
-    // picks the success vs failure follow-up variant (763/764, 162/163) from
-    // event bit 15 at player+0x8938 - the same TIML event-bit array that
-    // carries iai negation (bit 250). mgr+0x660/661/662 (mgr=*(player+0x7D20))
-    // gate the whole special follow-up remap family. Log all four; trigger on
-    // bit15 rising during 3:86.
-    {
-        std::uint32_t ev0 = 0;
-        if (IsReadable(player + 0x8938, sizeof(std::uint32_t))) {
-            ev0 = *reinterpret_cast<const std::uint32_t*>(player + 0x8938);
-        }
-        std::uint8_t m660 = 0, m661 = 0, m662 = 0;
-        if (mgr && IsReadable(mgr + 0x660, 3)) {
-            m660 = mgr[0x660];
-            m661 = mgr[0x661];
-            m662 = mgr[0x662];
-        }
-        const bool bit15 = (ev0 & 0x8000u) != 0;
-        const bool in86 = ActionIsForesightSlash();
-        static std::uint8_t pm660 = 0, pm661 = 0, pm662 = 0;
-        static std::uint32_t pev0 = 0;
-        if (bit15 != g_fsuccBitPrev || m660 != pm660 || m661 != pm661 ||
-            m662 != pm662 || (in86 && ev0 != pev0)) {
-            if (g_vseekLogCount.load() < 240) {
-                ++g_vseekLogCount;
-                std::ostringstream m;
-                m << "VSEEK bit15=" << bit15 << std::hex << std::uppercase
-                  << " ev0=0x" << ev0 << std::dec
-                  << " m660=" << static_cast<int>(m660)
-                  << " m661=" << static_cast<int>(m661)
-                  << " m662=" << static_cast<int>(m662);
-                {
-                    std::scoped_lock lock(g_actionMutex);
-                    if (g_lastLongSwordAction) {
-                        m << " act=" << g_lastLongSwordAction->actionSet << ':'
-                          << g_lastLongSwordAction->actionId;
-                    }
-                }
-                Log(m.str());
-            }
-            pm660 = m660;
-            pm661 = m661;
-            pm662 = m662;
-            pev0 = ev0;
-        }
-        if (in86 && bit15 && !g_fsuccBitPrev) {
-            g_clangLatch = true;
-            OpenCounterWindow("foresight success bit15 (player+0x8938)");
-            if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                Log("CLANG: vanilla foresight success latch - auto-force armed");
-            }
-        }
-        g_fsuccBitPrev = bit15;
-    }
-
-    // DISABLED: player+0xB228 turned out to be an attack-connect flag (sets
-    // on any connecting attack, incl. normal slashes) - not the negation.
-    if (false && IsReadable(player + 0xB228, sizeof(std::uint32_t))) {
-        const auto latch = *reinterpret_cast<const std::uint32_t*>(player + 0xB228);
-        if (latch != 0 && g_clangLatchPrev == 0) {
-            ActionInfo act{};
-            bool have = false;
-            {
-                std::scoped_lock lock(g_actionMutex);
-                if (g_lastLongSwordAction) {
-                    act = *g_lastLongSwordAction;
-                    have = true;
-                }
-            }
-            const bool validEvasion =
-                have && act.actionSet == 3 &&
-                (act.actionId == 86 || act.actionId == 101 || act.actionId == 102);
-            std::ostringstream m;
-            m << "LATCH RISING EDGE value=" << latch << " during act=";
-            if (have) {
-                m << act.actionSet << ':' << act.actionId;
-            } else {
-                m << "--";
-            }
-            Log(m.str());
-            if (validEvasion) {
-                g_clangLatch = true;
-                OpenCounterWindow("clang latch rising edge (player+0xB228)");
-                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                    Log("CLANG latch set - auto-force armed");
-                }
-            }
-        }
-        // Periodic visibility: current latch value while in an evasion move.
-        if (g_rxnFrame % 15 == 0) {
-            bool inEvasion = false;
-            {
-                std::scoped_lock lock(g_actionMutex);
-                inEvasion = g_lastLongSwordAction &&
-                            g_lastLongSwordAction->actionSet == 3 &&
-                            (g_lastLongSwordAction->actionId == 86 ||
-                             g_lastLongSwordAction->actionId == 101 ||
-                             g_lastLongSwordAction->actionId == 102);
-            }
-            if (inEvasion && g_condEvalLogCount.load() < 40) {
-                ++g_condEvalLogCount;
-                std::ostringstream m;
-                m << "LATCHWATCH value=" << latch << " prev=" << g_clangLatchPrev;
-                Log(m.str());
-            }
-        }
-        g_clangLatchPrev = latch;
-    }
-
-    // Prop trigger: a successful negation increments the success counter.
-    if (g_rxnValid && g_triggerId != 0) {
-        for (int wi = 0; wi < g_watchCount; ++wi) {
-            if (g_watchIds[wi] != g_triggerId) continue;
-            const auto nowV = g_watchCur[wi][g_triggerIndex < 3 ? g_triggerIndex : 0];
-            const auto prevV = g_watchPrev[wi][g_triggerIndex < 3 ? g_triggerIndex : 0];
-            if (nowV > prevV && ActionIsForesightSlash()) {
-                OpenCounterWindow("success counter edge (prop trigger)");
-            }
-        }
-    }
+    // (iai bit250 / deflect-flash triggers live in the mod build's
+    //  PollModTriggers; the probe only observes the raw values above.)
 
     if (!g_rxnValid) {
         g_rxnStandby = standby;
@@ -2079,7 +2185,9 @@ void PollReactionWatch() {
         }
     }
 }
+#endif // VALOR_PROBE (RXN watcher)
 
+#ifdef VALOR_PROBE
 // Optional nativePC\plugins\ValorGauge.prop-watch.txt: property ids to watch,
 // up to 6, e.g. "222 631".
 void LoadPropWatchConfig() {
@@ -2117,7 +2225,6 @@ void LoadPropWatchConfig() {
 std::uint32_t g_propWriteId = 222;
 std::uint32_t g_propWriteIndex = 0;
 std::int32_t g_propWriteValue = 1;
-bool g_f6WasDown = false;
 
 // Optional nativePC\plugins\ValorGauge.prop-write.txt: "<id> <index> <value>".
 void LoadPropWriteConfig() {
@@ -2220,7 +2327,6 @@ MinerRun g_minerCur;
 bool g_minerInRun = false;
 int g_minerPhase = 0;
 bool g_minerActive = false;
-bool g_f9WasDown = false;
 std::uint32_t g_minerFrameInRun = 0;
 constexpr std::size_t kMinerMaxChanges = 30000;
 
@@ -2484,6 +2590,7 @@ void MinerHandleF9() {
       << " (previous phases kept in the report)";
     Log(m.str());
 }
+#endif // VALOR_PROBE (prop watch/write + F5 miner)
 
 bool InstallActionHook() {
 
@@ -2522,6 +2629,7 @@ bool InstallActionHook() {
     return true;
 }
 
+#ifdef VALOR_PROBE
 void PollStateLogger() {
     const auto now = std::chrono::steady_clock::now();
     if (!g_stateLoggerEnabled || now < g_nextStatePoll) {
@@ -2895,6 +3003,7 @@ std::string DiffStatusText() {
     }
     return "";
 }
+#endif // VALOR_PROBE (state logger + F10 diff capture)
 
 bool InitializeRenderer(IDXGISwapChain* swapChain) {
     if (FAILED(swapChain->GetDevice(__uuidof(ID3D11Device), reinterpret_cast<void**>(&g_device)))) {
@@ -2948,6 +3057,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     }
     g_f8WasDown = f8Down;
 
+#ifdef VALOR_PROBE
     const bool f7Down = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
     if (f7Down && !g_f7WasDown) {
         LoadStateAddress();
@@ -2956,17 +3066,23 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     }
     g_f7WasDown = f7Down;
     PollStateLogger();
-    PollValorLifecycle();
     PollDiffCapture();
     PollPropHistogram();
     PollReactionWatch();
-
     MinerCaptureFrame();
     const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
     if (f5Down && !g_f9WasDown) {
         MinerHandleF9();
     }
     g_f9WasDown = f5Down;
+    const bool f6Down = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
+    if (f6Down && !g_f6WasDown) {
+        TryPropertyWrite();
+    }
+    g_f6WasDown = f6Down;
+#else
+    PollValorLifecycle();
+    PollModTriggers();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;
@@ -2979,11 +3095,8 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     g_counterCtrlWasDown = ctrlDown;
 
     const bool f6Down = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
-    if (f6Down && !g_f6WasDown) {
-        const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-        if (shiftDown) {
-            TryPropertyWrite();
-        } else if (!g_forceArmed.exchange(true)) {
+    if (f6Down && !g_f6WasDown && ModWeaponActive()) {
+        if (!g_forceArmed.exchange(true)) {
             std::ostringstream m;
             m << "FORCE armed: the next Long Sword transition executes 3:"
               << g_forceId;
@@ -2991,6 +3104,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         }
     }
     g_f6WasDown = f6Down;
+#endif
 
     if (g_visible) {
         std::optional<ActionInfo> displayedAction;
@@ -3007,6 +3121,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         }
 
         ImDrawList* draw = ImGui::GetForegroundDrawList();
+#ifdef VALOR_PROBE
         draw->AddText(ImGui::GetFont(), 22.0f, ImVec2(0.0f, 0.0f),
                       IM_COL32(255, 55, 55, 255), actionText);
         const std::string diffStatus = DiffStatusText();
@@ -3028,14 +3143,20 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                       g_rxnStandby != 0 ? IM_COL32(90, 220, 255, 255)
                                         : IM_COL32(170, 170, 170, 200),
                       rxnText);
-        if (windowOpen) {
-            draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 70.0f),
-                          IM_COL32(80, 220, 255, 255), "COUNTER WINDOW");
+#else
+        if (ModWeaponActive()) {
+            draw->AddText(ImGui::GetFont(), 22.0f, ImVec2(0.0f, 0.0f),
+                          IM_COL32(255, 55, 55, 255), actionText);
+            if (windowOpen) {
+                draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 70.0f),
+                              IM_COL32(80, 220, 255, 255), "COUNTER WINDOW");
+            }
+            if (g_forceArmed.load()) {
+                draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 92.0f),
+                              IM_COL32(255, 220, 80, 255), "FORCE ARMED");
+            }
         }
-        if (g_forceArmed.load()) {
-            draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 92.0f),
-                          IM_COL32(255, 220, 80, 255), "FORCE ARMED");
-        }
+#endif
     }
 
     ImGui::Render();
@@ -3051,7 +3172,24 @@ HRESULT __stdcall PresentHook(IDXGISwapChain* swapChain, UINT syncInterval, UINT
 }
 
 DWORD WINAPI InitializePlugin(void*) {
-    Log("ValorGauge loading");
+    // Never co-install: both builds hook the same game functions from their
+    // own MinHook instances - the second hook on already-patched bytes would
+    // corrupt the trampoline. Stand down if the sibling DLL is present.
+    if (GetModuleHandleW(
+#ifdef VALOR_PROBE
+            L"ValorGauge.dll"
+#else
+            L"ValorProbe.dll"
+#endif
+        ) != nullptr) {
+        Log("Sibling Valor DLL detected - standing down (only one build may be installed)");
+        return 0;
+    }
+#ifdef VALOR_PROBE
+    Log("ValorProbe loading");
+#else
+    Log("ValorGauge (mod) loading");
+#endif
     LoadStateAddress();
 
     for (int attempt = 0; attempt < 120; ++attempt) {
@@ -3063,10 +3201,14 @@ DWORD WINAPI InitializePlugin(void*) {
                 Log("DX11 Present hook installed");
                 InstallActionHook();
                 InstallPoolQueryHook();
+#ifdef VALOR_PROBE
                 InstallPropHistogramHooks();
                 LoadPropWriteConfig();
                 LoadPropWatchConfig();
+#else
+                InstallForceHook();
                 LoadForceActionConfig();
+#endif
                 return 0;
             }
             Log("DX11 Present bind failed");

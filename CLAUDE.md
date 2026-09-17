@@ -161,14 +161,29 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - **MHW Editor:** ✅ Available under `tools/MHWEditor`
 - **Chunk Extraction:** ✅ G0 fully extracted, other chunks partially extracted
 
-### Native Gauge Plugin
-- **Source:** `ValorGauge/`
-- **Output:** `ValorGauge/build/Release/ValorGauge.dll`
-- **Install path:** `nativePC/plugins/ValorGauge.dll`
-- **Runtime log:** `nativePC/plugins/ValorGauge.log`
-- **Renderer:** DirectX 11 (`EnableDX12=OFF` in the active game configuration)
-- **Libraries:** Dear ImGui, Kiero, and MinHook
-- **Current behavior:** Logs and shows the live action `set:id`, gains 10% from mapped normal attacks, writes Long Sword spirit level 3 at full charge to enter Valor, then detects the first normal-mode action after the FSM exits Valor and re-arms charging. Native Valor and spirit gauges remain responsible for their own display and depletion. `F8` toggles visibility.
+### Native Gauge Plugin (2026-09-17: mod/probe split)
+- **Source:** `ValorGauge/` — ONE source (`src/dllmain.cpp`), TWO build targets:
+  - **`ValorGauge.dll` (mod, default):** Long-Sword-only gameplay mod. Weapon gate =
+    `*(int32*)(weapon+0x9F8) == 2` (LS; same field the input remapper switches on,
+    0xFF = no weapon; override via `nativePC/plugins/ValorGauge.weapon-type.txt`).
+    Contains: action tracking, clang triggers (bit15 / bit250 / deflect flash /
+    condEval-631) → counter window + no-hit injection + auto-force, F6 force,
+    valor charge, overlay text. NO audio hooks, NO damage/hit-dispatch hooks.
+    No-hit pool derived in-place: `mgr = *(player+0x7D20)`, `pool = mgr+0x28`.
+  - **`ValorProbe.dll` (`VALOR_PROBE=1`):** passive research build. Wwise (3 hooks),
+    damage calc, hit dispatcher, pool query (Aee050), condition-evaluator logging,
+    F5 miner, F11 property histogram, F7 state logger, F10 diff capture,
+    RXN/EPROBE watchers. Installs NO gameplay behavior. Logs to
+    `nativePC/plugins/ValorProbe.log`. Install ONLY while researching.
+- **NEVER install both DLLs at once**: separate MinHook instances double-hooking
+  the same targets corrupts trampolines (crash). Both DLLs self-check at init and
+  stand down if the sibling is loaded — but keep only one in `nativePC/plugins`.
+- **Renderer:** DirectX 11 (`EnableDX12=OFF`); Libraries: ImGui, Kiero, MinHook.
+- **Current mod behavior:** LS-only. Normal attacks charge valor 10%/hit; level-3
+  write enters Valor; 见切/居合 clang auto-fires 刚1 mid-action with no-hit
+  coverage. `F8` toggles overlay. Suspected BGM cause (user report: music never
+  stops) = the old all-in-one DLL's audio hooks (possible arg-count mismatch on
+  the sound-post wrapper); the mod no longer hooks audio — retest with mod-only.
 
 ### Live Valor/FSM Discoveries
 - `ActionController::DoAction` signature: `48 8D 41 07 48 C1 E0 04 46 3B 04 08`, function start at match `- 10`.
@@ -417,4 +432,4 @@ MHWNoChunk and MHWEditor
 ---
 
 *Last Updated: 2026-09-17*
-*Current Milestone: 刚1 counter-parry COMPLETE — 见切 86 (event bit 15 @ player+0x8938) + 居合 101/102 (event bit 250 @ player+0x8954) all user-verified: 叮即自动无伤+强制刚1, 空挥静默. Backlog: kenki-gate via 練気ゲージ判定 properties (0x274/0x275), gauge UI polish. Update-resilience shipped: 10 signature-scanned hooks + addresses.txt override + MEMORYMAP self-check; recovery playbook in Reverse/ADDRESS_RECOVERY.md*
+*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT. ValorGauge.dll = LS-only mod (weapon type via weapon+0x9F8==2), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks (BGM suspect removed). ValorProbe.dll = passive research build (F5 miner, F11 histogram, Wwise, damage hooks). Never install both. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), BGM retest, gauge UI polish*
