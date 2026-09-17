@@ -276,6 +276,282 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
     return nullptr;
 }
 
+// --- Update-resilient address map --------------------------------------------
+// A game patch moves code. Hook targets resolve by byte signature first
+// (wildcards cover rel32 branches and rip-relative displacements), then by
+// the recorded RVA of the last known build, then by a manual override file
+// nativePC/plugins/ValorGauge.addresses.txt ("name=0xRVA" lines). Signatures
+// are generated and verified offline against the unpacked dump exe:
+//   python Reverse/sig_check.py --emit && python Reverse/sig_check.py --verify
+enum HookId {
+    HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch, HkPostEventId,
+    HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat, HkCount
+};
+
+struct HookSig {
+    std::uint8_t pattern[48];
+    char mask[49];
+    std::uint32_t fallbackRva;
+};
+
+constexpr HookSig kHookSigs[HkCount] = {
+    // condEval = FUN_14118BDA0 condition-tree node evaluator
+    {{0x4C, 0x8B, 0xDC, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x70,
+      0x41, 0x83, 0x78, 0x10, 0x00, 0x44, 0x8B, 0xE1, 0x4D, 0x8B, 0x78, 0x08, 0x4D, 0x8B, 0xE8,
+      0x48, 0x8B, 0xFA, 0x49, 0x8B, 0xCF, 0x49, 0x8B, 0x07, 0x0F, 0x86, 0x7F, 0x01, 0x00, 0x00,
+      0x49, 0x89, 0x5B},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxx", 0x118BDA0},
+    // poolQuery = FUN_140AEE050 defense/no-hit query
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x30, 0x8D, 0x42, 0xFF, 0x0F, 0x29,
+      0x74, 0x24, 0x20, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0x0F, 0x57, 0xF6, 0x0F, 0x57, 0xC0, 0x83,
+      0xF8, 0x05, 0x0F, 0x87, 0x4A, 0x01, 0x00, 0x00, 0x48, 0x8D, 0x0D, 0x83, 0x1F, 0x51, 0xFF,
+      0x44, 0x8B, 0x84},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxx????xxx", 0xAEE050},
+    // dmgCalc = FUN_141F66DD0 damage calculation entry
+    {{0x48, 0x8B, 0xC4, 0x48, 0x89, 0x50, 0x10, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55,
+      0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0x98, 0x48, 0x81, 0xEC, 0x28, 0x01, 0x00, 0x00,
+      0x48, 0x8B, 0xBA, 0xB8, 0x00, 0x00, 0x00, 0x48, 0x8B, 0xF1, 0x0F, 0x29, 0x70, 0xA8, 0x49,
+      0x8B, 0xD8, 0x0F},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x1F66DD0},
+    // hitDispatch = FUN_141F71960 hit dispatcher
+    {{0x40, 0x53, 0x57, 0x48, 0x83, 0xEC, 0x48, 0x48, 0x8B, 0xFA, 0x48, 0x8B, 0xD9, 0xE8, 0x4E,
+      0xF8, 0xC8, 0xFF, 0x48, 0x8B, 0x07, 0x48, 0x8B, 0xCF, 0xFF, 0x50, 0x08, 0x83, 0xC0, 0xFA,
+      0x83, 0xF8, 0x6A, 0x0F, 0x87, 0xF2, 0x08, 0x00, 0x00, 0x48, 0x89, 0x74, 0x24, 0x70, 0x48,
+      0x8D, 0x15, 0x6D},
+     "xxxxxxxxxxxxxx????xxxxxxxxxxxxxxxxx????xxxxxxxxx", 0x1F71960},
+    // postEventId = AK::SoundEngine::PostEvent (id)
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
+      0x4C, 0x89, 0x74, 0x24, 0x20, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x44, 0x8B, 0xF9, 0x49,
+      0x8B, 0xF1, 0x48, 0x8D, 0x0D, 0x8F, 0xAE, 0xCA, 0x02, 0x41, 0x8B, 0xE8, 0x4C, 0x8B, 0xF2,
+      0xE8, 0x1A, 0x55},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxxx", 0x28B8DD0},
+    // soundPost = game audio wrapper FUN_1426D4C50
+    {{0x48, 0x83, 0xEC, 0x48, 0x8B, 0xC2, 0x45, 0x8B, 0xD1, 0x41, 0x8B, 0xD0, 0x4C, 0x8D, 0x0D,
+      0x8D, 0xF7, 0xFF, 0xFF, 0x45, 0x33, 0xC0, 0x44, 0x89, 0x44, 0x24, 0x38, 0x4C, 0x89, 0x44,
+      0x24, 0x30, 0x44, 0x89, 0x44, 0x24, 0x28, 0x45, 0x8B, 0xC2, 0x48, 0x89, 0x4C, 0x24, 0x20,
+      0x8B, 0xC8, 0xE8},
+     "xxxxxxxxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x26D4C50},
+    // postEventName = AK::SoundEngine::PostEvent (string)
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x7C, 0x24, 0x18,
+      0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x4C, 0x8B, 0xE1, 0x49, 0x8B,
+      0xE9, 0x48, 0x8D, 0x0D, 0x80, 0xAC, 0xCA, 0x02, 0x45, 0x8B, 0xF0, 0x4C, 0x8B, 0xFA, 0xE8,
+      0x0B, 0x53, 0x3C},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxxxx", 0x28B8FE0},
+    // propInt = FUN_141922190 FSM property int getter
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x41, 0x8B, 0xF8, 0x41, 0x8B,
+      0xD9, 0x48, 0x85, 0xC9, 0x74, 0x34, 0xF6, 0x41, 0x60, 0x01, 0x74, 0x2E, 0x48, 0x8B, 0x89,
+      0xD8, 0x26, 0x01, 0x00, 0xE8, 0x39, 0x5F, 0x9D, 0xFF, 0x85, 0xC0, 0x74, 0x1E, 0x48, 0x8B,
+      0x0D, 0x86, 0xFE},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxxx", 0x1922190},
+    // propBool = FUN_1419221F0 FSM property bool getter
+    {{0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x41, 0x8B, 0xD8, 0x48, 0x85, 0xC9, 0x74, 0x34, 0xF6,
+      0x41, 0x60, 0x01, 0x74, 0x2E, 0x48, 0x8B, 0x89, 0xD8, 0x26, 0x01, 0x00, 0xE8, 0xE0, 0x5E,
+      0x9D, 0xFF, 0x85, 0xC0, 0x74, 0x1E, 0x48, 0x8B, 0x0D, 0x2D, 0xFE, 0x6E, 0x03, 0x8B, 0xD0,
+      0xE8, 0xDE, 0x04},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxx????xxxxx", 0x19221F0},
+    // propFloat = FUN_141922240 FSM property float getter
+    {{0x40, 0x53, 0x48, 0x83, 0xEC, 0x30, 0x0F, 0x29, 0x74, 0x24, 0x20, 0x0F, 0x28, 0xF3, 0x41,
+      0x8B, 0xD8, 0x48, 0x85, 0xC9, 0x74, 0x43, 0xF6, 0x41, 0x60, 0x01, 0x74, 0x3D, 0x48, 0x8B,
+      0x89, 0xD8, 0x26, 0x01, 0x00, 0xE8, 0x88, 0x5E, 0x9D, 0xFF, 0x85, 0xC0, 0x74, 0x2D, 0x48,
+      0x8B, 0x0D, 0xD5},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxx", 0x1922240},
+};
+
+const char* const kHookNames[HkCount] = {
+    "condEval", "poolQuery", "dmgCalc", "hitDispatch", "postEventId",
+    "soundPost", "postEventName", "propInt", "propBool", "propFloat",
+};
+
+std::uintptr_t g_hookAddr[HkCount] = {};
+std::uintptr_t g_addrAudioSingleton = 0x51C458; // audio manager singleton slot
+std::uintptr_t g_addrPropRegistry = 0x5012048;  // FSM property registry (count +0xB8, rows +0xC8)
+std::uintptr_t g_addrPropLookup = 0x462700;     // registry row lookup FUN_140462700
+std::uintptr_t g_addrPropName = 0x1979770;      // property id -> name
+std::uintptr_t g_addrDoAction = 0;              // set by InstallActionHook
+
+std::map<std::string, std::uintptr_t> g_addrOverrides;
+
+std::uintptr_t ModuleBaseAddr() {
+    const HMODULE game = GetModuleHandleW(nullptr);
+    MODULEINFO module{};
+    if (!game || !GetModuleInformation(GetCurrentProcess(), game, &module, sizeof(module))) {
+        return 0;
+    }
+    return reinterpret_cast<std::uintptr_t>(module.lpBaseOfDll);
+}
+
+void LoadAddressOverrides() {
+    std::ifstream input("nativePC/plugins/ValorGauge.addresses.txt");
+    if (!input) {
+        return;
+    }
+    std::string line;
+    int count = 0;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+        const auto trim = [](std::string s) {
+            while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r')) {
+                s.erase(s.begin());
+            }
+            while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) {
+                s.pop_back();
+            }
+            return s;
+        };
+        const std::string key = trim(line.substr(0, eq));
+        const std::string value = trim(line.substr(eq + 1));
+        if (key.empty() || value.empty()) {
+            continue;
+        }
+        g_addrOverrides[key] = std::strtoull(value.c_str(), nullptr, 0);
+        ++count;
+    }
+    if (count > 0) {
+        std::ostringstream m;
+        m << "MEMORYMAP: " << count << " address override(s) loaded from ValorGauge.addresses.txt";
+        Log(m.str());
+    }
+}
+
+std::uintptr_t OverrideOrZero(const char* name) {
+    const auto it = g_addrOverrides.find(name);
+    return it == g_addrOverrides.end() ? 0 : it->second;
+}
+
+// Resolve one hook target: override > unique signature > last-known RVA.
+std::uintptr_t ResolveHookTarget(HookId id) {
+    const HookSig& sig = kHookSigs[id];
+    const std::uintptr_t base = ModuleBaseAddr();
+    if (const std::uintptr_t overrideRva = OverrideOrZero(kHookNames[id])) {
+        std::ostringstream m;
+        m << "MEMORYMAP: " << kHookNames[id] << " via addresses.txt override";
+        Log(m.str());
+        return base + overrideRva;
+    }
+    auto* hit = FindPattern(sig.pattern, sig.mask, sizeof(sig.pattern));
+    if (hit) {
+        // Reject ambiguous patterns: a second match means the signature is too
+        // weak to trust after an update.
+        const auto start = reinterpret_cast<const std::uint8_t*>(base);
+        const std::size_t next = static_cast<std::size_t>(hit - start) + 1;
+        bool ambiguous = false;
+        if (const std::uintptr_t moduleBase = ModuleBaseAddr()) {
+            const HMODULE game = GetModuleHandleW(nullptr);
+            MODULEINFO module{};
+            if (game && GetModuleInformation(GetCurrentProcess(), game, &module, sizeof(module))) {
+                const auto scanStart = static_cast<const std::uint8_t*>(module.lpBaseOfDll);
+                const auto imageSize = static_cast<std::size_t>(module.SizeOfImage);
+                for (std::size_t i = next; i + sizeof(sig.pattern) <= imageSize; ++i) {
+                    bool matches = true;
+                    for (std::size_t j = 0; j < sizeof(sig.pattern); ++j) {
+                        if (sig.mask[j] == 'x' && scanStart[i + j] != sig.pattern[j]) {
+                            matches = false;
+                            break;
+                        }
+                    }
+                    if (matches) {
+                        ambiguous = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (ambiguous) {
+            std::ostringstream m;
+            m << "MEMORYMAP: " << kHookNames[id]
+              << " signature matched more than once - using recorded RVA instead";
+            Log(m.str());
+        } else {
+            return reinterpret_cast<std::uintptr_t>(hit);
+        }
+    }
+    std::ostringstream m;
+    m << "MEMORYMAP: " << kHookNames[id] << std::hex
+      << " signature miss - falling back to RVA 0x" << sig.fallbackRva
+      << " (game update? verify with Reverse/sig_check.py)";
+    Log(m.str());
+    return base + sig.fallbackRva;
+}
+
+void InitMemoryMap() {
+    LoadAddressOverrides();
+    for (int i = 0; i < HkCount; ++i) {
+        g_hookAddr[i] = ResolveHookTarget(static_cast<HookId>(i));
+    }
+    const std::uintptr_t base = ModuleBaseAddr();
+    if (const std::uintptr_t v = OverrideOrZero("audioSingleton")) {
+        g_addrAudioSingleton = base + v;
+    } else {
+        g_addrAudioSingleton = base + g_addrAudioSingleton;
+    }
+    if (const std::uintptr_t v = OverrideOrZero("propRegistry")) {
+        g_addrPropRegistry = base + v;
+    } else {
+        g_addrPropRegistry = base + g_addrPropRegistry;
+    }
+    if (const std::uintptr_t v = OverrideOrZero("propLookup")) {
+        g_addrPropLookup = base + v;
+    } else {
+        g_addrPropLookup = base + g_addrPropLookup;
+    }
+    if (const std::uintptr_t v = OverrideOrZero("propName")) {
+        g_addrPropName = base + v;
+    } else {
+        g_addrPropName = base + g_addrPropName;
+    }
+}
+
+// One-time sanity report: every resolved target must be readable, and the two
+// global data structures must still look like themselves. On failure the log
+// names the exact anchor to re-derive (see Reverse/ADDRESS_RECOVERY.md).
+void ValidateMemoryMap() {
+    std::ostringstream d;
+    d << "MEMORYMAP doAction "
+      << (IsReadable(reinterpret_cast<void*>(g_addrDoAction), 16) ? "ok" : "BAD");
+    Log(d.str());
+    std::ostringstream m;
+    m << "MEMORYMAP hooks:";
+    for (int i = 0; i < HkCount; ++i) {
+        m << ' ' << kHookNames[i] << '='
+          << (IsReadable(reinterpret_cast<void*>(g_hookAddr[i]), 16) ? "ok" : "BAD");
+    }
+    Log(m.str());
+
+    const char* registryStatus = "BAD";
+    if (IsReadable(reinterpret_cast<void*>(g_addrPropRegistry), 0xD0)) {
+        const auto count =
+            *reinterpret_cast<const std::uint32_t*>(g_addrPropRegistry + 0xB8);
+        const auto rowTable =
+            *reinterpret_cast<void* const*>(g_addrPropRegistry + 0xC8);
+        if (count >= 200 && count <= 2000000 && IsReadable(rowTable, sizeof(void*))) {
+            registryStatus = "ok";
+        }
+        std::ostringstream r;
+        r << "MEMORYMAP propRegistry count=" << count << " rowTable="
+          << (IsReadable(rowTable, sizeof(void*)) ? "ok" : "BAD") << " -> " << registryStatus;
+        Log(r.str());
+    } else {
+        Log("MEMORYMAP propRegistry UNREADABLE - base+0x5012048 moved?");
+    }
+
+    const char* audioStatus = "BAD";
+    if (IsReadable(reinterpret_cast<void*>(g_addrAudioSingleton), sizeof(void*))) {
+        const auto singleton = *reinterpret_cast<void* const*>(g_addrAudioSingleton);
+        audioStatus = singleton ? "ok" : "null";
+    }
+    std::ostringstream a;
+    a << "MEMORYMAP audioSingleton " << audioStatus;
+    Log(a.str());
+}
+
+
 bool IsLongSwordController(void* controller) {
     // Player controllers are inline at player + 0x61C8. A player also owns a human controller
     // pointer at +0x12608. Only validated reads are used here; no player-only game function is
@@ -662,14 +938,14 @@ long long __fastcall CondEvalHook(unsigned int a1, long long a2, long long a3) {
 }
 
 bool InstallCondEvalHook() {
-    void* target = reinterpret_cast<std::uint8_t*>(g_moduleBase.load()) + 0x118BDA0;
+    void* target = reinterpret_cast<void*>(g_hookAddr[HkCondEval]);
     if (MH_CreateHook(target, reinterpret_cast<void*>(&CondEvalHook),
                       reinterpret_cast<void**>(&g_originalCondEval)) != MH_OK ||
         MH_EnableHook(target) != MH_OK) {
         Log("Condition evaluator hook failed");
         return false;
     }
-    Log("Condition evaluator hook installed (RVA 0x118BDA0)");
+    Log("Condition evaluator hook installed");
     return true;
 }
 
@@ -749,7 +1025,7 @@ void* __fastcall ClangSoundVirtualHook(void* audio, unsigned int eventId,
 }
 
 bool InstallClangSoundVirtualHook() {
-    auto* singletonPtr = reinterpret_cast<std::uint8_t**>(g_moduleBase.load() + 0x51C458);
+    auto* singletonPtr = reinterpret_cast<std::uint8_t**>(g_addrAudioSingleton);
     if (!IsReadable(singletonPtr, sizeof(void*)) || !*singletonPtr) {
         Log("CLANG hook: audio singleton unavailable");
         return false;
@@ -828,7 +1104,8 @@ bool InstallPoolQueryHook() {
         return false;
     }
     g_moduleBase = reinterpret_cast<std::uintptr_t>(module.lpBaseOfDll);
-    void* target = static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0xAEE050;
+    InitMemoryMap();
+    void* target = reinterpret_cast<void*>(g_hookAddr[HkPoolQuery]);
     if (MH_CreateHook(target, reinterpret_cast<void*>(&Aee050Hook),
                       reinterpret_cast<void**>(&g_originalAee050)) != MH_OK) {
         Log("Pool query hook failed: MH_CreateHook");
@@ -838,47 +1115,48 @@ bool InstallPoolQueryHook() {
         Log("Pool query hook failed: MH_EnableHook");
         return false;
     }
-    if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x1F66DD0,
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkDmgCalc]),
                       reinterpret_cast<void*>(&DmgCalcHook),
                       reinterpret_cast<void**>(&g_originalDmgCalc)) != MH_OK ||
-        MH_EnableHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x1F66DD0) != MH_OK) {
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkDmgCalc])) != MH_OK) {
         Log("Damage calc hook failed");
     } else {
-        Log("Damage calc hook installed (RVA 0x1F66DD0)");
+        Log("Damage calc hook installed");
     }
-    if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x1F71960,
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch]),
                       reinterpret_cast<void*>(&HitDispatchHook),
                       reinterpret_cast<void**>(&g_originalHitDispatch)) != MH_OK ||
-        MH_EnableHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x1F71960) != MH_OK) {
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch])) != MH_OK) {
         Log("Hit dispatcher hook failed");
     } else {
-        Log("Hit dispatcher hook installed (RVA 0x1F71960)");
+        Log("Hit dispatcher hook installed");
     }
-    if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x28B8DD0,
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventId]),
                       reinterpret_cast<void*>(&PostEventIdHook),
                       reinterpret_cast<void**>(&g_originalPostEventId)) != MH_OK ||
-        MH_EnableHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x28B8DD0) != MH_OK) {
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventId])) != MH_OK) {
         Log("Wwise PostEvent(id) hook failed");
     } else {
-        Log("Wwise PostEvent(id) hook installed (RVA 0x28B8DD0)");
+        Log("Wwise PostEvent(id) hook installed");
     }
-    if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x26D4C50,
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkSoundPost]),
                       reinterpret_cast<void*>(&SoundPostHook),
                       reinterpret_cast<void**>(&g_originalSoundPost)) != MH_OK ||
-        MH_EnableHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x26D4C50) != MH_OK) {
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkSoundPost])) != MH_OK) {
         Log("Sound post hook failed");
     } else {
-        Log("Sound post hook installed (RVA 0x26D4C50)");
+        Log("Sound post hook installed");
     }
     InstallCondEvalHook();
-    if (MH_CreateHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x28B8FE0,
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventName]),
                       reinterpret_cast<void*>(&PostEventNameHook),
                       reinterpret_cast<void**>(&g_originalPostEventName)) != MH_OK ||
-        MH_EnableHook(static_cast<std::uint8_t*>(module.lpBaseOfDll) + 0x28B8FE0) != MH_OK) {
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventName])) != MH_OK) {
         Log("Wwise PostEvent(name) hook failed");
     } else {
-        Log("Wwise PostEvent(name) hook installed (RVA 0x28B8FE0)");
+        Log("Wwise PostEvent(name) hook installed");
     }
+    ValidateMemoryMap();
     std::ostringstream m;
     m << "Pool query hook installed at 0x" << std::hex << std::uppercase
       << reinterpret_cast<std::uintptr_t>(target);
@@ -1038,7 +1316,7 @@ float __fastcall PropFloatHook(void* entity, void* id, std::uint32_t index, std:
 // FUN_141979770 resolves a property id to its display name from the game's
 // own name tables; SEH-wrapped because it runs before we know table state.
 const char* SafePropName(std::int32_t id) {
-    const auto nameFn = reinterpret_cast<PropNameFn>(g_moduleBase.load() + 0x1979770);
+    const auto nameFn = reinterpret_cast<PropNameFn>(g_addrPropName);
     __try {
         return nameFn(id);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1053,7 +1331,7 @@ void DumpPropRegistry() {
     if (g_propRegistryDumped.exchange(true)) {
         return;
     }
-    auto* table = reinterpret_cast<std::uint8_t*>(g_moduleBase.load() + 0x5012048);
+    auto* table = reinterpret_cast<std::uint8_t*>(g_addrPropRegistry);
     if (!IsReadable(table, 0xC0)) {
         Log("REGISTRY unavailable: table unreadable");
         return;
@@ -1063,7 +1341,7 @@ void DumpPropRegistry() {
     header << "REGISTRY BEGIN count=" << std::dec << count;
     Log(header.str());
     if (count > 0) {
-        const auto lookup = reinterpret_cast<PropRegistryLookupFn>(g_moduleBase.load() + 0x462700);
+        const auto lookup = reinterpret_cast<PropRegistryLookupFn>(g_addrPropLookup);
         const std::int32_t limit = count > 1500 ? 1500 : count;
         for (std::int32_t i = 0; i < limit; ++i) {
             const char* name = SafePropName(i);
@@ -1181,16 +1459,19 @@ bool InstallPropHistogramHooks() {
         const char* label;
     };
     const HookEntry entries[] = {
-        {0x1922190, reinterpret_cast<void*>(&PropIntHook),
+        {0, reinterpret_cast<void*>(&PropIntHook),
          reinterpret_cast<void**>(&g_originalPropInt), "int"},
-        {0x19221F0, reinterpret_cast<void*>(&PropBoolHook),
+        {0, reinterpret_cast<void*>(&PropBoolHook),
          reinterpret_cast<void**>(&g_originalPropBool), "bool"},
-        {0x1922240, reinterpret_cast<void*>(&PropFloatHook),
+        {0, reinterpret_cast<void*>(&PropFloatHook),
          reinterpret_cast<void**>(&g_originalPropFloat), "float"},
     };
+    const std::uintptr_t hookAddrs[3] = {g_hookAddr[HkPropInt], g_hookAddr[HkPropBool],
+                                         g_hookAddr[HkPropFloat]};
     bool allOk = true;
-    for (const auto& entry : entries) {
-        void* target = reinterpret_cast<std::uint8_t*>(g_moduleBase.load()) + entry.rva;
+    for (int i = 0; i < 3; ++i) {
+        const auto& entry = entries[i];
+        void* target = reinterpret_cast<void*>(hookAddrs[i]);
         if (MH_CreateHook(target, entry.detour, entry.original) != MH_OK ||
             MH_EnableHook(target) != MH_OK) {
             std::ostringstream m;
@@ -1301,7 +1582,7 @@ std::int16_t* ResolvePropCounters(std::uint8_t* player, std::uint32_t id,
     if (keyOut) {
         *keyOut = static_cast<std::uint32_t>(key);
     }
-    auto* registry = reinterpret_cast<std::uint8_t*>(g_moduleBase.load() + 0x5012048);
+    auto* registry = reinterpret_cast<std::uint8_t*>(g_addrPropRegistry);
     if (!IsReadable(registry, 0xD0)) {
         return nullptr;
     }
@@ -1334,7 +1615,7 @@ void LogKeyTableDump(std::uint8_t* player) {
         Log("KEYDUMP: component unavailable");
         return;
     }
-    auto* registry = reinterpret_cast<std::uint8_t*>(g_moduleBase.load() + 0x5012048);
+    auto* registry = reinterpret_cast<std::uint8_t*>(g_addrPropRegistry);
     if (!IsReadable(registry, 0xD0)) {
         Log("KEYDUMP: registry unreadable");
         return;
@@ -1397,7 +1678,7 @@ void LogChainDiagnostics(std::uint8_t* player, std::uint32_t id) {
           << std::dec << *reinterpret_cast<const std::int32_t*>(keyAddress) << std::hex;
     }
     m << " ]";
-    auto* registry = reinterpret_cast<std::uint8_t*>(g_moduleBase.load() + 0x5012048);
+    auto* registry = reinterpret_cast<std::uint8_t*>(g_addrPropRegistry);
     if (!IsReadable(registry, 0xD0)) {
         m << " registry=unreadable base=0x" << std::hex << std::uppercase
           << g_moduleBase.load();
@@ -1459,6 +1740,38 @@ void PollReactionWatch() {
     std::uint8_t gate7626 = 0;
     if (IsReadable(player + 0x7626, 1)) {
         gate7626 = player[0x7626];
+    }
+
+    // Semantic sanity probes: if a game update shifts the struct layout these
+    // invariants break first - log once and point at the offending offset
+    // (recovery procedure in Reverse/ADDRESS_RECOVERY.md).
+    static bool warnedSpirit = false;
+    static bool warnedStandby = false;
+    static bool warnedNohit = false;
+    if (mgr && IsReadable(mgr, 0x7D0)) {
+        if (!warnedStandby && standby > 1) {
+            warnedStandby = true;
+            Log("MEMORYMAP SANITY: mgr+0x7C0 standby > 1 - offset may have shifted");
+        }
+    }
+    if (!warnedNohit && IsReadable(mgr + 0x28 + 0xE4, sizeof(float)) && nohit < -1.0f) {
+        warnedNohit = true;
+        Log("MEMORYMAP SANITY: pool+0xE4 no-hit < -1 - offset may have shifted");
+    }
+    if (!warnedSpirit) {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction && IsReadable(player + 0x76B0, sizeof(void*))) {
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (weapon && IsReadable(weapon + 0x2370, sizeof(std::int32_t))) {
+                const auto spirit =
+                    *reinterpret_cast<const std::int32_t*>(weapon + 0x2370);
+                if (spirit < 0 || spirit > 3) {
+                    warnedSpirit = true;
+                    Log("MEMORYMAP SANITY: weapon+0x2370 spirit level outside "
+                        "[0,3] - offset may have shifted");
+                }
+            }
+        }
     }
 
     // Poll every watched property id.
@@ -2185,6 +2498,7 @@ bool InstallActionHook() {
     }
 
     void* target = match - 10; // SharpPluginLoader AddressRecords.json offset.
+    g_addrDoAction = reinterpret_cast<std::uintptr_t>(target);
     const auto createStatus = MH_CreateHook(target, reinterpret_cast<void*>(DoActionHook),
                                             reinterpret_cast<void**>(&g_originalDoAction));
     if (createStatus != MH_OK) {

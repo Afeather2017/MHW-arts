@@ -303,6 +303,28 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   → bit15 = negation-only); clang + follow-up hit (full success). iai
   101/102 regression must stay green.
 
+### 2026-09-17 (night) 刚1 COMPLETE (all clang paths) + update-resilient address map
+
+- **User-verified done**: whiff never triggers; clang fires immediately on
+  见切 86, 小居合 101 AND 大居合 102. Mechanics confirmed: 见切 = step-back
+  (whole step is i-frames; hit there = 叮) then counter slash (no i-frames,
+  small super armor window when clang'd).
+- Final trigger set: bit15 rising during 3:86 (foresight success latch),
+  bit 250 rising during 101/102 (iai negation), weapon+0x23A0 flash and the
+  CondEvalHook 631 path as extra safety nets. Any of them → counter window +
+  pool+0xE4 no-hit + auto-force 刚1 via direct DoAction.
+- **Update-resilience** (preps for future game patches):
+  - All 10 function hooks resolve by byte signature first (kHookSigs[] in
+    dllmain.cpp; wildcards auto-cover rel32 branches + rip-relative disp32),
+    then recorded RVA, then `nativePC/plugins/ValorGauge.addresses.txt`
+    override (`name=0xRVA`). Signatures generated/verified offline by
+    `Reverse/sig_check.py --emit|--verify` (all 10 unique vs dump exe).
+  - `MEMORYMAP` startup report in ValorGauge.log: per-hook ok/BAD + propRegistry
+    count/rowTable + audioSingleton. Runtime semantic probes log once when
+    spirit level leaves [0,3], standby >1, or no-hit < -1 (struct-shift alarm).
+  - Recovery playbook: `Reverse/ADDRESS_RECOVERY.md` (hook/data/struct-field
+    tables, semantic anchors, F5-miner dynamic re-derivation, tool list).
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
@@ -392,5 +414,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-14*
-*Current Milestone: 刚1 counter-parry — IAI (101/102) COMPLETE (bit 250, user-verified). 见切: vanilla success latch FOUND = event bit 15 (player+0x8938 & 0x8000, read by remapper FUN_14118c320 to pick 763/764); DLL watches bit15 + mgr+0x660/661/662 and auto-forces 刚1 on bit15 rising during 3:86; flash detector (weapon+0x23A0) as backup. Next: user test matrix (whiff / clang-no-followup / clang+followup), then kenki-gate via 628/629*
+*Last Updated: 2026-09-17*
+*Current Milestone: 刚1 counter-parry COMPLETE — 见切 86 (event bit 15 @ player+0x8938) + 居合 101/102 (event bit 250 @ player+0x8954) all user-verified: 叮即自动无伤+强制刚1, 空挥静默. Backlog: kenki-gate via 練気ゲージ判定 properties (0x274/0x275), gauge UI polish. Update-resilience shipped: 10 signature-scanned hooks + addresses.txt override + MEMORYMAP self-check; recovery playbook in Reverse/ADDRESS_RECOVERY.md*
