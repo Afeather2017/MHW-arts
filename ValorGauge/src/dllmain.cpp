@@ -589,12 +589,13 @@ bool IsLongSwordController(void* controller) {
 #ifndef VALOR_PROBE
 // --- Mod weapon gate ---------------------------------------------------------
 // The gameplay mod (gauge / clang counter / force) only drives the Long Sword.
-// Weapon type = *(int32*)(weapon + 0x9F8) - the same field the game's own
-// input remapper switches on; Long Sword = 2 (the remap branch that reads the
-// special-sheathe bytes at 0x2368 and remaps inputs to 100-104), 0xFF = none.
+// Weapon type = *(int32*)(weapon + 0x9F8) - the same value func_0x141F627F0
+// returns and FUN_14118bda0 switches on; **Long Sword = 3** (its case holds
+// the LS-only condition names 練気ゲージ判定/居合斬り/見切り回避成功後の攻撃ヒット;
+// matches wp03 data folder, w03 FSM files and action set 3). 0xFF = no weapon.
 // Override via nativePC/plugins/ValorGauge.weapon-type.txt if a patch
 // renumbers the enum.
-std::atomic<std::uint32_t> g_modWeaponType{2};
+std::atomic<std::uint32_t> g_modWeaponType{3};
 
 bool ModWeaponActive() {
     void* controller = g_lockedPlayerController;
@@ -610,7 +611,16 @@ bool ModWeaponActive() {
         return false;
     }
     const auto type = *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8);
-    return type == g_modWeaponType.load(std::memory_order_relaxed);
+    const bool active = type == g_modWeaponType.load(std::memory_order_relaxed);
+    static int gateLogs = 0;
+    if (gateLogs < 6) {
+        ++gateLogs;
+        std::ostringstream m;
+        m << "WEAPON GATE " << (active ? "OPEN" : "CLOSED") << ": weapon+0x9F8="
+          << type << " expected=" << g_modWeaponType.load(std::memory_order_relaxed);
+        Log(m.str());
+    }
+    return active;
 }
 
 void LoadModWeaponTypeConfig() {
@@ -751,7 +761,8 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                     current.actionId == 101 || current.actionId == 102)) {
                     g_clangLatch = false;
                 }
-                const bool normalAction = IsNormalModeChargingAction(current);
+                const bool normalAction = IsNormalModeChargingAction(current) &&
+                                          ModWeaponActive();
                 if (g_valorMode.load() && normalAction) {
                     g_valorMode = false;
                     g_valorCharge = 0;

@@ -164,7 +164,10 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 ### Native Gauge Plugin (2026-09-17: mod/probe split)
 - **Source:** `ValorGauge/` — ONE source (`src/dllmain.cpp`), TWO build targets:
   - **`ValorGauge.dll` (mod, default):** Long-Sword-only gameplay mod. Weapon gate =
-    `*(int32*)(weapon+0x9F8) == 2` (LS; same field the input remapper switches on,
+    `*(int32*)(weapon+0x9F8) == 3` (LS; same value func_0x141F627F0 returns and
+    FUN_14118bda0 switches on — LS case holds 練気ゲージ判定/居合斬り/見切り conditions;
+    consistent with wp03/w03/action-set 3. The remapper's case 2 is a DIFFERENT
+    weapon whose action ids collide with LS's 100-104 — do not trust it),
     0xFF = no weapon; override via `nativePC/plugins/ValorGauge.weapon-type.txt`).
     Contains: action tracking, clang triggers (bit15 / bit250 / deflect flash /
     condEval-631) → counter window + no-hit injection + auto-force, F6 force,
@@ -432,4 +435,4 @@ MHWNoChunk and MHWEditor
 ---
 
 *Last Updated: 2026-09-17*
-*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT. ValorGauge.dll = LS-only mod (weapon type via weapon+0x9F8==2), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks (BGM suspect removed). ValorProbe.dll = passive research build (F5 miner, F11 histogram, Wwise, damage hooks). Never install both. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), BGM retest, gauge UI polish*
+*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT. ValorGauge.dll = LS-only mod (weapon type via weapon+0x9F8==3), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks (BGM suspect removed). ValorProbe.dll = passive research build (F5 miner, F11 histogram, Wwise, damage hooks). Never install both. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), BGM retest, gauge UI polish*
