@@ -53,8 +53,9 @@ add_custom_command(TARGET ValorGauge POST_BUILD
 # logs (Wwise, damage/hit dispatch, F5 miner, F11 property histogram, F7 state
 # logger, F10 diff capture, RXN/EPROBE watchers) and performs NO gameplay
 # actions: no gauge, no clang triggers, no force, no audio hooks in the mod.
-# Install ValorProbe.dll in nativePC/plugins only while researching;
-# ValorGauge.dll is the playable mod and stays Long-Sword-only.
+# The probe is NEVER auto-installed: drop it into nativePC/plugins manually
+# (and remove ValorGauge.dll) only while researching. Both DLLs refuse to
+# co-install.
 add_library(ValorProbe SHARED
     src/dllmain.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/generated/kiero/kiero.cpp"
@@ -80,8 +81,8 @@ set_target_properties(ValorProbe PROPERTIES OUTPUT_NAME "ValorProbe")
 
 add_custom_command(TARGET ValorProbe POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        "E:/SteamLibrary/steamapps/common/Monster Hunter World/nativePC/plugins"
+        "${CMAKE_CURRENT_SOURCE_DIR}/dist"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "$<TARGET_FILE:ValorProbe>"
-        "E:/SteamLibrary/steamapps/common/Monster Hunter World/nativePC/plugins/ValorProbe.dll"
+        "${CMAKE_CURRENT_SOURCE_DIR}/dist/ValorProbe.dll"
 )
