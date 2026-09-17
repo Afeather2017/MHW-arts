@@ -184,9 +184,10 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - **Renderer:** DirectX 11 (`EnableDX12=OFF`); Libraries: ImGui, Kiero, MinHook.
 - **Current mod behavior:** LS-only. Normal attacks charge valor 10%/hit; level-3
   write enters Valor; 见切/居合 clang auto-fires 刚1 mid-action with no-hit
-  coverage. `F8` toggles overlay. Suspected BGM cause (user report: music never
-  stops) = the old all-in-one DLL's audio hooks (possible arg-count mismatch on
-  the sound-post wrapper); the mod no longer hooks audio — retest with mod-only.
+  coverage. `F8` toggles overlay. **User-verified 2026-09-18**: LS triggers work
+  post-split and the BGM bug is GONE — root cause confirmed as the old
+  all-in-one DLL's audio hooks (sound-post wrapper arg mismatch suspected);
+  the mod hooks no audio.
 
 ### Live Valor/FSM Discoveries
 - `ActionController::DoAction` signature: `48 8D 41 07 48 C1 E0 04 46 3B 04 08`, function start at match `- 10`.
@@ -434,5 +435,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-17*
-*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT. ValorGauge.dll = LS-only mod (weapon type via weapon+0x9F8==3), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks (BGM suspect removed). ValorProbe.dll = passive research build (F5 miner, F11 histogram, Wwise, damage hooks). Never install both. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), BGM retest, gauge UI polish*
+*Last Updated: 2026-09-18*
+*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. ValorGauge.dll = LS-only mod (weapon type weapon+0x9F8==3, user-verified in game), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks — BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, staged to ValorGauge/dist, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish*
