@@ -322,8 +322,10 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   - `MEMORYMAP` startup report in ValorGauge.log: per-hook ok/BAD + propRegistry
     count/rowTable + audioSingleton. Runtime semantic probes log once when
     spirit level leaves [0,3], standby >1, or no-hit < -1 (struct-shift alarm).
-  - Recovery playbook: `Reverse/ADDRESS_RECOVERY.md` (hook/data/struct-field
-    tables, semantic anchors, F5-miner dynamic re-derivation, tool list).
+  - Recovery wizard: `Reverse/ADDRESS_RECOVERY.md` — step-by-step lookup guide
+    (per-target anchor/steps/verify/write-back for every hook, data address and
+    struct field; dump+Ghidra setup; find_xrefs.py string→xref tool; F5-miner
+    fallback). Someone holding the doc can re-derive all addresses after an update.
 
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
