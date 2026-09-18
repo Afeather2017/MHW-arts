@@ -42,10 +42,8 @@ target_link_libraries(ValorGauge PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorGauge PROPERTIES OUTPUT_NAME "ValorGauge")
 # No POST_BUILD auto-install: with two targets sharing one source, an automatic
 # copy re-installs the sibling DLL behind research swaps and the two builds
-# then stand each other down. Deploy explicitly:
-#   cp build/Release/ValorGauge.dll "<game>/nativePC/plugins/"   (play)
-#   cp dist/ValorProbe.dll       "<game>/nativePC/plugins/"   (research, and
-#   remove ValorGauge.dll first - only one may be installed)
+# then stand each other down. Deploy explicitly with deploy.sh (mod|probe|off),
+# which also enforces the one-DLL rule.
 
 # ValorProbe = research/diagnostics build of the same source. It observes and
 # logs (Wwise, damage/hit dispatch, F5 miner, F11 property histogram, F7 state
