@@ -40,14 +40,12 @@ target_include_directories(ValorGauge PRIVATE
 target_compile_definitions(ValorGauge PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(ValorGauge PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorGauge PROPERTIES OUTPUT_NAME "ValorGauge")
-
-add_custom_command(TARGET ValorGauge POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "E:/SteamLibrary/steamapps/common/Monster Hunter World/nativePC/plugins"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:ValorGauge>"
-        "E:/SteamLibrary/steamapps/common/Monster Hunter World/nativePC/plugins/ValorGauge.dll"
-)
+# No POST_BUILD auto-install: with two targets sharing one source, an automatic
+# copy re-installs the sibling DLL behind research swaps and the two builds
+# then stand each other down. Deploy explicitly:
+#   cp build/Release/ValorGauge.dll "<game>/nativePC/plugins/"   (play)
+#   cp dist/ValorProbe.dll       "<game>/nativePC/plugins/"   (research, and
+#   remove ValorGauge.dll first - only one may be installed)
 
 # ValorProbe = research/diagnostics build of the same source. It observes and
 # logs (Wwise, damage/hit dispatch, F5 miner, F11 property histogram, F7 state
@@ -78,11 +76,3 @@ target_include_directories(ValorProbe PRIVATE
 target_compile_definitions(ValorProbe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX VALOR_PROBE=1)
 target_link_libraries(ValorProbe PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorProbe PROPERTIES OUTPUT_NAME "ValorProbe")
-
-add_custom_command(TARGET ValorProbe POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/dist"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:ValorProbe>"
-        "${CMAKE_CURRENT_SOURCE_DIR}/dist/ValorProbe.dll"
-)
