@@ -346,6 +346,28 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
     struct field; dump+Ghidra setup; find_xrefs.py string→xref tool; F5-miner
     fallback). Someone holding the doc can re-derive all addresses after an update.
 
+### 2026-09-18 Roll i-frame negation: NOT detectable player-side (research closed)
+
+- Question: can a perfect through-roll (drawn roll = 3:18) be detected like
+  the 见切/居合 clang? Answer after 3 instrumented mining rounds: **NO.**
+- Evidence (ValorProbe.log, 6-run session): during PERFECT through-rolls the
+  hit dispatcher produced ZERO type-6 interactions (ROLLDISPATCH log empty);
+  no event bits, no presentation fields moved. During the FAILED roll (i-frames
+  expired, hit connected): event bit 250 (ev8954 bit26) fired + pB228=1 + HP-1.
+- Conclusion: MHW implements roll i-frames as pure collision EXCLUSION - the
+  player simply is not in the hit query set, so no layer records "the attack
+  passed through me". 见切/居合 are detectable ONLY because they have
+  deflect/negation INTERACTIONS (type-6 with special codes + presentations).
+  Generic perfect-dodge detection would require computing hitbox-vs-player
+  overlap geometrically from monster collision data - a separate project.
+- Refinement: event bit 250 is a per-motion TIML event - same id, different
+  meaning per move (iai: fired on negation/clang; roll: fired on hit-connect).
+  Do not treat event bits as global semantic constants.
+- Swap discipline learned the hard way: the old POST_BUILD auto-install kept
+  re-adding ValorGauge.dll during research builds and the sibling check stood
+  the probe down (two wasted rounds). Auto-install removed from both targets;
+  deploy explicitly, one DLL at a time.
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
