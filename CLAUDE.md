@@ -233,7 +233,11 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   engine sweeps the volume along the ANIMATED WEAPON during the TIML window (poke anim = small
   front hit, sweep anim = 180° arc; hit TIMING shifted, window unchanged). Labels verified
   consistent (thrust node42="突き", spirit1 node56="気刃斬り１"); action-list.md now records
-  11→104 alongside 79→105. Open: s18/s20 (-1 vs valor's 8), f30 slot-type ids, u48↔ReqNo mapping.
+  11→104 alongside 79→105. **HitLag (hitstop, seconds) user-verified editable**: ATK HitLag_a/b
+  set in pairs, scale 0.03 light → 0.40 max (aerial spirit thrust); HitLagSpd keep 1.0.
+  Multi-hit recipe found: ATK Lingering=1 + Frame_Delay + long TIML window (3 vanilla rows use
+  it; Frame_Delay units unverified). Open: s18/s20 (-1 vs valor's 8), f30 slot-type ids,
+  u48↔ReqNo mapping, Frame_Delay units.
 - Tool: `col_research/col_tool.py dump|bank|atk|setval` (value edits only, auto .bak; setval
   reproduced SR's one-byte range edit exactly). Structural edits (add bank/name/ATK row like the
   valor author did) need a section rebuilder — parser already splits sections, rebuilder unwritten.
