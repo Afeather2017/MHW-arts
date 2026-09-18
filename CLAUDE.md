@@ -214,6 +214,39 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
 - ValorGauge RXN watcher (deployed 2026-09-14): per-frame reads of mgr+0x7C0, pool+0xE4 no-hit remaining, and the 0xDE idx0/1/2 counters via the verified chain; logs edges only (`RXN f=<frame> act=<set:id> 7C0= nohit= DE=[i0,i1,i2]`), draws a live `DE[..] 7C0=` line top-left (cyan when 7C0 armed). Whiff-vs-clang run decides whether idx0 or idx2 is the clang signal. **F6 = property write test** through the same chain, config `nativePC/plugins/ValorGauge.prop-write.txt` = "<id> <index> <value>" (default `222 0 1`); logs key/row/before/readback. If idx0 isn't the 刚1 latch, repoint the config to the F11-identified id without rebuilding.
 - 2026-09-14 first live run: with the wrong stride the watcher resolved key=0 (static read-only row, `PROPWRITE: unresolved or not writable`). Fixed build also logs `gate=` (player+0x7626) and falls back to VirtualProtect when the counter row is write-protected. Watch: does DE idx1 go 1 during 见切 3:86, does idx2/idx0 jump on the clang?
 
+### Weapon attack-box format: wp03.col DECODED (2026-09-19; see COL_AttackBox_Research.md)
+
+- **Weapon hitboxes are NOT in TIML and NOT mesh-bound.** TIML `EventCollision00` only opens the
+  damage WINDOW; the geometry + damage live in `hm/wp/wp03/collision/wp03.col`:
+  `COL\0`(names) + `CLND`(13 banks) + `CLGM`×13 (72-byte parametric volumes: Attack_Range + 20/20/20
+  dims + ±90° sweep) + `ATK\0` (59×218B damage rows: Motion_Value, HitLag, Energy_Gen, Soften,
+  MindsEye...) + `OAP\0`. Routing: TIML `CollisionTimelineObject` ノードID = names-table `unk4`
+  → that entry's `cgp` = CLGM bank, `move` = ATK row (verified: 見切 node 63 ↔ name[24], 居合2 101 ↔ name[45]).
+- **Attack_Range = hitbox volume SCALE, user-verified 2026-09-19**: the record volume is a
+  player-centered ellipsoid; rng=500 (10x) felt ~3x bigger and hit monsters BEHIND the player
+  (perceived size ≈ √rng). Banks are per-MOVE geometry sets, not weapon-length tiers
+  (bank0=normal slashes 50, bank1=thrust 50/57, bank6=必殺 65/77, bank8=见切 75/93,
+  bank9=居合2 100/124, bank10=mounted 360; 6 slot records per bank, f30 constant per slot
+  across banks = 3/118/153/69/240/154; u48=8/9/10 likely ↔ EventCollision00 ReqNo A/B/C).
+  Position does NOT come from the weapon mesh — and needs NO data at all: swap experiment
+  (2026-09-19, thrust 3:79=LMT105 vs spirit blade 1 3:11=LMT104 boxes exchanged) proved the
+  engine sweeps the volume along the ANIMATED WEAPON during the TIML window (poke anim = small
+  front hit, sweep anim = 180° arc; hit TIMING shifted, window unchanged). Labels verified
+  consistent (thrust node42="突き", spirit1 node56="気刃斬り１"); action-list.md now records
+  11→104 alongside 79→105. Open: s18/s20 (-1 vs valor's 8), f30 slot-type ids, u48↔ReqNo mapping.
+- Tool: `col_research/col_tool.py dump|bank|atk|setval` (value edits only, auto .bak; setval
+  reproduced SR's one-byte range edit exactly). Structural edits (add bank/name/ATK row like the
+  valor author did) need a section rebuilder — parser already splits sections, rebuilder unwritten.
+- **SR author's col diff** = pure ATK tuning (MV 14→25/38→55, HitLag 0.03→0.15, Energy_Gen,
+  Soften) + ONE geometry change (bank4[0] rng 50→65). **Valor author's diff** = structural: new
+  name 南风焓 + new bank13 (rng=200, s18=8 — the only non-(-1) s18 in the file, possible bone
+  binding) + 見切り攻撃 cgp 8→13 repoint + new ATK row. No global checksum; appends load fine.
+- Blender plugin inventory (installed 4.3): MHW_Model_Editor edits `.ccl` = BONE-BOUND capsule
+  collision (StartID/EndID bone ids, 64B/entry) for body/props/acc — NOT weapon hitboxes;
+  FreeKinetics = LMT/TIML (windows); **no plugin parses .col** — use col_tool.py. Format spec:
+  `col_research/mhw-editor-src/010 Templates/col.bt` (sparse clone of Synthlight/MHW-Editor; its
+  CollisionTranslations/wp03.col.csv = move-name translations).
+
 ### 2026-09-15 Original ValorLS.dll mechanism (Reverse/ValorLS.dll.c — use it)
 
 - User's counter-evidence killed the "unbound = no clang" theory: vanilla iai/见切 still clang with the vanilla FSM. Conclusion: 0xDE/7C0 is ONE success candidate (likely tied to the extended-iframe iai mechanic), not THE clang presentation; other candidate evaluators (FUN_1411c2780/27c0/2800 family reading prop 0x35) exist.
