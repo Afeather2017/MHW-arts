@@ -117,7 +117,7 @@ void Log(const char* message) {
     constexpr const char* kLogFile = "nativePC/plugins/ValorGauge.log";
 #endif
     std::scoped_lock lock(g_logMutex);
-    std::ofstream out("nativePC\\plugins\\ValorGauge.log", std::ios::app);
+    std::ofstream out(kLogFile, std::ios::app);
     if (out) {
         out << message << '\n';
     }
@@ -2440,7 +2440,7 @@ void MinerCaptureFrame() {
     if (!g_minerActive) {
         g_minerActive = true;
         g_minerPhase = 1;
-        Log("MINER auto-started: recording every 见切 as phase 1. "
+        Log("MINER auto-started: recording 见切/居合/翻滚(3:18) as runs. "
             "F5 marks a new phase + dumps a snapshot.");
         static bool keyDumped = false;
         if (!keyDumped) {
@@ -2449,16 +2449,19 @@ void MinerCaptureFrame() {
         }
     }
 
-    bool is86 = false;
+    bool inEvasion = false;
     {
         std::scoped_lock lock(g_actionMutex);
-        is86 = g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 3 &&
-               g_lastLongSwordAction->actionId == 86;
+        inEvasion = g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 3 &&
+               (g_lastLongSwordAction->actionId == 86 ||
+                g_lastLongSwordAction->actionId == 101 ||
+                g_lastLongSwordAction->actionId == 102 ||
+                g_lastLongSwordAction->actionId == 18);
     }
-    if (is86 && !g_minerInRun) {
+    if (inEvasion && !g_minerInRun) {
         MinerBeginRun(player);
     }
-    if (!is86 && g_minerInRun) {
+    if (!inEvasion && g_minerInRun) {
         MinerEndRun();
         while (g_minerRuns.size() > 16) {
             g_minerRuns.erase(g_minerRuns.begin());
