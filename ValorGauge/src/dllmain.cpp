@@ -804,6 +804,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
 // During 见切 (3:86): log every pool query and every damage-calc entry so a
 // whiff / clang / direct-eat comparison reveals the exact negation signal.
 std::atomic_uint32_t g_fsdLogCount{0};
+std::atomic_uint32_t g_rollDispatchLog{0};
 std::atomic_uint32_t g_vseekLogCount{0};
 bool ActionIsForesightSlash() {
     std::scoped_lock lock(g_actionMutex);
@@ -903,6 +904,17 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
     }
     auto* result = g_originalHitDispatch(a1, a2);
     const auto code = reinterpret_cast<std::uintptr_t>(result);
+    // Roll-mining: log EVERY damage-class dispatch during the roll. A type-6
+    // dispatch with no damage = the hitbox overlapped the player but the
+    // i-frame window ate it - the only place a successful through-roll could
+    // be visible. Pure whiffs never reach the dispatcher as type 6.
+    if (interactType == 6 && ActionIsRoll() && g_rollDispatchLog.load() < 400) {
+        ++g_rollDispatchLog;
+        std::ostringstream m;
+        m << "ROLLDISPATCH type=6" << std::hex << std::uppercase << " code=0x"
+          << code << " dmg=" << (g_damageThisDispatch ? 1 : 0);
+        Log(m.str());
+    }
     const bool attackRejected = interactType == 6 && code != 0xD &&
                                 !g_damageThisDispatch;
     const bool rollRejected = attackRejected && ActionIsRoll();
