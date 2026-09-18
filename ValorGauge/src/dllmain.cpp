@@ -811,6 +811,14 @@ bool ActionIsForesightSlash() {
     return a && a->actionSet == 3 && a->actionId == 86;
 }
 
+// Drawn-state dodge roll (user-identified: action 3:18). Research-only: the
+// probe watches its i-frames; the mod never triggers on it.
+bool ActionIsRoll() {
+    std::scoped_lock lock(g_actionMutex);
+    auto& a = g_lastLongSwordAction;
+    return a && a->actionSet == 3 && a->actionId == 18;
+}
+
 #ifdef VALOR_PROBE
 float __fastcall Aee050Hook(void* pool, int reactionType) {
     const float result = g_originalAee050 ? g_originalAee050(pool, reactionType) : 0.0f;
@@ -897,7 +905,8 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
     const auto code = reinterpret_cast<std::uintptr_t>(result);
     const bool attackRejected = interactType == 6 && code != 0xD &&
                                 !g_damageThisDispatch;
-    if (attackRejected && ActionIsForesightSlash()) {
+    const bool rollRejected = attackRejected && ActionIsRoll();
+    if ((attackRejected && ActionIsForesightSlash()) || rollRejected) {
         // Superseded trigger path (bit15/bit250 own the mod triggers now):
         // probe keeps observation only - latch + capped log.
         if (!g_clangLatch) {
@@ -908,7 +917,8 @@ std::int32_t* __fastcall HitDispatchHook(std::int64_t* a1, std::int64_t* a2) {
             const auto clangN = g_clangCount.fetch_add(1) + 1;
             if (clangN <= 16) {
                 std::ostringstream m;
-                m << "HITDISPATCH #" << std::dec << clangN << ": rejected during 见切"
+                m << "HITDISPATCH #" << std::dec << clangN << ": rejected during "
+                  << (rollRejected ? "roll(3:18)" : "见切")
                   << std::hex << std::uppercase << " (type=" << interactType
                   << " code=0x" << code << ")";
                 Log(m.str());
@@ -2074,7 +2084,8 @@ void PollReactionWatch() {
                        g_lastLongSwordAction->actionSet == 3 &&
                        (g_lastLongSwordAction->actionId == 86 ||
                         g_lastLongSwordAction->actionId == 101 ||
-                        g_lastLongSwordAction->actionId == 102);
+                        g_lastLongSwordAction->actionId == 102 ||
+                        g_lastLongSwordAction->actionId == 18);
     }
     if (inEvasionNow && g_clangProbeLogCount.load() < 600) {
         auto* weaponSlot = player + 0x76B0;
