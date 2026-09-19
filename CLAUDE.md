@@ -405,6 +405,69 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   the probe down (two wasted rounds). Auto-install removed from both targets;
   deploy explicitly, one DLL at a time.
 
+### 2026-09-19 FSM 驱动链: how zero-inbound nodes (居合 101/102) are entered
+
+- Tools: `dump_fsm_xml.py` (parses XFsm XML export) → `wp03_fsm_map.md` (all
+  90 nodes: id/ActionNo/in/out + route sections). XFsm shows NODE NAMES only —
+  node identity is ActionNo, names lie: 必殺攻撃=87 気刃突刺, 必殺駆け上がり=89,
+  居合気刃=node65 act=102. Node45→55 "必殺攻撃→必殺駆け上がり" IS the 87→89 link.
+- Zero-inbound nodes (64 居合斬り/101, 65 居合気刃/102, rolls 20/21/22/1005,
+  jumps 1006/1007, ledges 1002/1003) are entered by ACTION REQUEST matching the
+  node's ActionNo — links only route buffered combo follow-ups. Node-less ids
+  (98, 99, 100, 103 have NO node at all) still play motions: action layer and
+  FSM node entry are decoupled. Force-DoAction (F6/刚1 path) is the manual
+  version of the same mechanism.
+- Iai chain (decompile-verified): ほぼ全攻撃(1013 sys-state) --cond232-->
+  居合斬り開始(node61, act=-10 marker, no outbound) hands over to the action
+  layer. Special-sheathe stance = weapon+0x2368 via FUN_14211cc60(weapon,bool):
+  true→=2 + FUN_140ae08a0(player+0x8808) start-notify; per-frame updater decays
+  2→1, then 1→0 + FUN_140ae10f0 end-notify (gate `0x2368 != 0` = stance window
+  +1 linger frame). **CORRECTION to 09-17 notes: 0x2368 is a stance flag, NOT a
+  0-4 selector.**
+- Button → buffered set-3 request → remapper FUN_14118c320 (registered by
+  FUN_14118dca0/ddc0; player at mgrCtx+0xD90): only in-set==3 proceeds →
+  switch(weapon+0x9f8) case 3 (LS) → if 0x2368!=0: REQUEST-id→action-id remap
+  0→100, 1→101(小居合), 2→102(大居合), 3→103, 4→104, 0x12-0x22→0x69..0x7d/0x43,
+  0x35/36→0xa0/0xa1, 0x8d→FUN_14211f040→0x8e..0x95; else passthrough. Output
+  → DoAction (current build VA 0x140269CE0) → FSM enters node 64/65.
+  **CORRECTION: mgr+0x660/661/662 remap (in-set==1 gate) outputs are SET 1**:
+  99/13/746→{1,764}, 0→{1,762}, 9→{1,766}, 100/747→bit15?{1,763}:{1,764},
+  101/7/8/748→{1,763}, 413→{1,770} (gated on player+0xDDA0 action∈{97,101} via
+  func_141cb4fb0∈{0x61,0x65}).
+- FUN_14211f040 is NOT an iai selector: it grades the 0x8d draw-family —
+  FUN_142178100(player+0x230, player+0x7870)*DAT_142f16ec0 vs obfuscated floats
+  (player+0x7810)+0xa40/+0xa44 ^ DAT_142f130d0, returns 0-3 → 0x8e/0x8f/0x90/
+  0x92/0x93/0x94/0x95.
+- Open: upstream producer of request-id 2 (the 大居合 trigger — test via
+  capture log on counter-iai: 3:101 then 3:102?); FSM jump-by-ActionNo function
+  not pinned (evidence behavioral); what FUN_140ae08a0/10f0 toggle on
+  player+0x8808.
+
+### 2026-09-19 (late) Hit-based valor charging + multiplayer-safe local player
+
+- **Charge now requires a CONNECTED hit.** DmgCalcHook (FUN_141f66dd0, sig in
+  kHookSigs, fallback RVA 0x1F66DD0) is installed in the MOD build too. a1 is
+  the attacker entity (body derefs a1+0x7D20 = mgr); the session-wide hook is
+  filtered: a1 == lockedPlayer-0x61C8 or it is counted (g_hitChargeSkips) and
+  never charges. Charge = `ValorGauge.hit-charge.txt` percent (default 10) per
+  connected hit of an IsNormalModeChargingAction move while !valorMode &&
+  ModWeaponActive; reaching 100 → ActivateValorMode. percent 0 = legacy
+  charge-on-action-start; negative = charging off. First 8 entries log
+  `HITATT a1=.. localPlayer=.. MATCH/skip` — empirically confirms a1 is the
+  ATTACKER (if received hits also MATCH, a1 is defender-side and the filter
+  must be revisited).
+- **Local player (multiplayer).** ValorLS's manager chain, offsets read from
+  its .data (0x1800329A8 = 0x50/0x76B0/0x00): player = *( *(0x145073ED0) + 0x50 ).
+  Current build has ZERO .text refs to that VA (may have slid) →
+  ResolveLocalPlayerViaManager() uses it only when it validates (weapon+0x9F8
+  ∈ 1..14). DoAction lock now REFUSES set-3 controllers that are not the chain
+  player (`FOREIGN ... not locking` log); without a valid chain it falls back
+  to first-set-3 + IsLongSwordController. Unverified: whether remote hunters'
+  actions even route through this process's DoAction.
+- Build ok (both targets); deployed mod md5 a8df953f4bc20baa3e1732744d57fbb8.
+  Test: 1 hit on monster → HITCHARGE +10 in log; whiff → no charge; accept a
+  hit → HITATT a1=monster (skip, no charge).
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
@@ -494,5 +557,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-18*
-*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. ValorGauge.dll = LS-only mod (weapon type weapon+0x9F8==3, user-verified in game), triggers: 见切 bit15 (player+0x8938) / 居合 bit250 (player+0x8954) / deflect flash (weapon+0x23A0) / condEval-631 → no-hit + auto-force; zero audio/diagnostic hooks — BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, staged to ValorGauge/dist, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish*
+*Last Updated: 2026-09-19*
+*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger*

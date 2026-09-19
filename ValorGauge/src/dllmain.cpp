@@ -64,6 +64,10 @@ std::optional<ActionInfo> g_lastLongSwordAction;
 std::atomic_uint32_t g_actionDiagnosticCount = 0;
 std::atomic_uint32_t g_valorCharge = 0;
 std::atomic_bool g_valorMode = false;
+// Hit-based valor charging (mod build). >0: percent per CONNECTED hit
+// (DmgCalcHook); 0: legacy charge-on-action-start; <0: charging disabled.
+// Configured via nativePC/plugins/ValorGauge.hit-charge.txt.
+std::atomic_int g_hitChargePercent{10};
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
 // Force-action: F6 (or the clang detector) arms a one-shot flag; the property
 // getter hook consumes it ON the game thread by calling DoAction directly -
@@ -108,6 +112,55 @@ bool IsNormalModeChargingAction(const ActionInfo& action) {
     default:
         return false;
     }
+}
+
+// --- Local player identification (multiplayer correctness) --------------------
+// The original ValorLS resolved the local player through its build's quest
+// player-manager global: player = *( *( *(0x145073ED0) ) + 0x50 ). Its .data
+// (0x1800329A8 = 0x50/0x76B0/0x00) confirms the 0x76B0 weapon-slot step. The
+// current build has no .text reference to that VA (the global may have slid),
+// so the result is trusted only after the weapon pointer reads a plausible
+// weapon type (1..14). Returns nullptr when the chain does not validate;
+// callers fall back to the DoAction first-set-3-controller lock heuristic.
+bool IsReadable(const void* address, std::size_t size);
+
+void* ResolveLocalPlayerViaManager() {
+    constexpr std::uintptr_t kMgrGlobal = 0x145073ED0;
+    constexpr std::uintptr_t kMgrToPlayer = 0x50;
+    constexpr std::uintptr_t kPlayerToWeaponSlot = 0x76B0;
+    const auto* globalSlot = reinterpret_cast<void* const*>(kMgrGlobal);
+    if (!IsReadable(globalSlot, sizeof(void*))) {
+        return nullptr;
+    }
+    auto* mgr = *globalSlot;
+    if (!mgr) {
+        return nullptr;
+    }
+    const auto* playerSlot = reinterpret_cast<void* const*>(
+        static_cast<std::uint8_t*>(mgr) + kMgrToPlayer);
+    if (!IsReadable(playerSlot, sizeof(void*))) {
+        return nullptr;
+    }
+    auto* player = *playerSlot;
+    if (!player) {
+        return nullptr;
+    }
+    const auto* weaponSlot = reinterpret_cast<void* const*>(
+        static_cast<std::uint8_t*>(player) + kPlayerToWeaponSlot);
+    if (!IsReadable(weaponSlot, sizeof(void*))) {
+        return nullptr;
+    }
+    auto* weapon = *weaponSlot;
+    if (!weapon || !IsReadable(static_cast<std::uint8_t*>(weapon) + 0x9F8,
+                               sizeof(std::uint32_t))) {
+        return nullptr;
+    }
+    const auto weaponType = *reinterpret_cast<const volatile std::uint32_t*>(
+        static_cast<std::uint8_t*>(weapon) + 0x9F8);
+    if (weaponType < 1 || weaponType > 14) {
+        return nullptr;
+    }
+    return player;
 }
 
 void Log(const char* message) {
@@ -715,8 +768,30 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             std::scoped_lock lock(g_actionMutex);
             // Weapon actions use set 3. Once observed, keep this controller for the session so
             // monster/secondary controllers that happen to pass the structural test are ignored.
+            // Multiplayer: another hunter's weapon action must never win the lock. The manager
+            // chain (when it validates) is authoritative; without it we only lock when no
+            // chain-based objection exists, and log the refusal a few times.
             if (!g_lockedPlayerController && current.actionSet == 3) {
+                void* chainPlayer = ResolveLocalPlayerViaManager();
+                const auto candidatePlayer = static_cast<std::uint8_t*>(controller) - 0x61C8;
+                if (chainPlayer && chainPlayer != candidatePlayer) {
+                    static std::atomic_uint32_t foreignActionLogs{0};
+                    if (foreignActionLogs.load(std::memory_order_relaxed) < 8) {
+                        foreignActionLogs.fetch_add(1, std::memory_order_relaxed);
+                        std::ostringstream refused;
+                        refused << "FOREIGN set-3 action: controller 0x" << std::hex
+                                << std::uppercase
+                                << reinterpret_cast<std::uintptr_t>(controller)
+                                << " is not the local player (manager chain player 0x"
+                                << reinterpret_cast<std::uintptr_t>(chainPlayer)
+                                << ") - not locking";
+                        Log(refused.str());
+                    }
+                } else {
                 g_lockedPlayerController = controller;
+                if (chainPlayer) {
+                    Log("Local player controller lock confirmed by manager chain");
+                }
                 std::ostringstream locked;
                 locked << "Player action controller locked at 0x" << std::hex << std::uppercase
                        << reinterpret_cast<std::uintptr_t>(controller);
@@ -744,6 +819,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                     addrLog << " weaponSlot=<unreadable>";
                 }
                 Log(addrLog.str());
+                }
             }
             isLockedPlayer = controller == g_lockedPlayerController;
             changed = isLockedPlayer &&
@@ -768,7 +844,10 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                     g_valorCharge = 0;
                     Log("Valor mode exited via normal-mode action; charging re-enabled");
                 }
-                if (normalAction) {
+                // Legacy charging: +10 on action START (fires even on a whiff).
+                // Only active when hit-charge is set to 0 in hit-charge.txt;
+                // the default path charges in DmgCalcHook on CONNECTED hits.
+                if (normalAction && g_hitChargePercent.load(std::memory_order_relaxed) == 0) {
                     const auto oldCharge = g_valorCharge.load();
                     const auto newCharge = std::min<std::uint32_t>(100, oldCharge + 10);
                     g_valorCharge = newCharge;
@@ -867,16 +946,112 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
 // (FUN_141f66dd0) is never entered; a real hit enters the damage calc. So:
 // clang = non-0xD return while action is 3:86 and no damage processing ran
 // for this dispatch. Fires on the game thread at the clang frame.
-#ifdef VALOR_PROBE
+// FUN_141f66dd0 = damage calculation entry (3 args). a1 is the ATTACKER
+// entity: its body dereferences a1+0x7D20 (the player mgr pointer), and for
+// player-dealt hits a1 equals the player pointer. The hook is session-wide -
+// in multiplayer it fires for every hunter's and monster's connected hits -
+// so the mod filters a1 against the locked local player before charging.
 using DmgCalcFn = long long(__fastcall*)(long long, long long, std::uint32_t*);
 DmgCalcFn g_originalDmgCalc = nullptr;
+
+#ifdef VALOR_PROBE
 bool g_damageThisDispatch = false; // game thread only
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
     g_damageThisDispatch = true;
     return g_originalDmgCalc(a1, a2, a3);
 }
+#else
+// --- Hit-based valor charging -------------------------------------------------
+// Hits from other entities in multiplayer, counted for diagnostics only.
+std::atomic_uint32_t g_hitChargeSkips{0};
 
+// nativePC/plugins/ValorGauge.hit-charge.txt: "<percent>"
+//   >0  charge percent per CONNECTED hit of a whitelisted normal-mode move
+//       (default 10; multi-hit moves tick per hit)
+//    0  legacy behavior: charge on action start (pre-hit-detection builds)
+//   <0  charging disabled entirely
+void LoadHitChargeConfig() {
+    std::ifstream input("nativePC/plugins/ValorGauge.hit-charge.txt");
+    int percent = 0;
+    if (input >> percent) {
+        g_hitChargePercent.store(percent, std::memory_order_relaxed);
+    }
+    std::ostringstream m;
+    m << "Hit-charge config: " << g_hitChargePercent.load(std::memory_order_relaxed)
+      << "% per connected hit"
+      << (g_hitChargePercent.load(std::memory_order_relaxed) == 0
+              ? " (legacy action-start charging)"
+              : "");
+    Log(m.str());
+}
+
+bool LockedPlayerActionChargesValor() {
+    std::scoped_lock lock(g_actionMutex);
+    if (!g_lastLongSwordAction) {
+        return false;
+    }
+    return IsNormalModeChargingAction(*g_lastLongSwordAction);
+}
+
+void NotifyPlayerHitConnected(long long attacker) {
+    void* controller = g_lockedPlayerController;
+    if (!controller) {
+        return;
+    }
+    const auto localPlayer =
+        reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
+    const bool localAttacker = attacker == localPlayer;
+    // First entries log both pointers: empirically confirms a1 is the ATTACKER
+    // entity (dealt hits match, received hits carry the monster's pointer).
+    static std::atomic_uint32_t hitAttLogs{0};
+    if (hitAttLogs.load(std::memory_order_relaxed) < 8) {
+        hitAttLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "HITATT a1=0x" << std::hex << std::uppercase << attacker << " localPlayer=0x"
+          << static_cast<std::uintptr_t>(localPlayer)
+          << (localAttacker ? " MATCH" : " skip");
+        Log(m.str());
+    }
+    if (!localAttacker) {
+        // Another hunter's / monster's / follower's hit: count it, never charge.
+        g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    const int percent = g_hitChargePercent.load(std::memory_order_relaxed);
+    if (percent <= 0 || g_valorMode.load(std::memory_order_relaxed) || !ModWeaponActive()) {
+        return;
+    }
+    if (!LockedPlayerActionChargesValor()) {
+        return;
+    }
+    const auto oldCharge = g_valorCharge.load();
+    const auto newCharge = static_cast<std::uint32_t>(
+        std::min(100, static_cast<int>(oldCharge) + percent));
+    if (newCharge == oldCharge) {
+        return;
+    }
+    g_valorCharge = newCharge;
+    static std::atomic_uint32_t hitChargeLogs{0};
+    if (hitChargeLogs.load(std::memory_order_relaxed) < 64) {
+        hitChargeLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "HITCHARGE " << oldCharge << "% -> " << newCharge << "% (+" << percent << ") attacker=0x"
+          << std::hex << std::uppercase << attacker;
+        Log(m.str());
+    }
+    if (newCharge == 100) {
+        ActivateValorMode(controller);
+    }
+}
+
+long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
+    NotifyPlayerHitConnected(a1);
+    return g_originalDmgCalc(a1, a2, a3);
+}
+#endif
+
+#ifdef VALOR_PROBE
 using HitDispatchFn = std::int32_t* (__fastcall*)(std::int64_t*, std::int64_t*);
 HitDispatchFn g_originalHitDispatch = nullptr;
 std::atomic_uint32_t g_clangCount{0};
@@ -1245,6 +1420,14 @@ bool InstallPoolQueryHook() {
     Log(m.str());
 #else
     InstallCondEvalHook();
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkDmgCalc]),
+                      reinterpret_cast<void*>(&DmgCalcHook),
+                      reinterpret_cast<void**>(&g_originalDmgCalc)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkDmgCalc])) != MH_OK) {
+        Log("Damage calc hook failed (hit charging inactive)");
+    } else {
+        Log("Damage calc hook installed (hit-based valor charging)");
+    }
 #endif
     ValidateMemoryMap();
     return true;
@@ -1641,6 +1824,7 @@ void LoadForceActionConfig() {
         << (g_counterAutoForce ? "on" : "off (Ctrl inside window)");
     Log(msg.str());
     LoadModWeaponTypeConfig();
+    LoadHitChargeConfig();
     std::ostringstream wt;
     wt << "Mod weapon gate: only weapon type "
        << g_modWeaponType.load(std::memory_order_relaxed)
