@@ -305,6 +305,10 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   never called in gameplay); weapon+0x2374 (slow linear float timer, likely
   the red-spirit-gauge duration - useful later for gauge gating, NOT the
   clang latch; flooding it masked other probes once).
+  **CORRECTED 2026-09-24: 0x2374 IS a 0..1 float gauge-family field, but round-2
+  in-game A/B proved it is the LEVEL-DURATION timer (game drains 0.000556/frame
+  ≈ 30 s cycle; refilled from params on level change), NOT the visible gauge —
+  the 气刃量 is weapon+0x2368. See the 09-24 section.**
 - User's mechanics input (authoritative): 见切 negation gates whether the
   follow-up (大回旋 route) is possible - success has TWO parts (i-frame hit +
   follow-up lands = condition 631); 居合 negation only drives the super-armor
@@ -468,6 +472,81 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   Test: 1 hit on monster → HITCHARGE +10 in log; whiff → no charge; accept a
   hit → HITATT a1=monster (skip, no charge).
 
+### 2026-09-20 真正纳刀机制: 动作 id 驱动的挂点表切换 (decompile-verified, 复用槽位定案)
+
+- **合并 = 刀模型绑定节点从"手部挂点表"切到"鞘内挂点表"**（两模型从未合并; 纳刀态刀刚体
+  跟随鞘所以抖动同步）。两层机制缺一不可: 030/047 Y-scale (1/2/3) 只做**表选择**（位置）,
+  "携带态开关"（游戏认为拔刀/纳刀）由**当前动作 id 每帧决策 + 边沿触发**执行。自定义动作
+  只写 (1,1) 通道 → 刀到背后但携带态仍"拔刀" → 独立抖动/分离（(1,1) 不合并的根因）。
+- 链路: 每帧 FUN_1421237B0 (RVA 0x21237B0) 读当前动作 id (func_0x141BFF740(player,0)) —
+  **收刀家族 {5,6,9,10,69(0x45),87(0x57)} 或 weapon+0xA50/+0x23C0 非0 → 期望纳刀,
+  其余 → 期望拔刀**; 动作 98/100/101/102 锁存 weapon+0xAB8=1; weapon+0x2D0 bit0x20/0x40
+  = 納刀中/拔刀中 (疑似 FSM 条件源) → 边沿触发 func_0x142150D10 (RVA 0x2150D10, 锁存
+  weapon+0xC71: 0=拔刀/非0=纳刀, 仅状态翻转时放行) → 控制器 (weapon+0xAF0, vtable
+  0x1435195B8) vtable+0x110 = 0x142374710 写 ctrl+0x181 (0=拔刀/1=纳刀, 极性推定待实测)
+  → FUN_142373BF0/D50 重绑全部节点: `[表+0x4B0][节点id&0x1FF]`→行号, 行 =
+  `[表+0x4A8]+row*0xC0` (+0x20 起 16 float 变换); 激活表 = vtable+0x158 = *(ctrl+0x170)。
+- 表加载: FUN_140325130(持有者, 槽0..4, 状态值) → FUN_1403253F0/140326520 按资源 id;
+  **状态值 = 030/047 的 1/2/3 去向**（采样指令→此参数未钉死, Ghidra 在调用点丢 r8）。
+  武器上有**三个同款控制器** +0xAF0/+0xFA0/+0x1450 (析构 FUN_14210B710 证实) — 推测
+  刀/鞘/配件。特效 FUN_142125150/125860 用同一挂点表取位 (row*0xC0+0x20)。
+- **定案: 自定义纳刀动作复用收刀系槽位（优先实测过的 5/6/9/10）** — 决策/携带态/特效/
+  挂点自动继承, 与"叮+蓝光复用居合槽"同一策略。LMT entry 的 030/047 翻转帧只负责视觉
+  滑入对时。
+- DLL 测试: `(*(void(**)(void*,int))(*(void**)(weapon+0xAF0)))(weapon+0xAF0, 1)` =
+  强制合并 (传 0 = 分离); 若被更新器拉回, 在收刀系动作期间测。
+- 待钉 (ValorProbe): 0x325130/0x3253F0 (槽号+状态值序列 vs 030/047), 0x2150D10/
+  0x2374710 (极性+时序), +0xC71 维护方, +0xA50/+0x23C0 语义, +0xAB8 读取方,
+  set≠3 分支的 0x214/0x215 (疑似 3:99 架势合并路径), 挂点表资源文件定位。
+  详见 LMT_TIML_Hitbox_IFrame_SuperArmor_Sheath_Research.md 文末章节。
+
+### 2026-09-20 (2) 为什么 FSM 里找不到 3:11 気刃斬り1 — 链接条件测按键属性,不测请求 id (XML-verified)
+
+- 気刃斬り1 (request 3:11, LMT104) 在 wp03_action.fsm 里**没有 ActionNo=11 的节点,也永远不会有**。
+  它的 FSM 状态 = **节点1: ActionNo MtEnum=1001,编辑器名"特抜(気刃斬1"**(节点名再次说谎;`ActionNo`
+  在 XFS 里是单值 MtEnum,没有隐藏第二字段)。证据: 节点1 的 15 条入边 = 恰好所有能 R2 接气刃斬り1
+  的招式(待機２ cond38 / 斬り上げ16 / 突き19 / 縦斬り17 / 踏込斬り18 / 回避F·R·B·L 125·132·130·131 /
+  J攻撃着地133 / 段登(納刀)47 / 気刃斬り上げ71 / 移動抜刀78 / s0006 231 / s000c 286=小居合路线);
+  出边 = 気刃斬り1 的真实派生(→気刃斬2 cond20, →見切り153, →必殺攻撃163, →滑歩気刃1 F/L/R 243/247/248)。
+- **机制: FSM 链接条件是 cFSMPl_W03 的按键属性 VariableNode,与请求 id 无关**: cond16-20/38 = `R`
+  (气刃键), cond153 = `R+○`, cond163 = `R+△`(气刃突刺输入 R2+△ ✓), 另有 `△`/`○`/`△+○`/`△+○+←`
+  树。R2 按下 → 输入层发请求 {3,11} → DoAction → LMT104 播放;同一 checkpoint 上源节点的 `R` 链接
+  点火 → FSM 进节点1。**动作层与 FSM 各自 authored 对齐,不靠 id 互查。**
+- 因此: DoAction 日志里的 id 只对**零入边节点**(居合 101/102、回避 20/21/22 — 靠请求匹配 ActionNo
+  进入)成立;链接进入的节点 ActionNo 用的是另一个编号系(1000 系列 = 1000待機/1002,3登段/1005回避F/
+  1006,7跳跃/1008味方アッパー/1009スラ納刀/1012待機２/1013ほぼ全攻撃/1014スリまとめ),与请求 id 无关。
+  反编译侧注: hook 的 0x140269CE0 在 Ghidra 里不是独立函数(显示为 `func_0x000140269ce0(...)`;
+  0x140269c30 是动作实例池分配器),在 dump.exe.c 里 grep "FUN_140269ce0" 永远落空,按调用点
+  `(x+0x61c8, &stack)` 搜 func_0x 才能找到。
+- 推论(待实测): force-DoAction {3,11} 只播动作,**不会**让 FSM 进入节点1(没有 ActionNo=11 可匹配,
+  链接条件 R 又未被满足) — id 11 实质上是"无节点 id"(同 98/99/100/103)。要 FSM 侧同步得满足对应
+  按键属性或直接写 FSM 状态。编辑気刃斬り1 的 FSM 行为 → 改节点1(ActionNo 1001);改动作/判定 → 仍走
+  request 11 (LMT104/TIML/COL)。
+
+### FSM Studio — browser-based XFsm replacement (2026-09-20, verified)
+
+- **`FSM-Studio/`** is its own independent git repo (nested, like
+  MHW-FSM/SPL-Examples — parent-repo commits do not capture it; check
+  `git -C FSM-Studio status` there). Edits MHW `.fsm` files in the browser —
+  no game launch needed for editing OR binary conversion. TypeScript +
+  esbuild, zero runtime deps.
+  Run: `npm start` in FSM-Studio (node at `E:\MHW-arts\node-v24.21.0-win-x64`) →
+  http://localhost:8123; double-clicking `index.html` also works.
+- Opens `.fsm` (XFS binary) AND `.xml` (XFsm MtSerializer export); saves game-loadable
+  `.fsm` directly. Deploy target unchanged (`nativePC/hm/wp/wp03/wp03_action.fsm`).
+- **XFS format fully cracked + byte-verified** (see FSM-Studio/README.md and
+  `research/` python scripts): `XFS\0` + defs block (15 known classes, regenerable
+  byte-identically from `src/deftable.ts`) + ClassEntry tree
+  (`id=defIdx*2+1`, `var=ordinal`, header u64 = instance count, null ref = `0xFFFE`).
+  Two game-written samples round-trip **byte-identically**; 28 node tests (`npm test`).
+- Graph editor: layered auto-layout (main chain + request-entered subgraph bands),
+  pan/zoom/drag, node/link/condition-tree inspectors, undo, search.
+  The 刚1-era workflow (add `VariableNode R` / `cFSMPl_W03` to a condition) is a
+  built-in button flow; verified the written binary reparses with the R child.
+- Limitations: canonical rewrite re-numbers var ordinals (game-written files are
+  already canonical); unknown classes (quest FSMs) synthesize defs and warn;
+  `mUIPos` preserved raw, not written back.
+
 ### XFsm condition-tree authoring (2026-09-14, user-verified)
 
 - Minimal link condition: one top-level `OperationNode` (Operator `None` = passthrough for a single child; AND=16 / OR=17 for multiple), then `Add Child` → `VariableNode`.
@@ -481,6 +560,111 @@ Build command:
 & 'E:\MSVC2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' -S ValorGauge -B ValorGauge\build -A x64
 & 'E:\MSVC2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' --build ValorGauge\build --config Release
 ```
+
+### 2026-09-22 R2+方向 combo 不触发根因: 请求层按武器路由 combo, FSM 条件覆盖不到 + DIRREWRITE stopgap
+
+- **Symptom:** custom wp03 FSM link `VariableNode("R+↑")` on node 12 (気刃斬2, the REAL one: node1 --cond20--> 12 --cond21--> node2 気刃斬3) never fired, while plain-R link (tree 307) worked and its node-entry ACTION plays over the vanilla request (log: `3:67 -> 3:101` — node-entry beats the request layer). AND(`R`,`レバー前キープ`) also failed.
+- **Root cause chain (all verified):**
+  1. The property string was first saved as bare `↑` (byte check: `.fsm` had `e2 86 91` alone at 0x1cc70, `R+↑` 0 hits) — bare arrows are NOT registered properties; only combos (`R+↑`, `回避+↑`, `レバー前キープ`...) exist. Re-export fixed the bytes (`52 2B E2 86 91` present).
+  2. With correct bytes it STILL fails: `R+↑` IS globally registered (string table `.rdata` 0x1430B9C34; reflection builder 0x140B25DC1 + name resolver 0x140B2F26B both contain it; wp05/wp08 vanilla FSMs use it) — but the **combo→request classifier is per-weapon**: LS routes only what vanilla wp03 uses (`R`, `R+△`, `R+○`, `△+○`, `△+○+←/→`; ← works on keyboard user-verified via 左移動斬り). `R+↑`/`↑`-combos are never classified for LS → the property value is never written → condition false forever. Vanilla wp03 has 0×`↑`, 0×`レバー` conditions — no LS precedent.
+  3. `レバー前キープ` etc. registration accessor = 0x140240720 stub (`xor al,al; ret`) — all cFSMPlBase transition values are written per-frame by the input system, registration table has no real getters. `wp03_param.w03p` (1584B, w03p.bt template in mhw-editor-src) = numeric tuning only, NO combo routing table → routing is code-side (upstream producer of buffered set-3 requests — same open item as the backlog's 大居合 request-id-2 producer).
+- **Tool gotcha:** XFsm/XML export vs `.fsm` can silently desync (xml newer than fsm with different property text). ALWAYS byte-verify the deployed fsm: `python -c "print(open(r'...wp03_action.fsm','rb').read().count('R+\u2191'.encode()))"`.
+- **DIRREWRITE (shipped, mod build only):** DoActionHook stopgap — while hold key is down and PREVIOUS action == duringId, rewrite incoming {3,68}/{3,101} → {3,102} (钢2一长). Runs BEFORE the action tracker updates g_lastLongSwordAction; local-player locked only; iai-safe (rule scoped to during-action 3:67). Config `nativePC/plugins/ValorGauge.dir-rewrite.txt` = "<duringId> <holdVK> <toId> <fromId> [fromId...]" (default `67 87 102 68 101`; holdVK 0 = off; logs `DIRREWRITE: 3:x -> 3:y`). Caveat: FSM still enters the level-gated node (64/2) while 102 plays — follow-up links route from that node, not 65, until the real routing fix.
+- Fixed two latent `"nativePC\p..."` single-backslash escape bugs (counter-auto.txt, prop-trigger.txt — C4129, files never loaded).
+
+### 2026-09-24 气刃量定位: weapon+0x2374, float 0..1 (decompile+指令级 verified; mod 配置定案)
+
+- **气刃量 = `float` at `weapon+0x2374`, 0.0..1.0**（user 在 MHW Editor 确认 0-1 float 语义;
+  ValorLS.dll 早就写过它 — old-disasm 0x18000838B `movss [rax+2374h],xmm0` = accum/除数 的渐充动画）。
+  HUD 条 getter `FUN_140616d60` (VA 0x140616D60): 门控 `func_141F627F0()==3` (LS),
+  `return *(float*)(weapon+0x2374) * 100.0f`（×100 常量 `_DAT_142f16ec4`=100.0）。
+  **更正 09-17 "ruled out" 条目: 0x2374 不是红刃持续时间计时器，就是气刃量本身；
+  当时的"线性慢漂移"= 量条的自然衰减，所以看起来像 timer。**
+- 等级变动时的回填（DropLevel, decompile ~4985040 行）: 等级归 0 → `0x2374=0`;
+  降到白(1) → `0x2374 = *(playerParam+0x9AC)`, 降到黄(2) → `+0x9B4`;
+  `playerParam = *(*(weapon+0x9B0)+0x7810)`（player+0x7810 结构; 实测两处 = 1.0, 与
+  diff_analysis 的 "+0x2374 -> 1.0 @ 升级" 吻合）。居合事件回填 `FUN_142123510`:
+  `0x2374 = clamp(0x2374 + *(playerParam+0x888), 0, 1.0)`（钳位常量 `_DAT_142e4fe58`=1.0,
+  满量走 `FUN_142122410(weapon,1.0)`）。武器块 ctor 初始化 0x2374=900.0 — 出生即被覆盖, 忽略。
+- **`weapon+0x2368` 双重语义 — 未经实测不要当气刃量写**: 它既是居合架势 int flag 0/1/2
+  (指令级实锤: FUN_14211cc60 `mov dword ptr [w+2368h],2/0`; remapper 门 `0x2368 != 0`),
+  又是 0..1 float 累加器: `FUN_142122410(weapon,float)` (RVA 0x2122410) 指令级实锤
+  `addss/minss/movss [w+2368h]` 钳 0..1, 同时写 `+0x236C = *(playerParam+0x804)`(当前消耗);
+  每招调用点 ~15 处 (wrapper `FUN_142122f90`, 增益参数表 playerParam+0x808..0x834 每招一格);
+  动作校验器 `FUN_140b980c0` 在 `*(uint*)(w+0x2368) > *(uint*)(w+0x236C)` 时把
+  185/278/285 重定向 → 294（正 float 的 uint 比较成立）。第二个 HUD getter
+  `FUN_140616dd0` 读 `0x2368 × 100`（同一 ctor 绑两根条: widget 槽 +0x90 → 0x2368,
+  +0x180 → 0x2374）。int flag 与 float 量在同 DWORD 上的生命周期交错方式 **未决** —
+  直接覆盖会破坏居合架势进入 (remapper 门) 和 force-iai 流。Open。
+- **第二轮实测: 气刃量 = weapon+0x2368 定案 (user-verified 锁住了)** — target=2 每帧写 1.0,
+  可见蓝条钉死 → +0x2368 就是 HUD 那根气刃条。+0x2374 = 等级持续时间计时器（30s 周期）。
+  09-17 的"线性慢漂移"观察因此完全恢复名誉 — 那时看到的就是 0x2374 本尊。
+- **气刃双累加器 + 每招路径 (指令级实锤 2026-09-24)**:
+  - `FUN_142122410` (RVA 0x2122410) = **+0x2368 气刃量唯一 float 累加器**, 3 条调用路径:
+    wrapper FUN_142122F90（~15 个每招事件处理器各传一个参数表槽位）、FUN_142123510（居合回填）、
+    FUN_142124B20（TIML/motion 参数缩放）。
+  - `FUN_14211EF90` = **+0x236C 同款累加器**（10 个直接调用点, 与 FUN_142122410 前 44 字节相同,
+    仅 call 转移与 addss 偏移 68/6C 不同; 签名靠 `E8 DF 0F 0A` 区分）。+0x236C 语义未定
+    （validator FUN_140B980C0 拿它与 +0x2368 比较; FUN_142122410 每次调用还会把
+    `+0x236C = *(playerParam+0x804)` 当"当前消耗"写入）。
+  - **每招→槽位映射是代码硬编码**: 每招事件处理器形如 FUN_1417FDAE0: `param表 = func_0x14211C060(weapon)`,
+    `FUN_142122F90(weapon, *(float*)(param表+0x82C))` — 调用点覆盖 **+0x808..0x834 共 12 个
+    float 槽**（增量+消耗都在表里; w03p 文件里 MHW Editor 只给 5 个消耗起了名, 其余是 Unk）。
+    w03p 文件偏移（user 截图: Blade1 Cost 0.15@1185 等）≠ 运行时偏移, 由加载器重排。
+- **GAUGEEVT 钩子已实装 (mod build, HkGaugeAdd)**: detour FUN_142122410, 每次气刃变化记
+  `GAUGEEVT +0x<callerRva> val=<增量> gauge=<前>-><后> cost=<0x804槽> own=<是否本地玩家> act=<set:id>`,
+  40 行/s 限速。配置 `nativePC/plugins/ValorGauge.gauge-log.txt` = "<minAbs>"（默认 0.01,
+  滤掉每帧 -0.000556 的 0x2374 衰减; 0 = 全记）。一局就能实测出完整"招式→增量/消耗"表。
+  **后续改增量/加消耗/见切清空的实现点就在这个 detour 里**（改 value 再调 original 即可）。
+  气刃锁实验保留: `ValorGauge.gauge-lock.txt` = "[target] value"（当前 `2 0` = 关,
+  映射采数期间须关以免钳位污染数据; F5 游戏内切换）。
+- **实测基线 (user 2026-09-24 局内确认)**: 3:79 突刺 +0.1 / 3:80 上挑 +0.1 /
+  3:84,3:85 普斩 +0.2 / 3:11,3:67~3:70 气刃斩系消耗 / 3:87~3:90 兜割系。
+- **气刃规则系统已实装 (mod build, HkGaugeAdd detour + DoActionHook)**:
+  `nativePC/plugins/ValorGauge.gauge-rules.txt` 三种规则（仅本地玩家, set 3）:
+  - `rewrite <set> <id> <delta> [origVal]` — 该动作期间的所有气刃事件改为 delta;
+    带 origVal 时只改 ±0.005 内匹配的事件（多事件动作的精准改法）
+  - `cost <set> <id> <amount>` — 动作开始（DoAction 接受后）扣 amount,
+    给没有原生气刃事件的招式加消耗用; 走 g_originalGaugeAdd（clamp 安全）
+  - `gate <set> <id> <minGauge> <nohitSec>` — 动作开始时气刃 ≥ minGauge 则
+    注入 pool+0xE4 no-hit 窗口并清空气刃槽（见切配方）; 不足则什么都不发生。
+  cost 先于 gate。注入助手 `InjectNoHitLocked` 已从 OpenCounterWindow 提取共用。
+  文件当前全部注释（无行为变化）, 实测基线写在注释里。
+- **rewrite 规则 user-verified 有效**: 突刺 +0.5 / 上挑改 -0.1（增益变消耗）都生效。
+- **气刃 Regen 状态破解 (decompile 实锤 2026-09-24)**: 兜割后 `weapon+0x2378` = 持续秒
+  （普通 10s/红刃 15s）, 小居合后 `weapon+0x2388` = 持续秒（普通 15s/掐点 30s, 经
+  +0x2CED 掐点标志 → +0x2384 选档）; 每帧 updater 递减计时器并给 +0x2368 加
+  `dt ÷ regenRate参数`（兜割 rate +0x840/+0x844 由色刃标志 +0x237C 选, 居合 rate
+  +0x850/+0x854 由 +0x2384 选）, HUD 由 FUN_140617730 检测计时器 >0 切显示模式。
+  **DLL 激活 = 直接写 +0x2378/+0x2388**。w03p regen 参数文件偏移+0x367=运行时偏移
+  （file 1233→+0x838 ... file 1261→+0x854）; 同 skew 下 cost 表 file 0x4A1→+0x808..,
+  decay 0.05=file 0x49D→+0x804, Unk120=file 0x499→+0x800（+0x236C 每帧衰减的分母）。
+  ValorLS 当年写 +0x2388=90.0 之谜 = 激活此 regen 状态（旧"无敌帧"误判再次翻案）。
+  **regen 规则已实装**: `regen <set> <id> <seconds> <variant>`（variant 0=兜割 +0x2378,
+  1=居合 +0x2388）, 动作开始时只延长不缩短, updater 自动回气+切 HUD。
+  **regen user-verified 有效**。回气量控制 (2026-09-24 补): `regen` 第 5 参 = rate 覆写
+  （回气速度 = dt/rate参数, 下值快上值慢; 100000 = 只发亮基本不涨; 同时写该 variant 的
+  两个色档参数 +0x840/+0x844 或 +0x850/+0x854, 对话期间有效）; 
+  `option regen-freeze 1` = 回气期间气刃不降（GaugeAddHook 把负增量清零, 正增量保留）。
+  修正: costSlot/regen rate 读取须双重解引用（player+0x7810 是指针, 之前读的是
+  player+0x8014 的垃圾值）。
+- 工具坑: `disasm_rva.py <rva> <len>` 第二参是**字节数**不是指令数（传 40 只出 ~10 条）。
+- **实验已实装 (mod build): 气刃量锁定** — 每帧写 Present 线程（游戏帧更新后）。
+  配置 `nativePC/plugins/ValorGauge.gauge-lock.txt` = "[<target>] <value>"（target 1=+0x2374,
+  2=+0x2368, 裸数字=target 1; 当前 `2 1.0`）, **F5** 游戏内切换。两字段恒被监视:
+  `GAUGELOCK: lock=... | 0x2374 raw=... drift=N/2s | 0x2368 raw=... drift=N/2s`。
+- **第一轮实测 (target=+0x2374): 条没有锁住 + 字段活的** — 游戏每帧写 0.999444（恒定,
+  = 每帧 -0.000556 ≈ 1/1800, 60fps 下 30s 空周期）但我们写 1.0 后条照常掉 →
+  **可见蓝条不是 +0x2374**（×100 getter 是另一根条）; +0x2374 更可能是等级持续时间
+  （09-17 "线性慢漂移" 的原始观察因此恢复名誉）。主嫌疑转 **weapon+0x2368**（第二根条的
+  getter、每招增益、消耗比较都在它上面）。
+- **0x2368 双重语义解法 (指令级新证据)**: remapper 的架势检查是 `cmp byte ptr [rdi+0x2368],0`
+  ——**按字节**。若 rdi=weapon, 0.999444(低字节 0x73) 会误判架势毁掉普通攻击 → 游戏没坏 →
+  字节检查的对象不是 weapon（大概率 player+0x2368）。而架势生命周期 int 0/1/2 写在
+  weapon+0x2368 dword 上 = **进架势把气刃 float 清零**（int 2 = float 2.8e-45 ≈0）, 语义自洽。
+  → weapon+0x2368 就是气刃量本体, 架势 = "复用同 dword 做清零标记"。
+  锁 target=2 的已知副作用: 锁定期架势每帧衰减检查 (==1/==2) 会被 1.0f 的 int 视图
+  (0x3F800000) 绕过, 居合架势退出通知可能不触发（FSM 3:99 的 5s 超时应仍兜底）。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
@@ -557,5 +741,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-19*
-*Current Milestone: 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger*
+*Last Updated: 2026-09-24*
+*Current Milestone: 2026-09-24: 气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*

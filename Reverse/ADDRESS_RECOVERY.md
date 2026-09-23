@@ -138,6 +138,28 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 临时方案（不重编译）：`nativePC/plugins/ValorGauge.addresses.txt` 写
 `名字=0xRVA`，名字见附录 A。优先级：override > 特征码 > 旧 RVA。
 
+### 2.8 gaugeAdd（气刃量累加器 FUN_142122410，气刃系统的总闸门）
+
+- **是什么**：weapon+0x2368（气刃量 float）唯一的 float 写入方。每招增量/消耗、
+  居合回填、见切清空全部流经它 → 钩它 = 记录/改写整个气刃系统（GAUGEEVT/GAUGERULE）。
+- **锚点**：函数头 `40 53 48 83 EC 40 0F 29 74 24 30`（push rbx; sub rsp,0x40;
+  movaps [rsp+30h],xmm6），随后 `48 8B D9`（mov rbx,rcx）；
+  deref 链 `mov rax,[rcx+0x9B0]` → `mov rcx,[rax+0x7D20]` → call；
+  写回 = `movss [rbx+0x2368],xmm6` + `minss` 钳 1.0（常量旧版 0x142E4FE58=1.0）。
+- **孪生陷阱**：FUN_14211EF90 是 +0x236C 版同款累加器（10 个调用点），前 44 字节完全
+  相同！区分点：① call 转移字节（旧版 `E8 DF 0F 0A` vs 孪生 `E8 5F 44`）——注意这个
+  rel32 在游戏更新后**会变**，特征码因此失效属正常，走 RVA/override 兜底；
+  ② 里面的 addss 偏移 `68 23`（+0x2368）vs `6C 23`（+0x236C）——手工找新版时用它验。
+- **步骤**：
+  1. 找每招事件处理器（形如旧版 FUN_1417FDAE0：`param表=func_0x14211C060(weapon)` 后
+     `FUN_142122F90(weapon, *(float*)(param表+0x8xx))`，0x8xx ∈ 0x808..0x834）。
+  2. 进 FUN_142122F90（wrapper），它内部 call 的就是累加器。
+  3. 反汇编确认写的是 +0x2368（不是孪生的 +0x236C）。
+- **验证**：反编译形状 = 参数>0 时乘 `func(mgr)` 再加到字段、钳位 [0,1.0]、
+  写 `+0x236C = *(paramTable+0x804)`；训练场砍一刀 GAUGEEVT 日志出对应 val。
+- **写回**：sig_check.py TARGETS 加 `"gaugeAdd": 0x新RVA` → --emit → --verify →
+  抄进 kHookSigs[] `gaugeAdd`；急用 `addresses.txt` 写 `gaugeAdd=0x新RVA`。
+
 ---
 
 ## 3. 数据地址
@@ -189,13 +211,37 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 | weapon = *(player+0x76B0) | 指向对象的 +0x2370 ∈ [0,3] | 改写器 FUN_14118C320 读它 |
 | weapon+0x2370 气刃等级 | 只在 0/1/2/3 之间跳变 | 搜 `0x2370` 立即数 |
 | weapon+0x23A0 蓝光强度 | 叮瞬间跳 ~1.0 后衰减；空挥恒 0 | F5 挖掘（附录 D） |
-| weapon+0x2368 特殊纳刀 | 姿态中为 1 | 改写器的居合重映射分支 |
+| weapon+0x2368 **气刃量** float 0..1 | 每帧写 1.0 → HUD 气刃条钉满（2026-09-24 实测）；UI getter 读它 ×100 | 2.8 累加器写它；见 4.4 |
+| weapon+0x236C 第二累加器 | 孪生累加器写它；校验器拿它与 +0x2368 做 uint 比较 | FUN_14211EF90（2.8 的孪生） |
+| weapon+0x2374 等级持续时间 | 每帧 −0.000556（30s 周期）；降级时从参数回填 1.0 | 降级函数（refill from param+0x9AC/0x9B4） |
+| weapon+0x2378 兜割回气秒 | >0 期间气刃每帧 +dt/参数(0x840/0x844) | 每帧 updater（附录 C） |
+| weapon+0x2388 居合回气秒 | 同上（参数 0x850/0x854）；HUD 检测 >0 切回气显示 | FUN_142123510（0x65 动作写 param+0x84C） |
+| weapon+0x237C / +0x2384 回气档位 | byte：0=白黄/普通，非 0=红刃/掐点 | 每帧 updater 的 rate 参数选择分支 |
+| player+0x7810 → 参数表指针 | **双重解引用**：paramTable = *(player+0x7810) | 累加器反编译的 `mov rax,[rcx+0x9B0]` 后续 deref |
 | mgr = *(player+0x7D20) | +0x7C0 ∈ {0,1} | DoAction 附近代码 |
 | mgr+0x28→pool+0xE4 无伤秒 | float ≥ 0；注入 0.5 即变 0.5 | F5 挖掘 |
 | mgr+0x660/661/662 锁存 | 见切/居合后输入改写时置位 | 2.3/改写器反编译 |
 | player+0x8938 事件位数组 | dword0 bit15=见切成功；+0x8954 bit26=居合否定 | 搜 `0x8938` 立即数 |
 | player+0x7626 配置门 | 常年 0/1 | 2.3 函数开头的分支 |
 | player+0x126D8 属性组件 | +0x84+id*24 键槽（stride 24） | propInt 反编译 |
+
+### 4.4 太刀气刃量字段块（weapon+0x2368..0x239C，2026-09-24 实测+反编译）
+
+动态验证法（GAUGELOCK，最快）：DLL 每帧写目标字段 1.0，看 HUD 哪根条被钉住/哪个
+状态被激活——气刃量、回气状态都是这么实测确认的。静态验证法见 2.8。
+
+| 偏移 | 语义 | 备注 |
+|---|---|---|
+| +0x2368 | float 气刃量 0..1 | HUD 条 ×100；进居合架势被 int 2 覆盖 = 清零（复用同 dword） |
+| +0x236C | float 第二累加器/消耗槽 | 语义未全解；校验器 FUN_140B980C0 拿它与 +0x2368 比较 |
+| +0x2370 | int 气刃等级 | 0 无/1 白/2 黄/3 红 |
+| +0x2374 | float 等级持续时间 | 30s 线性衰减；清零/降级触发降级函数 |
+| +0x2378 | float 兜割回气剩余秒 | vanilla 兜割后 10s/红刃 15s |
+| +0x237C | byte 兜割回气档 | 0=白黄 rate+0x840，非 0=红 rate+0x844 |
+| +0x2380 | int 等级快照 | 0x59..0x5C 动作期间 = +0x2370 |
+| +0x2384 | byte 居合掐点档 | 0=普通 rate+0x850，非 0=掐点 rate+0x854 |
+| +0x2388 | float 居合回气剩余秒 | 普通居合 15s / 掐点 30s（param+0x848/0x84C） |
+| +0x2398..0x239C | byte 居合事件标志 | FUN_142123510 置位 |
 
 ---
 
@@ -214,7 +260,7 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 
 ## 6. 最终验证标准
 
-1. `MEMORYMAP hooks:` 一行 10 项全 `ok`（或有意放弃的诊断项）。
+1. `MEMORYMAP hooks:` 一行 11 项全 `ok`（或有意放弃的诊断项）。
 2. `MEMORYMAP propRegistry count=… rowTable=ok`、`audioSingleton ok`。
 3. 进训练场：见切空挥（静默）→ 叮（屏幕出反击提示、出刚1）→ 居合 101/102 同测。
 4. 无 `MEMORYMAP SANITY` 告警。
@@ -227,21 +273,44 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 `doAction`（自动）、`condEval` 0x118BDA0、`poolQuery` 0xAEE050、
 `dmgCalc` 0x1F66DD0、`hitDispatch` 0x1F71960、`postEventId` 0x28B8DD0、
 `soundPost` 0x26D4C50、`postEventName` 0x28B8FE0、`propInt` 0x1922190、
-`propBool` 0x19221F0、`propFloat` 0x1922240、`audioSingleton` 0x51C458、
-`propRegistry` 0x5012048、`propLookup` 0x462700、`propName` 0x1979770。
+`propBool` 0x19221F0、`propFloat` 0x1922240、`gaugeAdd` 0x2122410、
+`audioSingleton` 0x51C458、`propRegistry` 0x5012048、`propLookup` 0x462700、
+`propName` 0x1979770。
 
 ## 附录 B：结构体字段旧版偏移
 
-见 4.3 表。player 系偏移从 controller−0x61C8 起；weapon = *(player+0x76B0)；
+见 4.3 / 4.4 表。player 系偏移从 controller−0x61C8 起；weapon = *(player+0x76B0)；
 mgr = *(player+0x7D20)；pool = mgr+0x28。
+
+**运行时 w03p 参数表**（paramTable = *(player+0x7810)，双重解引用）：
+
+| paramTable+ | 语义（w03p 文件偏移 = 运行时 − 0x367） |
+|---|---|
+| +0x800 | 气刃衰减分母（Unk 120，file 1177；+0x236C 每帧 −dt/此值） |
+| +0x804 | 当前消耗槽（累加器每次调用写进 weapon+0x236C；file 1181 = Spirit Gauge Decay） |
+| +0x808..+0x834 | 12 个每招气刃增量/消耗槽（file 1185..1225；每招读哪个槽硬编码在事件处理器里） |
+| +0x838/+0x83C | 兜割回气时长 10s / 红刃 15s（file 1233/1237） |
+| +0x840/+0x844 | 兜割回气速率 白黄/红（file 1241/1245，下值快） |
+| +0x848/+0x84C | 居合回气时长 15s / 掐点 30s（file 1249/1253） |
+| +0x850/+0x854 | 居合回气速率 普通/掐点（file 1257/1261，下值快） |
 
 ## 附录 C：本项目沉淀的关键机制（找新版对应物时的"目的地"描述）
 
 - 输入改写器（旧版 FUN_14118C320）：`weapon+0x2368` 时把输入 0-4 改写为
   100-104；`mgr+0x660/661/662` 锁存时把输入改写为 761-770；
   **player+0x8938 bit15 决定成功(763/162)与失败(764/163)分支**。
+  注意改写器里架势判断是 `cmp byte ptr [rdi+0x2368], 0`（按字节）。
 - 见切成功判定 = 事件位 15；居合否定 = 事件位 250（player+0x8954 bit26）。
 - 强制出招 = 在 propInt 钩子里直接调用原始 DoAction（栈上 ActionInfo，勿保存指针）。
+- **气刃系统（2026-09-24 全链路破解，详见 2.8/4.4）**：
+  - 所有气刃增减经唯一累加器（2.8）写 weapon+0x2368（float 0..1，HUD ×100 显示）。
+  - 每招的增量/消耗 = 事件处理器硬编码参数表槽位（+0x808..0x834），数值在 w03p。
+  - 居合架势 = FUN_14211CC60 往 +0x2368 写 int 0/2（覆盖 float = 清零气刃），
+    每帧 updater 按 int ==1/==2 衰减——float 量与架势计数复用同一 dword。
+  - 兜割/居合后的自动回气 = weapon+0x2378/+0x2388 计时器，每帧 updater 递减并
+    给气刃量加 dt÷rate参数；HUD 检测计时器 >0 切回气显示。
+  - 动态实测手法：每帧写候选字段 1.0 看 HUD/状态反应（GAUGELOCK）；钩累加器看
+    每招增量（GAUGEEVT）。
 
 ## 附录 D：F5 动态挖掘向导（静态路走不通时的万能后备）
 

@@ -69,6 +69,70 @@ std::atomic_bool g_valorMode = false;
 // Configured via nativePC/plugins/ValorGauge.hit-charge.txt.
 std::atomic_int g_hitChargePercent{10};
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
+// Gauge-lock experiment (2026-09-24): per-frame overwrite of an LS gauge
+// float. Round 1 (target 0x2374): game drains it 0.000556/frame but the
+// visible bar did NOT follow -> 0x2374 is the level-duration timer. Round 2
+// target: weapon+0x2368 (second HUD getter FUN_140616DD0 reads it x100; the
+// per-move charge gains and the cost compare FUN_140B980C0 use it; the iai
+// stance writes int 0/1/2 over the same dword = gauge-clear-on-stance).
+// Config nativePC/plugins/ValorGauge.gauge-lock.txt = "[<target>] <value 0..1>"
+//   target 1 = weapon+0x2374, 2 = weapon+0x2368; bare "<value>" = target 1.
+// F5 toggles at runtime. BOTH fields are always watched: drift = the game
+// wrote underneath, rate-limited logged as GAUGELOCK.
+std::atomic<int> g_gaugeLockTarget{1};
+std::atomic<float> g_gaugeLockValue{0.0f};
+std::atomic_bool g_gaugeLockEnabled{false};
+bool g_gaugeLockKeyWasDown = false;
+// DrawGauge(Present)-thread only state. Index 0 = +0x2374, 1 = +0x2368.
+float g_gaugeLockLastWritten[2] = {-1.0f, -1.0f};
+float g_gaugeWatchDrift[2] = {0.0f, 0.0f};
+std::uint32_t g_gaugeWatchFrames[2] = {0, 0};
+std::chrono::steady_clock::time_point g_gaugeLockNextReport{};
+// Gauge-event logger (GaugeAddHook): log every gauge delta with the caller
+// RVA so one play session maps "which move moves the gauge by how much".
+// Config nativePC/plugins/ValorGauge.gauge-log.txt = "<minAbsValue>"
+// (default 0.01 filters the per-frame 0.000556 drains; 0 logs everything).
+void (*g_originalGaugeAdd)(void* weapon, float value) = nullptr;
+std::atomic<float> g_gaugeLogMinAbs{0.01f};
+// Per-action gauge rules (nativePC/plugins/ValorGauge.gauge-rules.txt):
+//   rewrite <set> <id> <delta> [origVal]  - replace the gauge delta of events
+//       occurring while <set:id> is the current action; with origVal only
+//       events matching origVal (+-0.005) are rewritten
+//   cost <set> <id> <amount>              - subtract amount when the action
+//       starts (moves with no native gauge event)
+//   gate <set> <id> <minGauge> <nohitSec> - action starts with gauge >=
+//       minGauge: inject a no-hit window and clear the gauge (见切 recipe)
+//   regen <set> <id> <seconds> <variant>  - activate the spirit-regeneration
+//       state on action start: variant 0 = helm-breaker timer (weapon+0x2378,
+//       rate params 0x840/0x844 via color flag +0x237C), 1 = iai timer
+//       (weapon+0x2388, rate params 0x850/0x854 via timed flag +0x2384).
+//       The per-frame updater does the decay + gauge fill + HUD switch.
+struct GaugeRule {
+    enum class Type { Rewrite, Cost, Gate, Regen };
+    Type type = Type::Rewrite;
+    std::int32_t set = 3;
+    std::int32_t id = 0;
+    float a = 0.0f;  // Rewrite: new delta; Cost: amount; Gate: minGauge; Regen: seconds
+    float b = 0.0f;  // Rewrite: origVal; Gate: nohitSec; Regen: variant (0=hb, 1=iai)
+    bool hasOrig = false;
+    float rate = 0.0f;      // Regen optional 5th token: override the rate param
+    bool hasRate = false;   // (lower = faster; huge = glow without filling)
+};
+std::vector<GaugeRule> g_gaugeRules;
+// option regen-freeze 1: while a regen timer is active the gauge never
+// decreases (negative deltas are zeroed) - "glow without dropping".
+std::atomic_bool g_gaugeRegenFreeze{false};
+
+const GaugeRule* FindGaugeRule(GaugeRule::Type type, std::int32_t set,
+                               std::int32_t id) {
+    for (const auto& rule : g_gaugeRules) {
+        if (rule.type == type && rule.set == set && rule.id == id) {
+            return &rule;
+        }
+    }
+    return nullptr;
+}
+void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId);
 // Force-action: F6 (or the clang detector) arms a one-shot flag; the property
 // getter hook consumes it ON the game thread by calling DoAction directly -
 // the same entry the FSM's own link execution uses. No game-memory writes.
@@ -349,7 +413,8 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 //   python Reverse/sig_check.py --emit && python Reverse/sig_check.py --verify
 enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch, HkPostEventId,
-    HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat, HkCount
+    HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat,
+    HkGaugeAdd, HkCount
 };
 
 struct HookSig {
@@ -419,11 +484,21 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x89, 0xD8, 0x26, 0x01, 0x00, 0xE8, 0x88, 0x5E, 0x9D, 0xFF, 0x85, 0xC0, 0x74, 0x2D, 0x48,
       0x8B, 0x0D, 0xD5},
      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxx", 0x1922240},
+    // gaugeAdd = FUN_142122410 the ONLY float writer of weapon+0x2368 (spirit
+    // gauge): every per-move gain/cost funnels through it. The 0x14211EF90 twin
+    // accumulates +0x236C instead; the call displacement bytes (DF 0F) keep the
+    // signature pinned to the +0x2368 variant.
+    {{0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x0F, 0x29, 0x74, 0x24, 0x30, 0x48, 0x8B, 0xD9, 0x0F,
+      0x29, 0x7C, 0x24, 0x20, 0x0F, 0x57, 0xF6, 0x0F, 0x28, 0xF9, 0x0F, 0x2F, 0xFE, 0x76, 0x21,
+      0x48, 0x8B, 0x81, 0xB0, 0x09, 0x00, 0x00, 0x48, 0x8B, 0x88, 0x20, 0x7D, 0x00, 0x00, 0xE8,
+      0xDF, 0x0F, 0x0A},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x2122410},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch", "postEventId",
     "soundPost", "postEventName", "propInt", "propBool", "propFloat",
+    "gaugeAdd",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -872,6 +947,12 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         }
     }
     const bool result = g_originalDoAction(controller, action) != 0;
+#ifndef VALOR_PROBE
+    if (result && validAction && controller == g_lockedPlayerController &&
+        action->actionSet == 3) {
+        ApplyActionGaugeRules(action->actionSet, action->actionId);
+    }
+#endif
     g_insideDoAction.store(false, std::memory_order_release);
     return result;
 }
@@ -984,6 +1065,362 @@ void LoadHitChargeConfig() {
               ? " (legacy action-start charging)"
               : "");
     Log(m.str());
+}
+
+// nativePC/plugins/ValorGauge.gauge-lock.txt: "[<target>] <value 0..1>"
+//   target 1 = weapon+0x2374 (level-duration timer), 2 = weapon+0x2368 (the
+//   visible spirit gauge candidate); bare "<value>" = target 1.
+//   F5 toggles the lock at runtime. Both fields are watched either way.
+void LoadGaugeLockConfig() {
+    std::ifstream input("nativePC/plugins/ValorGauge.gauge-lock.txt");
+    float first = 0.0f;
+    float second = 0.0f;
+    int target = 1;
+    float value = 0.0f;
+    if (input >> first >> second) {
+        target = static_cast<int>(first);
+        value = second;
+    } else {
+        input.clear();
+        input.seekg(0);
+        if (input >> first) {
+            target = 1;
+            value = first;
+        }
+    }
+    if (target != 1 && target != 2) {
+        target = 1;
+    }
+    g_gaugeLockTarget.store(target, std::memory_order_relaxed);
+    g_gaugeLockValue.store(value, std::memory_order_relaxed);
+    g_gaugeLockEnabled.store(value > 0.0f && value <= 1.0f,
+                             std::memory_order_relaxed);
+    std::ostringstream m;
+    m << "Gauge-lock config: target=weapon+0x"
+      << (target == 2 ? "2368" : "2374") << " value="
+      << g_gaugeLockValue.load(std::memory_order_relaxed) << ", "
+      << (g_gaugeLockEnabled.load(std::memory_order_relaxed)
+              ? "ON (F5 toggles)"
+              : "off");
+    Log(m.str());
+}
+
+void LoadGaugeLogConfig() {
+    std::ifstream input("nativePC/plugins/ValorGauge.gauge-log.txt");
+    float minAbs = 0.01f;
+    if (input >> minAbs) {
+        g_gaugeLogMinAbs.store(minAbs < 0.0f ? 0.0f : minAbs,
+                               std::memory_order_relaxed);
+    }
+    std::ostringstream m;
+    m << "Gauge-event log: |delta| >= "
+      << g_gaugeLogMinAbs.load(std::memory_order_relaxed)
+      << " (ValorGauge.gauge-log.txt)";
+    Log(m.str());
+}
+
+// FUN_142122410 choke point: every spirit-gauge delta (per-move gains, spirit
+// attack costs, iai refills, the 见切 clear) passes here. Log the delta with
+// the caller RVA + pending-cost slot + current action; one session maps the
+// whole move->gauge table. Rate-capped at 40 lines/s. Rewrite rules (local
+// player only) replace the delta before the original runs.
+void __fastcall GaugeAddHook(void* weapon, float value) {
+    void* returnAddress = _ReturnAddress();
+    float before = 0.0f;
+    float costSlot = 0.0f;
+    bool hasWeapon = false;
+    bool own = false;
+    std::int32_t actSet = 0;
+    std::int32_t actId = 0;
+    bool hasAct = false;
+    if (weapon &&
+        IsReadable(static_cast<std::uint8_t*>(weapon) + 0x2374,
+                   sizeof(float))) {
+        hasWeapon = true;
+        before = *reinterpret_cast<const volatile float*>(
+            static_cast<std::uint8_t*>(weapon) + 0x2368);
+        auto* playerSlot = static_cast<std::uint8_t*>(weapon) + 0x9B0;
+        if (IsReadable(playerSlot, sizeof(void*))) {
+            auto* player = *reinterpret_cast<std::uint8_t**>(playerSlot);
+            // player+0x7810 holds a POINTER to the runtime w03p param table.
+            if (player && IsReadable(player + 0x7810, sizeof(void*))) {
+                auto* paramTable =
+                    *reinterpret_cast<std::uint8_t**>(player + 0x7810);
+                if (paramTable && IsReadable(paramTable + 0x804, sizeof(float))) {
+                    costSlot = *reinterpret_cast<const volatile float*>(
+                        paramTable + 0x804);
+                }
+            }
+            std::scoped_lock lock(g_actionMutex);
+            if (g_lockedPlayerController) {
+                auto* lockedPlayer =
+                    static_cast<std::uint8_t*>(g_lockedPlayerController) -
+                    0x61C8;
+                own = player == lockedPlayer;
+            }
+            if (g_lastLongSwordAction) {
+                actSet = g_lastLongSwordAction->actionSet;
+                actId = g_lastLongSwordAction->actionId;
+                hasAct = true;
+            }
+        }
+    }
+    if (own && hasAct && !g_gaugeRules.empty()) {
+        if (const auto* rule =
+                FindGaugeRule(GaugeRule::Type::Rewrite, actSet, actId)) {
+            constexpr float kMatchEpsilon = 0.005f;
+            if (!rule->hasOrig ||
+                (value > rule->b - kMatchEpsilon &&
+                 value < rule->b + kMatchEpsilon)) {
+                std::ostringstream m;
+                m << "GAUGERULE rewrite act=" << actSet << ':' << actId
+                  << " val " << value << " -> " << rule->a;
+                Log(m.str());
+                value = rule->a;
+            }
+        }
+    }
+    // regen-freeze: while a regeneration timer is running the gauge must not
+    // drop - zero out negative deltas (the original still runs for its
+    // cost-slot bookkeeping side effects).
+    if (own && value < 0.0f &&
+        g_gaugeRegenFreeze.load(std::memory_order_relaxed) && hasWeapon) {
+        const float hb = *reinterpret_cast<const volatile float*>(
+            static_cast<std::uint8_t*>(weapon) + 0x2378);
+        const float iai = *reinterpret_cast<const volatile float*>(
+            static_cast<std::uint8_t*>(weapon) + 0x2388);
+        if (hb > 0.0f || iai > 0.0f) {
+            std::ostringstream m;
+            m << "GAUGERULE freeze: blocked " << value
+              << " during regen (hb=" << hb << " iai=" << iai << ')';
+            Log(m.str());
+            value = 0.0f;
+        }
+    }
+    if (g_originalGaugeAdd) {
+        g_originalGaugeAdd(weapon, value);
+    }
+    if (!hasWeapon) {
+        return;
+    }
+    const float after = *reinterpret_cast<const volatile float*>(
+        static_cast<std::uint8_t*>(weapon) + 0x2368);
+    const float absVal = value < 0.0f ? -value : value;
+    if (absVal < g_gaugeLogMinAbs.load(std::memory_order_relaxed)) {
+        return;
+    }
+    static std::chrono::steady_clock::time_point windowStart{};
+    static std::uint32_t windowCount = 0;
+    static std::uint32_t dropped = 0;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - windowStart > std::chrono::seconds(1)) {
+        windowStart = now;
+        windowCount = 0;
+        if (dropped != 0) {
+            std::ostringstream m;
+            m << "GAUGEEVT: " << dropped << " call(s) dropped by rate cap";
+            Log(m.str());
+            dropped = 0;
+        }
+    }
+    if (++windowCount > 40) {
+        ++dropped;
+        return;
+    }
+    std::uintptr_t callerRva = 0;
+    if (returnAddress) {
+        callerRva = reinterpret_cast<std::uintptr_t>(returnAddress) -
+                    g_moduleBase.load(std::memory_order_relaxed);
+    }
+    std::ostringstream m;
+    m << "GAUGEEVT +0x" << std::hex << callerRva << std::dec
+      << " val=" << value << " gauge=" << before << "->" << after
+      << " cost=" << costSlot << " own=" << own;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            m << " act=" << g_lastLongSwordAction->actionSet << ':'
+              << g_lastLongSwordAction->actionId;
+        }
+    }
+    Log(m.str());
+}
+
+void LoadGaugeRulesConfig() {
+    g_gaugeRules.clear();
+    std::ifstream input("nativePC/plugins/ValorGauge.gauge-rules.txt");
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        std::string kind;
+        if (!(ss >> kind)) {
+            continue;
+        }
+        GaugeRule rule;
+        if (kind == "rewrite") {
+            rule.type = GaugeRule::Type::Rewrite;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
+            float orig = 0.0f;
+            if (ss >> orig) {
+                rule.b = orig;
+                rule.hasOrig = true;
+            }
+        } else if (kind == "cost") {
+            rule.type = GaugeRule::Type::Cost;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
+        } else if (kind == "gate") {
+            rule.type = GaugeRule::Type::Gate;
+            if (!(ss >> rule.set >> rule.id >> rule.a >> rule.b)) {
+                continue;
+            }
+        } else if (kind == "regen") {
+            rule.type = GaugeRule::Type::Regen;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
+            float variant = 0.0f;
+            if (ss >> variant) {
+                rule.b = variant;
+            } else {
+                rule.b = 0.0f;
+            }
+            float rate = 0.0f;
+            if (ss >> rate) {
+                rule.rate = rate;
+                rule.hasRate = true;
+            }
+        } else if (kind == "option") {
+            std::string key;
+            float v = 0.0f;
+            if (ss >> key >> v && key == "regen-freeze") {
+                g_gaugeRegenFreeze.store(v != 0.0f,
+                                         std::memory_order_relaxed);
+            }
+            continue;
+        } else {
+            continue;
+        }
+        g_gaugeRules.push_back(rule);
+    }
+    std::ostringstream m;
+    m << "Gauge rules: " << g_gaugeRules.size() << " loaded"
+      << (g_gaugeRules.empty() ? "" : " from ValorGauge.gauge-rules.txt");
+    Log(m.str());
+}
+
+// Shared by the counter window and gate rules: extend the defense pool's
+// no-hit window (pool = *(mgr+0x28), seconds float at pool+0xE4).
+void InjectNoHitLocked(float seconds) {
+    if (seconds <= 0.0f) {
+        return;
+    }
+    std::uintptr_t pool = 0;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lockedPlayerController) {
+            auto* player =
+                static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+            if (IsReadable(player + 0x7D20, sizeof(void*))) {
+                auto* mgr = *reinterpret_cast<std::uint8_t**>(player + 0x7D20);
+                if (mgr && IsReadable(mgr + 0x28, sizeof(void*))) {
+                    pool = reinterpret_cast<std::uintptr_t>(
+                        *reinterpret_cast<void**>(mgr + 0x28));
+                }
+            }
+        }
+    }
+    if (pool != 0) {
+        auto* window = reinterpret_cast<float*>(pool + 0xE4);
+        if (IsWritable(window, sizeof(float))) {
+            *window = *window > seconds ? *window : seconds;
+        }
+    }
+}
+
+// Action-start rules (cost / gate), applied from DoActionHook after the
+// original accepted a locked-player set-3 action.
+void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
+    if (g_gaugeRules.empty() || !g_lockedPlayerController || !g_originalGaugeAdd) {
+        return;
+    }
+    auto* player =
+        static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
+        return;
+    }
+    auto readGauge = [&]() {
+        return *reinterpret_cast<const volatile float*>(weapon + 0x2368);
+    };
+    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Cost, actionSet, actionId)) {
+        const float g0 = readGauge();
+        g_originalGaugeAdd(weapon, -rule->a);
+        std::ostringstream m;
+        m << "GAUGERULE cost act=" << actionSet << ':' << actionId << " -"
+          << rule->a << " gauge=" << g0 << "->" << readGauge();
+        Log(m.str());
+    }
+    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Gate, actionSet, actionId)) {
+        const float g0 = readGauge();
+        if (g0 >= rule->a) {
+            g_originalGaugeAdd(weapon, -g0);
+            InjectNoHitLocked(rule->b);
+            std::ostringstream m;
+            m << "GAUGERULE gate act=" << actionSet << ':' << actionId
+              << " gauge=" << g0 << " >= " << rule->a << " -> no-hit "
+              << rule->b << "s, gauge cleared";
+            Log(m.str());
+        }
+    }
+    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Regen, actionSet, actionId)) {
+        const bool iaiTimer = rule->b >= 0.5f;
+        auto* timer = reinterpret_cast<volatile float*>(
+            weapon + (iaiTimer ? 0x2388 : 0x2378));
+        const float cur = *timer;
+        if (cur < rule->a) {
+            *timer = rule->a;
+        }
+        std::ostringstream m;
+        m << "GAUGERULE regen act=" << actionSet << ':' << actionId << " "
+          << (iaiTimer ? "iai(+0x2388)" : "helm(+0x2378)") << " "
+          << cur << " -> " << (cur < rule->a ? rule->a : cur) << "s";
+        // Optional rate override: the per-frame fill is dt / rateParam, so a
+        // huge rate = glow without visible fill, small rate = fast fill.
+        // Variant 0 writes the helm-breaker pair (+0x840/+0x844), variant 1
+        // the iai pair (+0x850/+0x854) - both color variants at once.
+        if (rule->hasRate && rule->rate > 0.0f) {
+            if (IsReadable(player + 0x7810, sizeof(void*))) {
+                auto* paramTable =
+                    *reinterpret_cast<std::uint8_t**>(player + 0x7810);
+                if (paramTable && IsWritable(paramTable + 0x844, sizeof(float))) {
+                    auto* params = reinterpret_cast<volatile float*>(paramTable);
+                    const float rate = rule->rate;
+                    if (iaiTimer) {
+                        params[0x850 / 4] = rate;
+                        params[0x854 / 4] = rate;
+                    } else {
+                        params[0x840 / 4] = rate;
+                        params[0x844 / 4] = rate;
+                    }
+                    m << " rate->" << rate;
+                } else {
+                    m << " rate-param not writable";
+                }
+            }
+        }
+        Log(m.str());
+    }
 }
 
 bool LockedPlayerActionChargesValor() {
@@ -1428,6 +1865,14 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Damage calc hook installed (hit-based valor charging)");
     }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
+                      reinterpret_cast<void*>(&GaugeAddHook),
+                      reinterpret_cast<void**>(&g_originalGaugeAdd)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd])) != MH_OK) {
+        Log("Gauge add hook failed");
+    } else {
+        Log("Gauge add hook installed (GAUGEEVT logging)");
+    }
 #endif
     ValidateMemoryMap();
     return true;
@@ -1825,6 +2270,9 @@ void LoadForceActionConfig() {
     Log(msg.str());
     LoadModWeaponTypeConfig();
     LoadHitChargeConfig();
+    LoadGaugeLockConfig();
+    LoadGaugeLogConfig();
+    LoadGaugeRulesConfig();
     std::ostringstream wt;
     wt << "Mod weapon gate: only weapon type "
        << g_modWeaponType.load(std::memory_order_relaxed)
@@ -3250,6 +3698,79 @@ bool InitializeRenderer(IDXGISwapChain* swapChain) {
     return true;
 }
 
+// Gauge-lock experiment: runs on the Present/render thread AFTER the game's
+// frame update, so values read here are whatever the game left in the fields
+// this frame. Drift from our last write = the game wrote underneath (its own
+// drain, a level-change refill, ...). Both fields are always watched; only
+// the configured target is written. Reported every 2s.
+#ifndef VALOR_PROBE
+void PollGaugeLock() {
+    const float value = g_gaugeLockValue.load(std::memory_order_relaxed);
+    const bool enabled = g_gaugeLockEnabled.load(std::memory_order_relaxed);
+    if (value <= 0.0f || value > 1.0f) {
+        return;
+    }
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    if (!ModWeaponActive()) {
+        g_gaugeLockLastWritten[0] = -1.0f;
+        g_gaugeLockLastWritten[1] = -1.0f;
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
+        return;
+    }
+    constexpr std::uintptr_t kGaugeFields[2] = {0x2374, 0x2368};
+    constexpr float kEpsilon = 1.0e-6f;
+    for (int i = 0; i < 2; ++i) {
+        auto* slot =
+            reinterpret_cast<volatile float*>(weapon + kGaugeFields[i]);
+        const float current = *slot;
+        if (g_gaugeLockLastWritten[i] >= 0.0f &&
+            (current > g_gaugeLockLastWritten[i] + kEpsilon ||
+             current < g_gaugeLockLastWritten[i] - kEpsilon)) {
+            ++g_gaugeWatchFrames[i];
+            g_gaugeWatchDrift[i] = current;
+        }
+        if (enabled && g_gaugeLockTarget.load(std::memory_order_relaxed) ==
+                           i + 1) {
+            *slot = value;
+            g_gaugeLockLastWritten[i] = value;
+        } else {
+            g_gaugeLockLastWritten[i] = current;
+        }
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (now >= g_gaugeLockNextReport) {
+        g_gaugeLockNextReport = now + std::chrono::seconds(2);
+        std::ostringstream m;
+        m << "GAUGELOCK: lock=0x"
+          << (g_gaugeLockTarget.load(std::memory_order_relaxed) == 2 ? "2368"
+                                                                     : "2374")
+          << "@" << value << (enabled ? " ON" : " OFF")
+          << " | 0x2374 raw=" << g_gaugeWatchDrift[0]
+          << " drift=" << g_gaugeWatchFrames[0] << "/2s"
+          << " | 0x2368 raw=" << g_gaugeWatchDrift[1]
+          << " drift=" << g_gaugeWatchFrames[1] << "/2s";
+        Log(m.str());
+        g_gaugeWatchFrames[0] = 0;
+        g_gaugeWatchFrames[1] = 0;
+    }
+}
+#endif // !VALOR_PROBE (gauge-lock experiment = mod build only)
+
 void DrawGauge(IDXGISwapChain* swapChain) {
     DXGI_SWAP_CHAIN_DESC desc{};
     if (FAILED(swapChain->GetDesc(&desc))) {
@@ -3304,6 +3825,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
 #else
     PollValorLifecycle();
     PollModTriggers();
+    PollGaugeLock();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;
@@ -3325,6 +3847,25 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         }
     }
     g_f6WasDown = f6Down;
+
+    // Gauge-lock experiment toggle (F5). Only meaningful when a lock value is
+    // configured in ValorGauge.gauge-lock.txt.
+    const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
+    if (f5Down && !g_gaugeLockKeyWasDown &&
+        g_gaugeLockValue.load(std::memory_order_relaxed) > 0.0f) {
+        const bool newEnabled =
+            !g_gaugeLockEnabled.load(std::memory_order_relaxed);
+        g_gaugeLockEnabled.store(newEnabled, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "GAUGELOCK " << (newEnabled ? "ON" : "OFF")
+          << " (F5): target weapon+0x"
+          << (g_gaugeLockTarget.load(std::memory_order_relaxed) == 2 ? "2368"
+                                                                     : "2374")
+          << " <- " << g_gaugeLockValue.load(std::memory_order_relaxed)
+          << " per frame";
+        Log(m.str());
+    }
+    g_gaugeLockKeyWasDown = f5Down;
 #endif
 
     if (g_visible) {
@@ -3375,6 +3916,27 @@ void DrawGauge(IDXGISwapChain* swapChain) {
             if (g_forceArmed.load()) {
                 draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 92.0f),
                               IM_COL32(255, 220, 80, 255), "FORCE ARMED");
+            }
+            const float lockValue =
+                g_gaugeLockValue.load(std::memory_order_relaxed);
+            if (lockValue > 0.0f) {
+                char lockText[112]{};
+                snprintf(lockText, sizeof(lockText),
+                         "GLOCK t=0x%s %.2f %s | 74:%.4f x%u 68:%.4f x%u",
+                         g_gaugeLockTarget.load(std::memory_order_relaxed) == 2
+                             ? "2368"
+                             : "2374",
+                         lockValue,
+                         g_gaugeLockEnabled.load(std::memory_order_relaxed)
+                             ? "ON"
+                             : "OFF",
+                         g_gaugeWatchDrift[0], g_gaugeWatchFrames[0],
+                         g_gaugeWatchDrift[1], g_gaugeWatchFrames[1]);
+                draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 114.0f),
+                              g_gaugeLockEnabled.load(std::memory_order_relaxed)
+                                  ? IM_COL32(80, 255, 120, 255)
+                                  : IM_COL32(170, 170, 170, 200),
+                              lockText);
             }
         }
 #endif
