@@ -786,6 +786,203 @@ void LoadModWeaponTypeConfig() {
         g_modWeaponType.store(static_cast<std::uint32_t>(type), std::memory_order_relaxed);
     }
 }
+
+// --- Sheathed-state draw rewrite (收刀拔刀刚1) -------------------------------
+// Vanilla routes sheathed R2 to {3,11} (draw spirit blade I) purely in code +
+// per-weapon static tables; the weapon FSM has no sheathed links to edit
+// (CLAUDE.md 2026-09-25). So the rewrite happens on the request itself, in
+// DoActionHook, before the action tracker sees it. Sheathed test: the tracked
+// previous action is set-1 (sheathed locomotion family 1:0/1:4/1:8/1:5);
+// drawn locomotion never emits requests. weapon+0xC71 was NOT usable (read 0
+// while sheathed; SHEATHPROBE lines print it for the research backlog).
+// Gate (user rule): spirit level >= reqLevel (3 = red) and gauge
+// (weapon+0x2368 float) above the threshold, else the vanilla sheathed draw
+// spirit blade plays.
+// Config nativePC/plugins/ValorGauge.sheath-rewrite.txt:
+//   "<toId> <holdVK> <reqLevel> <minGauge> <fromId> [fromId...]"
+//   default "86 0 3 0.15 0.2 11"  (toId 0 = off, holdVK 0 = no key gate,
+//   reqLevel 0 = no level gate, minGauge < 0 = no gauge gate,
+//   nohitSec <= 0 = no injection)
+// I-frames: from the sheathed path the FSM stays in 待機(1000) (request does
+// not enter node 28), so the vanilla TIML/FSM defense window never opens.
+// The rewrite therefore injects the same pool+0xE4 no-hit window the clang
+// triggers use, for <nohitSec> seconds starting at the move's first frame.
+std::atomic<std::uint32_t> g_sheathRewriteToId{86};
+std::atomic<std::uint32_t> g_sheathRewriteHoldVK{0};
+std::atomic<std::uint32_t> g_sheathRewriteReqLevel{3};
+std::atomic<float> g_sheathRewriteMinGauge{0.15f};
+std::atomic<float> g_sheathRewriteNohitSec{0.2f};
+std::vector<std::uint32_t> g_sheathRewriteFromIds{11};
+std::mutex g_sheathRewriteMutex;
+
+void InjectNoHitLocked(float seconds);
+
+void LoadSheathRewriteConfig() {
+    int toId = 86;
+    int holdVk = 0;
+    int reqLevel = 3;
+    float minGauge = 0.15f;
+    float nohitSec = 0.2f;
+    std::vector<std::uint32_t> fromIds{11};
+    std::ifstream input("nativePC/plugins/ValorGauge.sheath-rewrite.txt");
+    int value = 0;
+    if (input >> value && value >= 0 && value <= 0xFFFF) {
+        toId = value;
+        if (input >> value && value >= 0 && value <= 0xFF) {
+            holdVk = value;
+        }
+        if (input >> value && value >= 0 && value <= 3) {
+            reqLevel = value;
+        }
+        if (!(input >> minGauge)) {
+            minGauge = 0.15f;
+        }
+        if (!(input >> nohitSec) || nohitSec < -1.0f || nohitSec > 3.0f) {
+            nohitSec = 0.2f;
+        }
+        while (input >> value && value >= 0 && value <= 0xFFFF) {
+            fromIds.push_back(static_cast<std::uint32_t>(value));
+        }
+    }
+    if (fromIds.empty()) {
+        fromIds.push_back(11);
+    }
+    {
+        std::scoped_lock lock(g_sheathRewriteMutex);
+        g_sheathRewriteFromIds = std::move(fromIds);
+    }
+    g_sheathRewriteToId.store(static_cast<std::uint32_t>(toId), std::memory_order_relaxed);
+    g_sheathRewriteHoldVK.store(static_cast<std::uint32_t>(holdVk), std::memory_order_relaxed);
+    g_sheathRewriteReqLevel.store(static_cast<std::uint32_t>(reqLevel), std::memory_order_relaxed);
+    g_sheathRewriteMinGauge.store(minGauge, std::memory_order_relaxed);
+    g_sheathRewriteNohitSec.store(nohitSec, std::memory_order_relaxed);
+    std::ostringstream msg;
+    msg << "Sheath rewrite: sheathed R2 requests 3:{";
+    {
+        std::scoped_lock lock(g_sheathRewriteMutex);
+        for (std::size_t i = 0; i < g_sheathRewriteFromIds.size(); ++i) {
+            if (i) {
+                msg << ",";
+            }
+            msg << g_sheathRewriteFromIds[i];
+        }
+    }
+    msg << "} -> 3:" << toId << " (toId 0 = off), holdVK=" << holdVk
+        << ", reqLevel=" << reqLevel << ", minGauge=" << minGauge
+        << ", nohit=" << nohitSec << "s";
+    Log(msg.str());
+}
+
+// Local-player test for pre-lock requests: the session lock is authoritative;
+// before the first set-3 action establishes it, accept the same manager-chain
+// verdict the lock itself uses, so the very first sheathed R2 already rewrites.
+bool IsLocalPlayerActionController(void* controller) {
+    if (!controller) {
+        return false;
+    }
+    if (controller == g_lockedPlayerController) {
+        return true;
+    }
+    if (g_lockedPlayerController) {
+        return false;
+    }
+    void* chainPlayer = ResolveLocalPlayerViaManager();
+    return chainPlayer && chainPlayer == static_cast<std::uint8_t*>(controller) - 0x61C8;
+}
+
+void ApplySheathRewrite(void* controller, ActionInfo* action) {
+    const auto toId = g_sheathRewriteToId.load(std::memory_order_relaxed);
+    if (!toId) {
+        return;
+    }
+    if (!IsLocalPlayerActionController(controller)) {
+        return;
+    }
+    const auto fromId = static_cast<std::uint32_t>(action->actionId);
+    {
+        std::scoped_lock lock(g_sheathRewriteMutex);
+        if (std::find(g_sheathRewriteFromIds.begin(), g_sheathRewriteFromIds.end(), fromId) ==
+            g_sheathRewriteFromIds.end()) {
+            return;
+        }
+    }
+    const auto holdVk = g_sheathRewriteHoldVK.load(std::memory_order_relaxed);
+    if (holdVk && (GetAsyncKeyState(static_cast<int>(holdVk)) & 0x8000) == 0) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon, 0x2378)) {
+        return;
+    }
+    if (*reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
+        g_modWeaponType.load(std::memory_order_relaxed)) {
+        return;
+    }
+    // Sheathed test via the action tracker: set-1 requests are the sheathed
+    // locomotion family only (1:0 idle / 1:4 walk / 1:8 run / 1:5 draw-prep);
+    // drawn-state locomotion never emits DoAction requests, so a set-1
+    // predecessor means sheathed. (weapon+0xC71 read 0 while sheathed in-game
+    // - SHEATHPROBE keeps printing it to pin its real semantics.)
+    std::int32_t lastSet = -1;
+    std::int32_t lastId = -1;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            lastSet = g_lastLongSwordAction->actionSet;
+            lastId = g_lastLongSwordAction->actionId;
+        }
+    }
+    const auto c71 = static_cast<int>(*(weapon + 0xC71));
+    const auto level = *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
+    const auto gauge = *reinterpret_cast<const volatile float*>(weapon + 0x2368);
+    if (lastSet != 1) {
+        static std::atomic_uint32_t probeLogs{0};
+        if (probeLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
+            std::ostringstream m;
+            m << "SHEATHPROBE 3:" << fromId << " blocked: last=" << lastSet << ":"
+              << lastId << " c71=" << c71 << " level=" << level << " gauge=" << gauge;
+            Log(m.str());
+        }
+        return;
+    }
+    const auto reqLevel = g_sheathRewriteReqLevel.load(std::memory_order_relaxed);
+    const auto minGauge = g_sheathRewriteMinGauge.load(std::memory_order_relaxed);
+    if (reqLevel && level < static_cast<std::int32_t>(reqLevel)) {
+        static std::atomic_uint32_t rejectLogs{0};
+        if (rejectLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
+            std::ostringstream m;
+            m << "SHEATHREWRITE reject 3:" << fromId << " level=" << level
+              << " (need >= " << reqLevel << ") gauge=" << gauge;
+            Log(m.str());
+        }
+        return;
+    }
+    if (minGauge >= 0.0f && !(gauge > minGauge)) {
+        static std::atomic_uint32_t rejectLogs{0};
+        if (rejectLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
+            std::ostringstream m;
+            m << "SHEATHREWRITE reject 3:" << fromId << " level=" << level
+              << " gauge=" << gauge << " (need > " << minGauge << ")";
+            Log(m.str());
+        }
+        return;
+    }
+    const auto nohitSec = g_sheathRewriteNohitSec.load(std::memory_order_relaxed);
+    if (nohitSec > 0.0f) {
+        // The FSM never left 待機(1000), so no vanilla defense window opens
+        // for this move - inject the clang-trigger no-hit window instead.
+        InjectNoHitLocked(nohitSec);
+    }
+    std::ostringstream m;
+    m << "SHEATHREWRITE: 3:" << fromId << " -> 3:" << toId
+      << " (level=" << level << " gauge=" << gauge << " nohit=" << nohitSec << "s)";
+    Log(m.str());
+    action->actionId = static_cast<std::int32_t>(toId);
+}
 #endif
 
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
@@ -860,6 +1057,14 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         read32(0x6274, "fsmTarget"); read32(0x6278, "fsmId");
         read32(0x6284, "deriveSet"); read32(0x6288, "deriveId");
         Log(special.str().c_str());
+    }
+#endif
+
+#ifndef VALOR_PROBE
+    // 收刀拔刀刚1: vanilla routes sheathed R2 to {3,11} in code; rewrite the
+    // request BEFORE the tracker copies it so latch/rules/logs see the new id.
+    if (validAction && action->actionSet == 3 && IsLongSwordController(controller)) {
+        ApplySheathRewrite(controller, action);
     }
 #endif
 
@@ -2402,7 +2607,7 @@ void LoadForceActionConfig() {
     if (input >> invulnSec && invulnSec >= 0.0f && invulnSec <= 3.0f) {
         g_forceInvulnSec = invulnSec;
     }
-    std::ifstream autoCfg("nativePC\plugins\ValorGauge.counter-auto.txt");
+    std::ifstream autoCfg("nativePC/plugins/ValorGauge.counter-auto.txt");
     int autoForce = 1;
     if (autoCfg >> autoForce) {
         g_counterAutoForce = (autoForce != 0);
@@ -2418,6 +2623,7 @@ void LoadForceActionConfig() {
     LoadGaugeLockConfig();
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
+    LoadSheathRewriteConfig();
     std::ostringstream wt;
     wt << "Mod weapon gate: only weapon type "
        << g_modWeaponType.load(std::memory_order_relaxed)
@@ -3002,7 +3208,7 @@ void PollReactionWatch() {
 // Optional nativePC\plugins\ValorGauge.prop-watch.txt: property ids to watch,
 // up to 6, e.g. "222 631".
 void LoadPropWatchConfig() {
-    std::ifstream trigger("nativePC\plugins\ValorGauge.prop-trigger.txt");
+    std::ifstream trigger("nativePC/plugins/ValorGauge.prop-trigger.txt");
     std::int32_t tid = 0;
     std::int32_t tidx = 0;
     if (trigger >> tid >> tidx && tid >= 0 && tidx >= 0) {

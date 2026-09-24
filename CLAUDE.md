@@ -166,8 +166,10 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   - **`ValorGauge.dll` (mod, default):** Long-Sword-only gameplay mod. Weapon gate =
     `*(int32*)(weapon+0x9F8) == 3` (LS; same value func_0x141F627F0 returns and
     FUN_14118bda0 switches on — LS case holds 練気ゲージ判定/居合斬り/見切り conditions;
-    consistent with wp03/w03/action-set 3. The remapper's case 2 is a DIFFERENT
-    weapon whose action ids collide with LS's 100-104 — do not trust it),
+    consistent with wp03/w03/action-set 3. [CORRECTED 2026-09-25: the remapper
+    FUN_14118c320's decompiled "case 2" IS LS — its dispatch does `dec eax` on
+    weapon+0x9F8 before the jump table, so decompiled case N = weapon type N+1;
+    see the 2026-09-25 section]),
     0xFF = no weapon; override via `nativePC/plugins/ValorGauge.weapon-type.txt`).
     Contains: action tracking, clang triggers (bit15 / bit250 / deflect flash /
     condEval-631) → counter window + no-hit injection + auto-force, F6 force,
@@ -705,6 +707,82 @@ Build command:
   锁 target=2 的已知副作用: 锁定期架势每帧衰减检查 (==1/==2) 会被 1.0f 的 int 视图
   (0x3F800000) 绕过, 居合架势退出通知可能不触发（FSM 3:99 的 5s 超时应仍兜底）。
 
+### 2026-09-25 收刀态输入路由: 纯代码+静态数据, 武器 FSM 完全不参与 (R2→3:11 定案)
+
+- **问题**: 收刀态按 R2 打出 3:11 (拔刀气刃斩1), 这个切换能否用 FSM 编辑改道 (改打刚1)?
+  **答案: 不能** — 收刀→拔刀动作路由不经过 wp03_action.fsm 的任何可编辑链路。
+- 证据链 (全部 decompile/指令级):
+  1. `wp03_action.fsm` 没有任何收刀态内容: 待機(1000) = 0入0出 parked 节点; 收刀移动
+     1:0/1:4/1:8 **没有节点** — 收刀 locomotion 根本不在这个 FSM 里。持刀 R2 进节点1
+     (ActionNo 1001) 靠的是待機２(1012)的 `R` 链接条件, 收刀态没有对应物。
+  2. 重映射器 FUN_14118c320 对 id 11 (0xB) **透传**: LS case 只在居合架势 (0x2368!=0)
+     重映射 raw id 0→100, 1→101, 2→102, 3→103, 4→104, 0x12-0x22→0x69..0x7d/0x43,
+     0x35/36→0xa0/0xa1, 0x8d→FUN_14211f040 分档; 另 id 7 查 weapon+0x2369,
+     id 0x5e(94)→0x5f(95)。**收刀态按 R2 产生的 {3,11} 在重映射器之前就已生成**。
+  3. 武器类型 switch 的 dispatch: 0x14118C5B6 `mov eax,[rdi+0x9F8]; dec eax;
+     cmp eax,0xA; ja passthrough; jmp [table 0x14118D098 + eax*4]` —
+     **反编译 case N = 武器类型 N+1** (修正 09-17 "case 2 是别的武器" 的错误警告,
+     case 2 就是 LS 的居合架势重映射)。武器类型枚举此表按 1-based 索引。
+- **每武器 set-3 请求表 (分类器的数据面, "upstream producer" 的大致形态)**:
+  - FSM 管理器初始化 FUN_14118dca0/ddc0: set-1 注册重映射回调 FUN_14118c320 (IB 态
+    player+0x7626!=0 时换 FUN_14118d3a0); **set-3 注册 per-weapon 数据**:
+    `row = FUN_142165600(weaponType)` = `type*0x130 + 0x143FD5590`,
+    `FUN_14026ae00(obj, 3, *(row+0x48), *(u32)(row+0x50))` 把静态表拷进
+    obj+(3+8)*0x10 = mgrCtx+0xAB0 (obj = mgrCtx+0xA00)。
+  - LS 行 (0x143FD5920): +0x48 = **0x143F4D6A0** (113 条), +0x50 = 113。
+    静态条目布局疑似 0x28B {u64 key, ptr 子表, u64 数量, pad×2} (keys 0-4 实测:
+    0/4 共享子表 0x143EF3970×14, 1/3 共享 0x143EF3C10×18, 2 = 0x143EF3DC0×15,
+    5 = 0x143EF43A0×7...), 但 FUN_14026ae00 的内存拷贝循环按 **0x20** 步长 —
+    静态 0x28 vs 拷贝 0x20 矛盾未决 (可能反编译步长有误, 待指令级核对)。
+  - 消费链: FUN_14026b670 (请求 {set,key} → 数组[key] 条目, 逐候选) →
+    FUN_14026b830 (候选 0x18B 6×i32 解析, 特判 -0x14(-20)/-10/-1 标记;
+    -10 = 居合斬り開始标记!) → FUN_14026b590 (最终 {set,id} 经
+    func_0x140269ce0 = DoAction 发出)。子表候选里出现 240/291/196/13/278 等 id,
+    语义未解码 — **想纯数据改写收刀 R2 行为, 从 0x143F4D6A0 这张表入手**。
+- **实用结论 (收刀态打刚1 的路线)**:
+  - FSM 编辑不可行 (无链路可改)。
+  - **DLL 改写 — 已实装 (2026-09-25, mod build, md5 5fec7f00a4815013d2b16df6478630e5)**:
+    DoActionHook 内、tracker 拷贝之前, `ApplySheathRewrite` 把收刀态进来的
+    {3,fromId} 改写为 {3,toId}。门控链: 本地玩家 (锁 + 未锁时 manager chain 判定,
+    首次按 R2 即生效) → fromIds → holdVK (可选按键门) → weapon+0x9F8 == 3 →
+    **收刀判定 = tracker 里上一个动作是 set 1** (1:0/1:4/1:8/1:5 收刀 locomotion 族;
+    持刀态 locomotion 不发请求) → **红刃 weapon+0x2370 >= reqLevel** →
+    **气刃量 weapon+0x2368 float > minGauge** (user 规则: 红刃且余量 > 0.15 才允许
+    拔刀刚1)。不满足则放行原版 {3,11} 拔刀气刃斩1, 拒绝原因记
+    `SHEATHREWRITE reject` / `SHEATHPROBE` (各上限12条)。命中记
+    `SHEATHREWRITE: 3:11 -> 3:86`。改写在 tracker 之前 → clang-latch 重臂/日志/
+    gauge 规则看到的都是改写后的 id。
+  - **无敌帧 (2026-09-25 二轮)**: 改写生效后动作出来了但没无敌帧 — 原生防御窗口
+    走 TIML/FSM 状态链, 收刀态 FSM 停在待機(1000) 不进节点28, 窗口没人打开。
+    解法: 改写命中同一帧调 `InjectNoHitLocked(nohitSec)` 注入 pool+0xE4 no-hit
+    (与叮触发同一通道), 配置第5参 nohitSec 默认 0.2s (与见切 TIML 编写的窗口一致),
+    <=0 关闭。**注意: 持刀态的见切叮触发链 (bit15→no-hit+auto-force) 是否会在
+    收刀路径照常工作未验证 — 若 bit15 不置位, 收刀刚1 只有这 0.2s 窗口。**
+  - **第一版失效复盘 (log 实证)**: 收刀按 R2 的请求确实是 {3,11} (tracker 日志多次
+    `1:5/1:0 → 3:11`), 但无任何 SHEATHREWRITE 行 → 静默门控 = **weapon+0xC71 收刀态
+    读到 0**。+0xC71 的极性/语义从未局内验证过 (一直标"待钉") — 已弃用, 改用
+    tracker set-1 判定; SHEATHPROBE 行继续打印 c71 实测值, 供钉死其真实语义。
+  - 配置 `nativePC/plugins/ValorGauge.sheath-rewrite.txt` =
+    "<toId> <holdVK> <reqLevel> <minGauge> <nohitSec> <fromId> [fromId...]", 默认
+    `86 0 3 0.15 0.2 11` (toId 0=关, holdVK 0=无按键门, reqLevel 0=不验等级,
+    minGauge<0=不验气刃量, nohitSec<=0=不注入)。文件缺失 = 默认开启。
+  - 注意: 见切(86) 动作从持刀姿势起手, 收刀冷播有姿势跳变 (刚1 为移植动作时需要
+    收刀起手版); {3,86} 能否让 FSM 从待機(1000) 经 request-ActionNo 匹配进节点 28
+    未实测 (不进也照播, 98/99/100/103 无节点前例, 只是派生链接断)。
+  - 居合架势态 R2 的 raw id 是 1/2 (remap 成 101/102), 与收刀态的 11 不冲突,
+    改写规则天然不误伤。
+  - 顺手修复: counter-auto.txt / prop-trigger.txt 的 `nativePC\p...` 单反斜杠
+    路径 bug 再次出现 (C4129, 配置从未加载) — 已改为正斜杠。
+  - **事故复盘 (2026-09-25, user 局内确认): gauge-rules 的 `gate 3 86` 会杀死整个
+    见切反击链。** 机理: gate 在动作第 0 帧注入 pool+0xE4 全量 no-hit — 该排除在
+    命中查询层、比防御仲裁更上游 → 怪的攻击到不了仲裁 → 无弹反交互 → 无叮 →
+    event bit15 永不置位 → mod 叮触发链 (反击窗口+追加no-hit+auto-force刚1) 全灭,
+    且每次见切清空气刃槽 (log: `GAUGERULE gate act=3:86 ... gauge cleared` ×10+)。
+    **定案: pool+0xE4 no-hit = "游戏层面你没被攻击过" (09-18 翻滚结论的另一面);
+    帧杀保护与弹反计数互斥。叮类招式 (见切/居合) 的保护必须后置于叮 (bit15 先行,
+    注入殿后 — mod 叮触发器的既有顺序)。** gate 规则只适用于无弹反呈现的自定义招。
+    rules 文件示例行的 `#gate 3 86 0.1 0.5` 已换成 3:87 并加警告。
+
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
 - **Hi-Res Pack Confusion:** chunkG60.bin contains Hi-Res DLC, not base game data — ignore for weapon modding.
@@ -780,5 +858,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-24*
-*Current Milestone: 2026-09-24: 气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*
+*Last Updated: 2026-09-25*
+*Current Milestone: 2026-09-25: 收刀拔刀刚1 已实装 (sheath-rewrite: 收刀态{3,11}→{3,86}, 门控=红刃0x2370>=3 且 气刃量0x2368>0.15, 配置 ValorGauge.sheath-rewrite.txt, 第一版因 weapon+0xC71 收刀态读0而失效(该字段语义待钉,已弃用), 收刀判定改用 tracker set-1 前趋动作; 现版 md5 7fe2c220, 待局内验证). 收刀态输入路由定案 — 收刀按R2产生的{3,11}是代码+静态表路由, 武器FSM完全不参与 (待機1000零链路; 重映射器对id11透传; 每武器set-3请求表 0x143FD5590+type*0x130, LS 113条@0x143F4D6A0, 消费链 b670→b830→b590→DoAction; 想纯数据改收刀R2从这张表入手; DLL改写路线 = DIRREWRITE加 收刀态{3,11}→{3,86}, 门控weapon+0xC71). 修正: remapper反编译case N=武器类型N+1 (dispatch有dec eax), case 2就是LS.  气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*
