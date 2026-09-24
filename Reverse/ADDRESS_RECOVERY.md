@@ -260,7 +260,7 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 
 ## 6. 最终验证标准
 
-1. `MEMORYMAP hooks:` 一行 11 项全 `ok`（或有意放弃的诊断项）。
+1. `MEMORYMAP hooks:` 一行 12 项全 `ok`（或有意放弃的诊断项）。
 2. `MEMORYMAP propRegistry count=… rowTable=ok`、`audioSingleton ok`。
 3. 进训练场：见切空挥（静默）→ 叮（屏幕出反击提示、出刚1）→ 居合 101/102 同测。
 4. 无 `MEMORYMAP SANITY` 告警。
@@ -273,7 +273,7 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 `doAction`（自动）、`condEval` 0x118BDA0、`poolQuery` 0xAEE050、
 `dmgCalc` 0x1F66DD0、`hitDispatch` 0x1F71960、`postEventId` 0x28B8DD0、
 `soundPost` 0x26D4C50、`postEventName` 0x28B8FE0、`propInt` 0x1922190、
-`propBool` 0x19221F0、`propFloat` 0x1922240、`gaugeAdd` 0x2122410、
+`propBool` 0x19221F0、`propFloat` 0x1922240、`gaugeAdd` 0x2122410、`fxNotify` 0xADD670、
 `audioSingleton` 0x51C458、`propRegistry` 0x5012048、`propLookup` 0x462700、
 `propName` 0x1979770。
 

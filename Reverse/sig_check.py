@@ -28,6 +28,7 @@ TARGETS = {
     "propBool": 0x19221F0,
     "propFloat": 0x1922240,
     "gaugeAdd": 0x2122410,
+    "fxNotify": 0xADD670,
 }
 JSON_PATH = "signatures.json"
 

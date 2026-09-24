@@ -9,6 +9,7 @@
 #include <chrono>
 #include <charconv>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -94,6 +95,24 @@ std::chrono::steady_clock::time_point g_gaugeLockNextReport{};
 // (default 0.01 filters the per-frame 0.000556 drains; 0 logs everything).
 void (*g_originalGaugeAdd)(void* weapon, float value) = nullptr;
 std::atomic<float> g_gaugeLogMinAbs{0.01f};
+// Player-emitter notify logger (FUN_140ADD670): every body-effect id the game
+// fires on the local player is logged with its caller RVA, so one session
+// (iai, foresight, helm breaker...) maps which id = which aura.
+void (*g_originalFxNotify)(void* emitter, std::uint32_t id, std::uint32_t arg) =
+    nullptr;
+// FX test (2026-09-24): fire a player-emitter notify directly to identify the
+// spirit-slash body glow. Candidates seen in the per-move handlers:
+//   0x7D2 / 0x7DC via func_140AE0D70 (gated: action 87/102 && level!=0, or +0x2398)
+//   0x7D7         via FUN_140ADD670   (gated: +0x2398 stance flag)
+// Config nativePC/plugins/ValorGauge.fx-test.txt = "<func> <id>" (func 0 =
+// ADD670, 1 = AE0D70; id accepts 0x prefix). F7 fires once, Shift+F7 reloads.
+void (__fastcall* g_fxNotifyA)(void*, std::uint32_t, std::uint32_t) = nullptr;
+void (__fastcall* g_fxNotifyB)(void*, std::uint32_t, std::uint32_t) = nullptr;
+std::atomic_int g_fxFireFunc{-1};
+std::atomic<std::uint32_t> g_fxFireId{0};
+int g_fxCfgFunc = 0;
+std::uint32_t g_fxCfgId = 0x7D2;
+bool g_fxKeyWasDown = false;
 // Per-action gauge rules (nativePC/plugins/ValorGauge.gauge-rules.txt):
 //   rewrite <set> <id> <delta> [origVal]  - replace the gauge delta of events
 //       occurring while <set:id> is the current action; with origVal only
@@ -157,6 +176,7 @@ bool g_counterCtrlWasDown = false;
 std::atomic<std::uintptr_t> g_moduleBase{0};
 bool g_clangLatch = false; // one force per 见切 action
 void TryQueuedForceWrite(const void* entity);
+void TryQueuedFx(const void* entity);
 
 bool IsNormalModeChargingAction(const ActionInfo& action) {
     if (action.actionSet != 3) {
@@ -414,7 +434,7 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch, HkPostEventId,
     HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat,
-    HkGaugeAdd, HkCount
+    HkGaugeAdd, HkFxNotify, HkCount
 };
 
 struct HookSig {
@@ -493,12 +513,20 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x48, 0x8B, 0x81, 0xB0, 0x09, 0x00, 0x00, 0x48, 0x8B, 0x88, 0x20, 0x7D, 0x00, 0x00, 0xE8,
       0xDF, 0x0F, 0x0A},
      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x2122410},
+    // fxNotify = FUN_140ADD670 player-emitter effect notify (body auras). The
+    // 0x201DCB0 twin shares 32 bytes; the post-call movss/lea tail (offsets
+    // 36-46) discriminates. Wildcards: call rel32 + rip-relative disp32s.
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x81, 0xEC, 0x30,
+      0x01, 0x00, 0x00, 0x48, 0x8B, 0xF1, 0x41, 0x8B, 0xD8, 0x48, 0x8D, 0x4C, 0x24, 0x40, 0x8B,
+      0xFA, 0xE8, 0x00, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x10, 0x05, 0x00, 0x00, 0x00, 0x00, 0x48,
+      0x8D, 0x05},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxx????xxx", 0xADD670},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch", "postEventId",
     "soundPost", "postEventName", "propInt", "propBool", "propFloat",
-    "gaugeAdd",
+    "gaugeAdd", "fxNotify",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -1423,6 +1451,74 @@ void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     }
 }
 
+// FUN_140ADD670 choke point: every player-emitter body effect (0x7D1-0x7DC
+// family, 2000 parametric family, ...) passes here. Log local-player calls
+// with the caller RVA; suppress exact repeats within 0.5s and hard-cap 30/s.
+void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
+                             std::uint32_t arg) {
+    void* returnAddress = _ReturnAddress();
+    bool own = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lockedPlayerController) {
+            auto* player =
+                static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+            if (IsReadable(player + 0x8808, sizeof(void*))) {
+                own = emitter == *reinterpret_cast<void**>(player + 0x8808);
+            }
+        }
+    }
+    if (g_originalFxNotify) {
+        g_originalFxNotify(emitter, id, arg);
+    }
+    if (!own) {
+        return;
+    }
+    std::uintptr_t callerRva = 0;
+    if (returnAddress) {
+        callerRva = reinterpret_cast<std::uintptr_t>(returnAddress) -
+                    g_moduleBase.load(std::memory_order_relaxed);
+    }
+    // Skip callers outside the game module (our own F7 test gun produces
+    // garbage RVAs that would pollute the log).
+    if (callerRva == 0 || callerRva > 0x4000000) {
+        return;
+    }
+    static std::uint32_t lastId = 0;
+    static std::uint32_t lastArg = 0;
+    static std::uintptr_t lastCaller = 0;
+    static std::chrono::steady_clock::time_point lastTime{};
+    static std::chrono::steady_clock::time_point windowStart{};
+    static std::uint32_t windowCount = 0;
+    const auto now = std::chrono::steady_clock::now();
+    if (now - windowStart > std::chrono::seconds(1)) {
+        windowStart = now;
+        windowCount = 0;
+    }
+    if (++windowCount > 30) {
+        return;
+    }
+    if (id == lastId && arg == lastArg && callerRva == lastCaller &&
+        now - lastTime < std::chrono::milliseconds(500)) {
+        return;
+    }
+    lastId = id;
+    lastArg = arg;
+    lastCaller = callerRva;
+    lastTime = now;
+    std::ostringstream m;
+    m << "FXNOTIFY id=0x" << std::hex << id << std::dec << " arg=" << arg
+      << " caller=+0x" << std::hex << callerRva << std::dec;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            m << " act=" << g_lastLongSwordAction->actionSet << ':'
+              << g_lastLongSwordAction->actionId;
+        }
+    }
+    Log(m.str());
+}
+
 bool LockedPlayerActionChargesValor() {
     std::scoped_lock lock(g_actionMutex);
     if (!g_lastLongSwordAction) {
@@ -1873,6 +1969,14 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Gauge add hook installed (GAUGEEVT logging)");
     }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkFxNotify]),
+                      reinterpret_cast<void*>(&FxNotifyHook),
+                      reinterpret_cast<void**>(&g_originalFxNotify)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkFxNotify])) != MH_OK) {
+        Log("FX notify hook failed");
+    } else {
+        Log("FX notify hook installed (FXNOTIFY logging)");
+    }
 #endif
     ValidateMemoryMap();
     return true;
@@ -2009,8 +2113,49 @@ void TryQueuedForceWrite(const void* entity) {
     Log(m.str());
 }
 
+void LoadFxTestConfig() {
+    std::ifstream input("nativePC/plugins/ValorGauge.fx-test.txt");
+    std::string funcToken;
+    std::string idToken;
+    if (input >> funcToken >> idToken) {
+        g_fxCfgFunc = std::strtol(funcToken.c_str(), nullptr, 0);
+        g_fxCfgId =
+            static_cast<std::uint32_t>(std::strtoul(idToken.c_str(), nullptr, 0));
+    }
+    std::ostringstream m;
+    m << "FX test config: func=" << g_fxCfgFunc << " id=0x" << std::hex
+      << g_fxCfgId << std::dec << " (F7 fires, Shift+F7 reloads)";
+    Log(m.str());
+}
+
+void TryQueuedFx(const void* entity) {
+    const int func = g_fxFireFunc.exchange(-1, std::memory_order_acq_rel);
+    if (func < 0 || !g_lockedPlayerController) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+    if (entity != player || !IsReadable(player + 0x8808, sizeof(void*))) {
+        return;
+    }
+    void* emitter = *reinterpret_cast<void**>(player + 0x8808);
+    const auto id = g_fxFireId.load(std::memory_order_relaxed);
+    std::ostringstream m;
+    m << "FXTEST: fire func=" << func << " id=0x" << std::hex << id;
+    if (func == 0 && g_fxNotifyA) {
+        g_fxNotifyA(emitter, id, 0);
+        m << " via ADD670";
+    } else if (func == 1 && g_fxNotifyB) {
+        g_fxNotifyB(emitter, id, 0);
+        m << " via AE0D70";
+    } else {
+        m << " <unresolved func>";
+    }
+    Log(m.str());
+}
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
+    TryQueuedFx(entity);
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE
     RecordPropCall(entity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(id)),
@@ -3866,6 +4011,23 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         Log(m.str());
     }
     g_gaugeLockKeyWasDown = f5Down;
+
+    // FX test trigger: F7 fires the configured player-emitter notify once;
+    // Shift+F7 reloads ValorGauge.fx-test.txt (sweep candidate ids).
+    const bool f7Down = (GetAsyncKeyState(VK_F7) & 0x8000) != 0;
+    if (f7Down && !g_fxKeyWasDown) {
+        if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+            LoadFxTestConfig();
+        } else {
+            g_fxFireFunc.store(g_fxCfgFunc, std::memory_order_release);
+            g_fxFireId.store(g_fxCfgId, std::memory_order_relaxed);
+            std::ostringstream m;
+            m << "FXTEST: queued func=" << g_fxCfgFunc << " id=0x" << std::hex
+              << g_fxCfgId;
+            Log(m.str());
+        }
+    }
+    g_fxKeyWasDown = f7Down;
 #endif
 
     if (g_visible) {
@@ -3991,6 +4153,27 @@ DWORD WINAPI InitializePlugin(void*) {
 #else
                 InstallForceHook();
                 LoadForceActionConfig();
+                {
+                    const std::uintptr_t base = ModuleBaseAddr();
+                    const std::uintptr_t rvaA =
+                        OverrideOrZero("fxNotifyA") != 0
+                            ? OverrideOrZero("fxNotifyA")
+                            : 0xADD670;
+                    const std::uintptr_t rvaB =
+                        OverrideOrZero("fxNotifyB") != 0
+                            ? OverrideOrZero("fxNotifyB")
+                            : 0xAE0D70;
+                    g_fxNotifyA = reinterpret_cast<void (__fastcall*)(
+                        void*, std::uint32_t, std::uint32_t)>(base + rvaA);
+                    g_fxNotifyB = reinterpret_cast<void (__fastcall*)(
+                        void*, std::uint32_t, std::uint32_t)>(base + rvaB);
+                    std::ostringstream fxm;
+                    fxm << "FX test notify resolved: ADD670="
+                        << (g_fxNotifyA ? "ok" : "null") << " AE0D70="
+                        << (g_fxNotifyB ? "ok" : "null");
+                    Log(fxm.str());
+                }
+                LoadFxTestConfig();
 #endif
                 return 0;
             }
