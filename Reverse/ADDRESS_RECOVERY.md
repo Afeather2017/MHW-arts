@@ -296,7 +296,104 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 
 ---
 
-## 7. 最终验证标准
+## 7. 动作帧控制与 motion 时钟（FRAMESEEK，2026-09-26 新增）
+
+> **先读这个**：FRAMESEEK 功能**不新增任何钩子地址**——双写全部发生在既有
+> doAction / propInt 钩子的运行时指针上，靠**结构偏移**读写。会过期的不是
+> VA，是偏移。所以本章重点是偏移的再推导步骤；2.2 的 doAction、2.1 的
+> propInt 修好后，本章没有任何 addresses.txt 要改。
+> 结论先行：**动作有两条时间线** —— 逻辑帧 `instance+8`（秒，30Hz 逻辑步进）
+> 和 motion 时钟 `*(float*)(*(player+0x468)+0x10C)`（TIML 帧数，+2.0/逻辑tick，
+> 60/s）。**骨架动画只采样 motion 时钟**；只写 instance+8 画面纹丝不动
+> （2026-09-26 实测定案）。
+
+### 7.1 ActionController 与动作实例布局
+
+| 位置（player 基址） | 语义（旧版偏移） |
+|---|---|
+| player+0x61C8 | ActionController 本体（slot0；slot1 = +0x6878，步长 0x6B0） |
+| +0xA8 | phase：0 idle / 1 请求已接受 / 2 运行中（缓冲路径不改 phase，勿用它判断 begin 已跑） |
+| +0xAC / +0xB0 | 当前 set / id（= player+0x6274 / 0x6278） |
+| +0xB4/+0xB8, +0xBC/+0xC0 | pending；缓冲请求（DoAction 在 phase!=0 时写后者） |
+| +0xC4/+0xC8, +0xD0, +0xD8 | 前一动作 set/id、前一实例指针、前一动作帧（+0xD8 只写不读） |
+| +0x68+set*0x10 | instArray 指针；`instance = *(instArray + id*8)`；条目数在 +(set+7)*0x10 |
+| +0x6A8 (=player+0x6870) | 动作自动结束阈值 float（<0 关；实测 3:81/3:104 期间恒 -1） |
+| instance+8 / +0xC | **动作帧 float（秒）**；本帧 dt。begin（FUN_14026A1E0）清零 +8，每帧更新器 `frame += dt` |
+| instance+0x18 | finished 字节；instance+0x28 = player。+0x10 在武器动作上实测不可读（相机类才是 core 指针），勿依赖 |
+
+- **【锚点】getter 三连**（找控制器布局最快的入口）：反汇编搜
+  `imul rdx, rax, 0x6B0`（字节 `48 6B D2 B0 06 00 00`）。命中三个相邻函数：
+  `lea rax,[rcx+0x6274]`（{set,id} 指针）/ 读 +0x6278（id）/ 读 +0x6274（set），
+  另有变体先 `add rcx,0x61C8` 再转调实例解析器
+  （`movsxd rax,[rcx+0xAC]; cmp eax,-1; …; mov rax,[rcx+rax*8+0x68];
+  mov rax,[rax+rdx*8]` = FUN_14026A420 形状）。
+- **【锚点】DoAction 本体**（2.2 找到后）顺带实锤整套布局：范围校验
+  `(set+7)*0x10`、实例存在性 `[rax+r8*8]`、phase 分支 `[r9+0xA8]`、
+  旧帧快照 `movss xmm0,[r8+8]` → `[r9+0xD8]`。
+- **【锚点】每帧更新器**（验证 `frame += dt` 与 begin 清零）：从 DoAction 的
+  phase 字段交叉引用找更新循环（旧版 FUN_141F78600 内联了 FUN_14026A820 /
+  FUN_14026A1E0(begin, 清零+8) / FUN_14026A290(end) / FUN_14026A660(收尾旧动作)）。
+- **【验证】** 局内 F6 强制任意动作，log `FRAMETICK act=.. frame=.. dt=..`：
+  frame 从 dt 起按 dt 递增、每次动作（重）开始归零。旧版 dt = 0.0333334 = 1/30
+  （**单位是秒，30Hz 逻辑帧**；TIML 的 60fps 帧 n = n/60 秒）。
+- **【写回】** `dllmain.cpp` 的 `ResolveActionInstance` / `TryFrameSeek` /
+  `TryQueuedForceWrite` 里的字面偏移（0x61C8/0xA8/0xAC/0xB0/0x68/0x10C/8/0xC）。
+
+### 7.2 motion 时钟（骨架真正采样的时间线）
+
+- 值：`mot = *(float*)(*(player+0x468)+0x10C)`。计 TIML 帧数（+2.0/逻辑tick、
+  60/s），motion 每次（重）启动归零；动作中途换 motion 也会归零重计。
+  原生 getter 旧版 0x141BFF780：`mov rax,[rcx+0x468]; …; movss xmm0,[rax+0x10C]`
+  （游戏用它判断"步进动作未完成"）。**帧 0x10C 旁还有 4 个同步 +2 时钟**：
+  +0x110 / +0x124 / +0x128 / +0x22C（旧版 CLK 报告；疑似动画层/混合同步时钟，
+  只写 +0x10C 已视觉生效，其余语义未挖）。
+- **【锚点】静态**：搜"以 [rcx+0x468] 取基址、返回 [rax+0x10C] float"的小 getter
+  （函数极短，int3 包夹），或从 0x6B0 getter 家族同地址邻域找。
+- **【锚点】动态（更新后的万能法，推荐）**：CLOCKMINER 自带自愈——F6 强制一次
+  动作，看 log `CLK anim468 base=0x.. :+0x.. step=2 (hits)`：**恒定步长 +2 的
+  偏移就是新版 motion 时钟**（结构挪了它自己会报新偏移）。`FRAMETICK` 行的
+  `mot=` 字段即读此偏移。
+- **【验证】** seek 后 `FRAMESEEK settled ... mot=..` 的 mot 应 > 目标（秒×60），
+  且画面从中段起手。
+- **【写回】** `dllmain.cpp` 两处：FRAMETICK 的 motTime 读取、FRAMESEEK v3 的
+  mot 写入（含 ×60 秒→TIML 帧换算）。若骨架再不跟随：扩 `g_clkRegions[]`
+  挖矿区域（weapon 全体 / player+0x470 / anim 深层）重新报告。
+
+### 7.3 每武器动作类表（深挖入口，无运行时依赖）
+
+- LS set-3 类表旧版 0x142EF5C30（113 项，表项 0x20 stride {id u32, set u32,
+  classPtr, pad}，id 与类一一对应）；行 = `FUN_142165600(type)` =
+  `type*0x130 + 0x143FD5590` 的 +0x40(表)/+0x50(数)——**与第 6 章请求表同一行**
+  （共享 count 字段）；+0x70/+0x78 = slot1 类表（8 项）。
+- 类对象在 .data（旧版 0x144FExxxx 区）；**类名 ASCII 就嵌在 .rdata vtable 后面**
+  （`nHmAction::Wp03:...` 家族；vtable 4 个 code ptr 后跟名字）。
+  set-1 locomotion 类表注册点 = FUN_141BFCF80 的 14 处调用（每武器一张，
+  旧版 0x142E6C640 等）；换武器注册器 = FUN_141F5A410（读 weapon+0x9F8）。
+  动作 id→LMT entry **不存在平表**、类对象里也无 LMT 字段（已扫描排除）——
+  LMT 选择在类工厂/核心对象代码里（工厂族 0xCD0 字节运行时对象，旧版
+  FUN_1417FADA0 一家）。
+- **【锚点】** 新版 dump 里字符串搜索 `nHmAction::` → 命中处往回找 vtable 头
+  （4 个 code ptr）→ 找引用该 vtable 的 .data 指针 = 类对象 → 找按 0x20 stride
+  引用类对象的表 = 类表。
+- **【验证】** LS 类表第 86 项（见切）的类名应含 SlashAim（旧版
+  cActWpOnSlinger 名域相邻，注意对准 vtable 头）。
+
+### 7.4 动态恢复总路线（mod 自带仪器，优先走这条）
+
+1. 更新后 F6 强制一次动作 → 看 `FRAMETICK`：dt 值（旧版 1/30）、frame 是否
+   递增/归零 ⇒ instance+8 布局是否还成立。
+2. 看 `CLK` 报告 ⇒ 新版 motion 时钟偏移（step=+2 那批）。
+3. 改 force-action.txt 加第 4 参（如 `3 81 0 0.5`）→ F6 → 画面从中段起手 +
+   `FRAMESEEK settled` ⇒ 双写通路活着。
+4. 画面又不跳（时间线再断）⇒ `g_clkRegions[]` 加区域重挖。
+5. 经验教训（重踩过）：**属性钩子 ~10 次/帧 ≠ 逻辑帧**——挖矿/计数必须按
+   "frame 值变化"门控；**±dt 检测会漏掉 TIML 帧制（+2.0/tick）的时钟**——
+   用恒定步长法；**写帧要在 begin 之后**（首 tick 的值是上一轮残值，
+   begin 清零会洗掉早写的值——现在的"钉住到追上"逻辑对 begin 时序自愈）。
+
+---
+
+## 8. 最终验证标准
 
 1. `MEMORYMAP hooks:` 一行 12 项全 `ok`（或有意放弃的诊断项）。
 2. `MEMORYMAP propRegistry count=… rowTable=ok`、`audioSingleton ok`。
@@ -305,7 +402,10 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
    （log `SHEATHREWRITE ... nohit=0.2s`）；非红刃/气刃不足 → 原版拔刀气刃1
    （log `SHEATHREWRITE reject`）。
 5. 无 `MEMORYMAP SANITY` 告警。
-6. `python sig_check.py --verify` 全 OK（供下次更新用）。
+6. FRAMESEEK：force-action.txt 带第 4 参（如 `3 81 0 0.5`）→ F6 → 画面从中段
+   起手，log `FRAMESEEK settled ... mot=..`；`FRAMETICK` 的 frame/dt/mot 数值
+   形状正常（dt=1/30 递增、mot=+2/tick）。
+7. `python sig_check.py --verify` 全 OK（供下次更新用）。
 
 ---
 
@@ -320,7 +420,7 @@ python sig_check.py --verify    # 必须全部 OK 且唯一命中（命中数>1 
 
 ## 附录 B：结构体字段旧版偏移
 
-见 4.3 / 4.4 表。player 系偏移从 controller−0x61C8 起；weapon = *(player+0x76B0)；
+见 4.3 / 4.4 表；动作帧控制系（控制器/实例/motion 时钟）见第 7 章 7.1/7.2 表。player 系偏移从 controller−0x61C8 起；weapon = *(player+0x76B0)；
 mgr = *(player+0x7D20)；pool = mgr+0x28。
 
 **运行时 w03p 参数表**（paramTable = *(player+0x7810)，双重解引用）：
@@ -358,6 +458,10 @@ c71 实测值，收刀/拔刀各采几组对比即可定案。
   无弹反交互 → 无叮 → bit15 永不置位 → 见切/居合反击链全灭。
   叮类招式的保护必须后置于叮（bit15 先行、注入殿后）；前置保护只适用于
   无弹反呈现的自定义招（如收刀刚1 的 0.2s 窗口）。
+- **双时间线（2026-09-26 定案）**：动作逻辑帧 = instance+8（秒，30Hz），
+  motion 时钟 = *(float*)(*(player+0x468)+0x10C)（TIML 帧，+2/tick，motion 重启归零）；
+  **骨架只采样后者**。FRAMESEEK = force 后检测新 begin（帧回落 ≤2dt）→ 双写
+  （逻辑帧=秒、mot=秒×60）→ 钉住直到时间线追上。详细恢复步骤见第 7 章。
 - 见切成功判定 = 事件位 15；居合否定 = 事件位 250（player+0x8954 bit26）。
 - 强制出招 = 在 propInt 钩子里直接调用原始 DoAction（栈上 ActionInfo，勿保存指针）。
 - **气刃系统（2026-09-24 全链路破解，详见 2.8/4.4）**：

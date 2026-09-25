@@ -941,6 +941,9 @@ Build command:
   别搞混)。热重载会连带重载 weapon-type/hit-charge/gauge-lock/gauge-log/gauge-rules/
   sheath-rewrite 子配置。startFrame 参数单位 = 秒。
 - 工具坑: disasm_rva.py 第一参是 **RVA 不是 VA** (传 0x1417fada0 会 "not mapped")。
+- **更新恢复文档**: 本章全套(控制器/实例布局、motion 时钟、类表、动态恢复总路线)
+  已按锚点/步骤/验证/写回格式收录 `Reverse/ADDRESS_RECOVERY.md` 第 7 章
+  (原第 7 章顺延为第 8 章); FRAMESEEK 不新增钩子地址, 会过期的只有结构偏移。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
