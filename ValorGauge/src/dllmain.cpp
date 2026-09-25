@@ -1618,6 +1618,13 @@ void ExtendLevelDropTimer(std::uint8_t* player, float seconds,
     if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
         return;
     }
+    // Defense in depth: the level timer / duration params only exist on the
+    // Long Sword weapon struct - never touch a foreign weapon.
+    if (!IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) ||
+        *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
+            g_modWeaponType.load(std::memory_order_relaxed)) {
+        return;
+    }
     const auto level =
         *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
     if (level < 1 || level > 3) {
@@ -1667,6 +1674,15 @@ void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     }
     auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
     if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
+        return;
+    }
+    // Hard LS gate: every weapon routes its set-3 actions through the same
+    // DoAction path, and rule ids are LS move ids. Without this check a
+    // colliding action id (or a wildcard rule) would apply an LS rule - and
+    // the LS-only gauge natives / weapon offsets - to a foreign weapon struct.
+    if (!IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) ||
+        *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
+            g_modWeaponType.load(std::memory_order_relaxed)) {
         return;
     }
     auto readGauge = [&]() {
