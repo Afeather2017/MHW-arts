@@ -93,21 +93,26 @@ std::chrono::steady_clock::time_point g_gaugeLockNextReport{};
 // RVA so one play session maps "which move moves the gauge by how much".
 // Config nativePC/plugins/ValorGauge.gauge-log.txt = "<minAbsValue>"
 // (default 0.01 filters the per-frame 0.000556 drains; 0 logs everything).
-void (*g_originalGaugeAdd)(void* weapon, float value) = nullptr;
+// FUN_142122410 returns the clamped gauge in xmm0 - the type must say float
+// so the detour forwards it (return-value clobbering = caller eats garbage).
+float (*g_originalGaugeAdd)(void* weapon, float value) = nullptr;
 std::atomic<float> g_gaugeLogMinAbs{0.01f};
 // Player-emitter notify logger (FUN_140ADD670): every body-effect id the game
 // fires on the local player is logged with its caller RVA, so one session
 // (iai, foresight, helm breaker...) maps which id = which aura.
-void (*g_originalFxNotify)(void* emitter, std::uint32_t id, std::uint32_t arg) =
-    nullptr;
+// FUN_140ADD670 RETURNS the created effect handle in rax ("mov rax,rbx; ret")
+// - callers may keep using it (GS charge glow does; discarding it crashed the
+// game at MonsterHunterWorld.exe+0x232E245), so the detour must forward it.
+void* (*g_originalFxNotify)(void* emitter, std::uint32_t id,
+                            std::uint32_t arg) = nullptr;
 // FX test (2026-09-24): fire a player-emitter notify directly to identify the
 // spirit-slash body glow. Candidates seen in the per-move handlers:
 //   0x7D2 / 0x7DC via func_140AE0D70 (gated: action 87/102 && level!=0, or +0x2398)
 //   0x7D7         via FUN_140ADD670   (gated: +0x2398 stance flag)
 // Config nativePC/plugins/ValorGauge.fx-test.txt = "<func> <id>" (func 0 =
 // ADD670, 1 = AE0D70; id accepts 0x prefix). F7 fires once, Shift+F7 reloads.
-void (__fastcall* g_fxNotifyA)(void*, std::uint32_t, std::uint32_t) = nullptr;
-void (__fastcall* g_fxNotifyB)(void*, std::uint32_t, std::uint32_t) = nullptr;
+void* (__fastcall* g_fxNotifyA)(void*, std::uint32_t, std::uint32_t) = nullptr;
+void* (__fastcall* g_fxNotifyB)(void*, std::uint32_t, std::uint32_t) = nullptr;
 std::atomic_int g_fxFireFunc{-1};
 std::atomic<std::uint32_t> g_fxFireId{0};
 int g_fxCfgFunc = 0;
@@ -1364,7 +1369,7 @@ void LoadGaugeLogConfig() {
 // the caller RVA + pending-cost slot + current action; one session maps the
 // whole move->gauge table. Rate-capped at 40 lines/s. Rewrite rules (local
 // player only) replace the delta before the original runs.
-void __fastcall GaugeAddHook(void* weapon, float value) {
+float __fastcall GaugeAddHook(void* weapon, float value) {
     void* returnAddress = _ReturnAddress();
     float before = 0.0f;
     float costSlot = 0.0f;
@@ -1437,17 +1442,18 @@ void __fastcall GaugeAddHook(void* weapon, float value) {
             value = 0.0f;
         }
     }
+    float result = 0.0f;
     if (g_originalGaugeAdd) {
-        g_originalGaugeAdd(weapon, value);
+        result = g_originalGaugeAdd(weapon, value);
     }
     if (!hasWeapon) {
-        return;
+        return result;
     }
     const float after = *reinterpret_cast<const volatile float*>(
         static_cast<std::uint8_t*>(weapon) + 0x2368);
     const float absVal = value < 0.0f ? -value : value;
     if (absVal < g_gaugeLogMinAbs.load(std::memory_order_relaxed)) {
-        return;
+        return result;
     }
     static std::chrono::steady_clock::time_point windowStart{};
     static std::uint32_t windowCount = 0;
@@ -1465,7 +1471,7 @@ void __fastcall GaugeAddHook(void* weapon, float value) {
     }
     if (++windowCount > 40) {
         ++dropped;
-        return;
+        return result;
     }
     std::uintptr_t callerRva = 0;
     if (returnAddress) {
@@ -1484,6 +1490,7 @@ void __fastcall GaugeAddHook(void* weapon, float value) {
         }
     }
     Log(m.str());
+    return result;
 }
 
 void LoadGaugeRulesConfig() {
@@ -1755,8 +1762,9 @@ void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
 // FUN_140ADD670 choke point: every player-emitter body effect (0x7D1-0x7DC
 // family, 2000 parametric family, ...) passes here. Log local-player calls
 // with the caller RVA; suppress exact repeats within 0.5s and hard-cap 30/s.
-void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
-                             std::uint32_t arg) {
+// MUST return the original's handle (rax) - see the note on g_originalFxNotify.
+void* __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
+                              std::uint32_t arg) {
     void* returnAddress = _ReturnAddress();
     bool own = false;
     {
@@ -1769,11 +1777,12 @@ void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
             }
         }
     }
+    void* result = nullptr;
     if (g_originalFxNotify) {
-        g_originalFxNotify(emitter, id, arg);
+        result = g_originalFxNotify(emitter, id, arg);
     }
     if (!own) {
-        return;
+        return result;
     }
     std::uintptr_t callerRva = 0;
     if (returnAddress) {
@@ -1783,7 +1792,7 @@ void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
     // Skip callers outside the game module (our own F7 test gun produces
     // garbage RVAs that would pollute the log).
     if (callerRva == 0 || callerRva > 0x4000000) {
-        return;
+        return result;
     }
     static std::uint32_t lastId = 0;
     static std::uint32_t lastArg = 0;
@@ -1797,11 +1806,11 @@ void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
         windowCount = 0;
     }
     if (++windowCount > 30) {
-        return;
+        return result;
     }
     if (id == lastId && arg == lastArg && callerRva == lastCaller &&
         now - lastTime < std::chrono::milliseconds(500)) {
-        return;
+        return result;
     }
     lastId = id;
     lastArg = arg;
@@ -1818,6 +1827,7 @@ void __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
         }
     }
     Log(m.str());
+    return result;
 }
 
 bool LockedPlayerActionChargesValor() {
@@ -4489,9 +4499,9 @@ DWORD WINAPI InitializePlugin(void*) {
                         OverrideOrZero("fxNotifyB") != 0
                             ? OverrideOrZero("fxNotifyB")
                             : 0xAE0D70;
-                    g_fxNotifyA = reinterpret_cast<void (__fastcall*)(
+                    g_fxNotifyA = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaA);
-                    g_fxNotifyB = reinterpret_cast<void (__fastcall*)(
+                    g_fxNotifyB = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaB);
                     std::ostringstream fxm;
                     fxm << "FX test notify resolved: ADD670="
