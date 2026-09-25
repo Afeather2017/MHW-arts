@@ -632,6 +632,12 @@ Build command:
     注入 pool+0xE4 no-hit 窗口并清空气刃槽（见切配方）; 不足则什么都不发生。
   cost 先于 gate。注入助手 `InjectNoHitLocked` 已从 OpenCounterWindow 提取共用。
   文件当前全部注释（无行为变化）, 实测基线写在注释里。
+  - **(2026-09-25 新增) `timer <set> <id> <seconds>` / `timerhit <set> <id> <seconds>`** —
+    延长掉级倒计时 (weapon+0x2374), 与原版见切成功延长 (FUN_142123510 +0x2374 += param) 同一原语。
+    timer = 动作开始生效 (空挥算); timerhit = 命中才生效 (DmgCalcHook 路径, 每跳叠加, 多段招多次加;
+    不受 valor 充能门控影响)。`id 0` = 通配该 set 全部动作。秒数按当前等级的 w03p Gauge_Duration
+    (playerParam+0x858/85C/860) 现场换算成 0..1 刻度, clamp 满级; 等级 0 不加。
+    日志 `GAUGERULE timer[-hit] act=.. +Ns lv=.. dur=.. countdown=As -> Bs` (上限128条)。
 - **rewrite 规则 user-verified 有效**: 突刺 +0.5 / 上挑改 -0.1（增益变消耗）都生效。
 - **气刃 Regen 状态破解 (decompile 实锤 2026-09-24)**: 兜割后 `weapon+0x2378` = 持续秒
   （普通 10s/红刃 15s）, 小居合后 `weapon+0x2388` = 持续秒（普通 15s/掐点 30s, 经
@@ -782,6 +788,47 @@ Build command:
     帧杀保护与弹反计数互斥。叮类招式 (见切/居合) 的保护必须后置于叮 (bit15 先行,
     注入殿后 — mod 叮触发器的既有顺序)。** gate 规则只适用于无弹反呈现的自定义招。
     rules 文件示例行的 `#gate 3 86 0.1 0.5` 已换成 3:87 并加警告。
+
+### 2026-09-25 (2) 气刃等级自动下降 + 气刃量自动衰减全链路 (decompile+w03p模板实锤, 站桩秒表未做)
+
+- **总更新器 = FUN_1421237B0 (RVA 0x21237B0, 纳刀研究同款每帧函数)**。两套衰减独立:
+  - **等级计时器 = weapon+0x2374 (float 0..1)**: 每帧 `- dt' × (1/Duration[level]) × (1.0/FUN_1411c27c0(mgr))`,
+    dt' = `*(*(player+0x998)+0x68)`。Duration 按 0x2370 选 1/2/3 档 = playerParam+0x858/0x85C/0x860
+    = **w03p `Gauge_Duration_White/Yellow/Red`** (用户冰原版实测 195/135/60; 文件偏移 1265/1269/1273,
+    skew +871 ✓)。倍率函数 FUN_1411c27c0 = 属性 0x35 → 表 `_DAT_145011f68+0x5CC+(idx-1)*4`, 默认 1.0。
+    门控: event bit0 (player+0x8938 &1, 全部气刃增减共用此门) **且 +0x2390 ≤ 0**。
+    **+0x2390 = 升级后免衰减倒计时** (初值来自 w03p `Gauge_No_Decay_Time_after_Spirit_Gauge_Upgrade`,
+    playerParam+0x884; 每帧在 bit0 下减 dt', 归零钳 0 → 衰减开始)。
+  - **到 0 处理 (updater 内)**: level≥2 → level-1 + 计时器写 1.0 (回满) + FUN_140ae1630 通知;
+    **level<2 (白) → level 直接归 0 且 +0x2370..+0x2374 一起清零 (undefined8 写)**。
+  - **气刃量 (可见蓝条) = weapon+0x2368**: +0x236C 累计器以 `dt'/Spirit_Gauge_Decay(playerParam+0x800)` 速率扣,
+    过 0 时蓝条一步扣 `param+0x804` (=Blade1_Cost 槽, FUN_142122410 每次气刃事件写 +0x236C=+0x804
+    所以攻击会重置待扣批量) 并重置累计器 — **净速率 = 1/Spirit_Gauge_Decay 每秒, 与 +0x804 无关**。
+    回气状态 (+0x2378 兜割/+0x2388 居合 >0) 时改为 `+0x2368 += dt'/rate(+0x840/844 或 +0x850/854)`, 不衰减。
+- **刷新路径 (计时器重置/延长)**:
+  - 升级/掉级事件都回填: 掉级事件处理器 **FUN_141822790 (DropLevel, 函数指针注册无直接调用点)**:
+    level-1 后按新等级回填 — 白←playerParam+0x9AC, 黄←+0x9B4, 归0→清零; 另有兜割/居合的
+    **等级消耗 handler FUN_142122E40**: `param+0x864 (w03p "Gauge_Consumption_for_Helm_Plus_Iai_Spirit_Slash",
+    用户实测=1) <= level` 时扣该数值等级并写 +0x2374=1.0; f20/f50 两个变体, f50 在掐点 (+0x2CED) 时跳过。
+  - **见切成功 = weapon+0x2399 锁存** (FUN_142125060: set3 且动作 86=0x56 时置位, 发 FX 0x7D4,
+    同时写 +0x23A0 = playerParam+0x8A8 = w03p "Foresight_Slash_Super_Armor_Time_on_Successful_Evasion"
+    — 09-17 的蓝光/闪白探测器字段就是它, 且 +0x23A0/+0x23A4 >0 期间每帧发 event bit 0x97(151)=超强呈现)。
+    动作结束处理器 **FUN_142123510** 消费 (+0x239C 一次性锁存, 动作开始处理器清 +0x239C):
+    +0x2399 置位 → **FUN_142122410(+1.0) 气刃量回满 + +0x2374 += playerParam+0x888 (延长, clamp 0..1)**。
+    该函数还管: 动作 101(小居合)→+0x2388 回气档 (掐点←+0x2CED→+0x84C, 否则保底 +0x848);
+    89-92(兜割系)→+0x2380 = 等级快照; 动作 69 且 bit0 → +0x2CED=1。
+  - **居合弹反 handler FUN_142124F70**: set3 且动作 ∈{101,102} → +0x2CED=1 (掐点) + FX 0x7D4 +
+    +0x23A4 = playerParam+0x8B8 (w03p "Iai_Super_Armor_on_Successful_Counter", 与 +0x8A8 恰差 0x10 ✓)。
+  - 见切整条消耗: 每招 wrapper FUN_142122F90 内, 动作 86 时 `+0x2368 -= 1.0` (见切花掉全部气刃量)。
+  - 大重置 FUN_142124590: 清 0x2368-0x237C/0x2388-0x23A4/0x2399, +0x238C=1.0, +0x23C4=7 (收刀/换区/重置)。
+- **数值核对**: 09-24 GAUGELOCK 实测 +0x2374 每帧 -0.000556 (=1/1800) — 若当时红档且 60fps,
+  则红档 30 壁秒见底 = 参数 60 的一半 (该时钟 30Hz / 参数单位≈2壁秒); 也可能另有 ×2 修正。
+  **站桩秒表一测即知** (红→黄多少秒)。模板字段名→文件偏移: Blade1_Cost@1185, Gauge_Duration*@1265-1273,
+  Consumption@1277, Damage_Buff*@1281-1289, NoDecay@~1309, 见切延长 Unk_125@~1313 (前四组用户截图核对 ✓)。
+  **注意**: 本地 chunk-extracted/G0 与 nativePC 两份 w03p 内容相同且全文件搜不到 195/135/60/15/30/0.15
+  — 编辑器里看的是冰原版数据, 改 w03p 前确认导出到 nativePC 的是编辑器那份。
+- **mod 相关**: sheath-rewrite 的红刃门 (+0x2370>=3) 会被等级自动下降在 30~97s 后打断 (红→黄) —
+  需要长效红刃可每帧写 +0x2374=1 或写大 +0x2390; 09-24 gauge-lock target 1 = 锁等级计时器 = 永不掉级。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).

@@ -126,8 +126,15 @@ bool g_fxKeyWasDown = false;
 //       rate params 0x840/0x844 via color flag +0x237C), 1 = iai timer
 //       (weapon+0x2388, rate params 0x850/0x854 via timed flag +0x2384).
 //       The per-frame updater does the decay + gauge fill + HUD switch.
+//   timer <set> <id> <seconds>            - extend the level-drop countdown
+//       (weapon+0x2374, the timer that auto-drops the aura level) by
+//       <seconds> when the action starts (whiffs count)
+//   timerhit <set> <id> <seconds>         - extend it on CONNECTED hits of
+//       the action (per hit; multi-hit moves stack). id 0 = any set-3 action.
+//       Both convert seconds with the live w03p Gauge_Duration of the current
+//       level - the same primitive as the vanilla 见切-success extension.
 struct GaugeRule {
-    enum class Type { Rewrite, Cost, Gate, Regen };
+    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit };
     Type type = Type::Rewrite;
     std::int32_t set = 3;
     std::int32_t id = 0;
@@ -1530,6 +1537,12 @@ void LoadGaugeRulesConfig() {
                 rule.rate = rate;
                 rule.hasRate = true;
             }
+        } else if (kind == "timer" || kind == "timerhit") {
+            rule.type = kind == "timer" ? GaugeRule::Type::Timer
+                                        : GaugeRule::Type::TimerHit;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
         } else if (kind == "option") {
             std::string key;
             float v = 0.0f;
@@ -1575,6 +1588,69 @@ void InjectNoHitLocked(float seconds) {
         if (IsWritable(window, sizeof(float))) {
             *window = *window > seconds ? *window : seconds;
         }
+    }
+}
+
+// timer rules accept id 0 as a wildcard for any action in the set.
+const GaugeRule* FindGaugeRuleLoose(GaugeRule::Type type, std::int32_t set,
+                                    std::int32_t id) {
+    if (const auto* rule = FindGaugeRule(type, set, id)) {
+        return rule;
+    }
+    return id == 0 ? nullptr : FindGaugeRule(type, set, 0);
+}
+
+// timer / timerhit rules: extend the level-drop countdown (weapon+0x2374,
+// 0..1 fraction of the current level's Gauge_Duration) - the same primitive
+// as the vanilla 见切-success extension (FUN_142123510:
+// +0x2374 += playerParam+0x888). Seconds convert with the live w03p duration
+// (playerParam+0x858/85C/860 by level) so "1.0" buys one countdown second.
+void ExtendLevelDropTimer(std::uint8_t* player, float seconds,
+                          std::int32_t actionSet, std::int32_t actionId,
+                          bool fromHit) {
+    if (seconds <= 0.0f || !player) {
+        return;
+    }
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
+        return;
+    }
+    const auto level =
+        *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
+    if (level < 1 || level > 3) {
+        return;  // no aura level to sustain
+    }
+    if (!IsReadable(player + 0x7810, sizeof(void*))) {
+        return;
+    }
+    auto* paramTable = *reinterpret_cast<std::uint8_t**>(player + 0x7810);
+    if (!paramTable) {
+        return;
+    }
+    const float duration = *reinterpret_cast<const volatile float*>(
+        paramTable + 0x858 + (level - 1) * 4);
+    if (!(duration > 0.0f)) {
+        return;
+    }
+    auto* timer = reinterpret_cast<volatile float*>(weapon + 0x2374);
+    const float cur = *timer;
+    const float next = std::min(1.0f, cur + seconds / duration);
+    if (next == cur) {
+        return;
+    }
+    *timer = next;
+    static std::atomic_uint32_t timerRuleLogs{0};
+    if (timerRuleLogs.load(std::memory_order_relaxed) < 128) {
+        timerRuleLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "GAUGERULE timer" << (fromHit ? "-hit" : "") << " act="
+          << actionSet << ':' << actionId << " +" << seconds << "s lv=" << level
+          << " dur=" << duration << " countdown=" << cur * duration << "s -> "
+          << next * duration << "s";
+        Log(m.str());
     }
 }
 
@@ -1653,6 +1729,10 @@ void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
             }
         }
         Log(m.str());
+    }
+    if (const auto* rule =
+            FindGaugeRuleLoose(GaugeRule::Type::Timer, actionSet, actionId)) {
+        ExtendLevelDropTimer(player, rule->a, actionSet, actionId, false);
     }
 }
 
@@ -1755,6 +1835,30 @@ void NotifyPlayerHitConnected(long long attacker) {
         // Another hunter's / monster's / follower's hit: count it, never charge.
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
         return;
+    }
+    // timerhit rules: connected hits of the current action extend the
+    // level-drop countdown. Independent of the valor-charge gates below so
+    // it also runs in valor mode / with charging off.
+    if (!g_gaugeRules.empty() && ModWeaponActive()) {
+        std::int32_t actSet = 0;
+        std::int32_t actId = 0;
+        bool hasAct = false;
+        {
+            std::scoped_lock lock(g_actionMutex);
+            if (g_lastLongSwordAction) {
+                actSet = g_lastLongSwordAction->actionSet;
+                actId = g_lastLongSwordAction->actionId;
+                hasAct = true;
+            }
+        }
+        if (hasAct && actSet == 3) {
+            if (const auto* rule =
+                    FindGaugeRuleLoose(GaugeRule::Type::TimerHit, actSet, actId)) {
+                ExtendLevelDropTimer(
+                    static_cast<std::uint8_t*>(controller) - 0x61C8, rule->a,
+                    actSet, actId, true);
+            }
+        }
     }
     const int percent = g_hitChargePercent.load(std::memory_order_relaxed);
     if (percent <= 0 || g_valorMode.load(std::memory_order_relaxed) || !ModWeaponActive()) {
