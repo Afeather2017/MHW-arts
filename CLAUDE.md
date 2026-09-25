@@ -854,7 +854,93 @@ Build command:
   **FX id 按"当前手持武器"分表解析 (user 实测更正)**: 同一 id 0x7D0 — 大剑在手 = 蓄力红光,
   太刀在手 = 普通气刃特效。特效库所有 id 都必须标注"哪个武器表下"; 跨武器借特效 (如太刀出
   大剑蓄力光) 靠改 id 做不到, 得走别的路 (其他 notify 函数/特效资源层)。0x7D0 记录:
+  **FX id 按"当前手持武器"分表解析 (user 实测更正)**: 同一 id 0x7D0 — 大剑在手 = 蓄力红光,
+  太刀在手 = 普通气刃特效。特效库所有 id 都必须标注"哪个武器表下"; 跨武器借特效 (如太刀出
+  大剑蓄力光) 靠改 id 做不到, 得走别的路 (其他 notify 函数/特效资源层)。0x7D0 记录:
   蓄力红光(大剑表) / 普通气刃(太刀表)。
+
+### 2026-09-26 动作帧控制全图: ActionController/动作实例 + 起始帧跳转 (decompile 实锤, FRAMETICK 局内验证待做)
+
+- **问题: 能否让动作从第 n 帧开始播?** 结论: **没有原生"带起始帧播放"API** — begin 硬编码清零
+  帧计数, 唯一路径 = begin 后直接写 `instance+8`。已实装 (mod build, 部署 md5 c9991130, 含 Shift+F6 热重载)。
+- **ActionController = player+0x61C8** (已知 player+0x6274/0x6278 就是它的 +0xAC/+0xB0)。
+  全字段图 (decompile: DoAction 0x140269CE0 是个小函数, 更新器 FUN_141f78600 / FUN_14026a820):
+  - `+0x68+set*0x10` = instArray 指针, `+(set+7)*0x10` = 该 set 实例数; 实例按 (set,id)
+    **预分配全局唯一** (池 FUN_140269c30, 注册表见下)。
+  - `+0xA8` = phase (0 idle / 1 请求已接受 / 2 运行中); `+0xAC/+0xB0` 当前 set/id;
+    `+0xB4/+0xB8` pending; `+0xBC/+0xC0` 缓冲请求 (DoAction 在 phase!=0 时写这里);
+    `+0xC4/+0xC8` 前一动作, `+0xD0` 前一实例 core, `+0xD8` 前一动作结束帧 (只写不读);
+    `+0x6A8` (=player+0x6870) = **动作自动结束阈值 float** (<0 关; frame 达到即 end+switch);
+    `+0x6AC/0x6AD/0x6AF` 结束标志。
+  - DoAction 全逻辑: 校验 set 范围+实例存在 → phase==0: 直写 +0xAC/+0xB0, phase=1;
+    否则缓冲 +0xBC/+0xC0。真正的 begin 发生在每帧更新器里 (a820: phase==1 → 收尾旧动作
+    a660/begin 新动作 a1e0, phase=2)。
+  - **动作实例**: `+8` = **帧 float** (begin 清零; 每帧 `frame += dt`); `+0xC` = 当前 dt;
+    `+0x10` = core 指针 (0xCD0 字节每动作运行时对象, 工厂 FUN_1417fada0 族);
+    `+0x18` = finished byte; `+0x28` = player。
+  - getter 族 (全 thunk, 简单字段读): 0x141bff720/740/760 = {set,id} 指针 / id / set,
+    stride 0x6B0 = **控制器槽步长** (slot0=player+0x61C8, slot1=player+0x6878);
+    0x14026a420/450/490 = 当前实例 / core / 帧。
+  - 实例 vtable: +0x30 = **begin** (见切类 = FUN_1417FDAE0 — 就是笔记里的"见切起手处理器",
+    内部: gauge wrapper → 通用 begin FUN_141783470: 存 yaw、发 event bit 0x63、vtable+0x288);
+    +0x38 = phase/finish 检查; +0x40 = end (FUN_14026a290); 旧动作收尾走 +0x48 (FUN_14026a660)。
+- **每武器动作类表** (FUN_141f5a410 换武器时注册): 行 = FUN_142165600(type) =
+  0x143FD5590+type*0x130; LS 行 0x143FD5920: `+0x40` = **set-3 类表 0x142EF5C30** (113 项,
+  与请求表 0x143F4D6A0 同一 count 字段 +0x50), `+0x70` = slot1 类表 0x142EF75C0 (8 项)。
+  表项 stride 0x20: {id u32, set u32, classPtr, pad}。**每动作一个类**, 类对象在
+  .data 0x144FExxxx 区; **类名 ASCII 就嵌在 .rdata 里 vtable 后面**
+  ("nHmAction::Wp03:..." 家族; vtable 0x143382be0+0x20 起即名字) — 可整表枚举动作类名。
+  set-1 locomotion 类表 per 武器: FUN_141bfcf80(player,1,0x142e6c640,0x138,0) 等 14 处调用。
+- **帧控制实装 (mod build)**: `force-action.txt` 第 4 参 `startFrame` (>=0 启用)。force 被
+  DoAction 接受后自动武装: **FRAMETICK** 诊断前 24 tick 记 `instance+8/+0xC` (每次强制动作都
+  记, 不启用 seek 也先跑 F6 验证帧计数语义 — 预期 0,dt,2dt... 递增), **FRAMESEEK** 在
+  控制器 phase==2 且 frame<4 (begin 刚跑完) 时一次性写 `instance+8 = startFrame`。
+  走 property-getter 钩子 (游戏线程)。日志: `FRAMETICK act=.. phase=.. frame=.. dt=..` /
+  `FRAMESEEK act=.. frame a -> b` / `FRAMEWATCH done|timeout`。
+- **警告**: 前向跳帧会**跳过中间 TIML 事件** (事件按帧越过触发): 碰撞窗/音效/FX 若在
+  0..n 之间就不会发生 — 见切 (弹反窗 f0-f12) 跳过 12 就废掉弹反; 无弹反呈现的招随便跳。
+  motion 是否完全跟随写入值 = FRAMETICK/局内第一验证目标 (若骨架不动, 说明 motion 采样
+  另有时间源, 需再挖 motion 对象 weapon+0x468/0x470 链)。
+- **首轮 FRAMETICK 实测 (2026-09-26, user F6 两次 3:104)**: `dt = 0.03333 = 1/30` —
+  **instance+8 单位是秒 (30Hz 逻辑帧)**, TIML 60fps 帧 n ↔ n/60 秒; force 后第一轮读到的
+  0.166667 是该实例**上次运行的残值** (begin 还没跑), 之后 0.0333 = begin 清零后第一帧 ✓
+  清零语义确认。property 钩子每游戏帧触发 ~10 次, FRAMETICK 已改"值变化才记" (否则 24 条
+  配额 2 帧烧完)。`endAt` (控制器 +0x6A8 自动结束阈值) 已加进 FRAMETICK 行。
+- **二轮实测 (user "无效" 定位): 单次写在 begin 前会被洗掉** — 日志: FRAMESEEK 写 0.667 →
+  读回 0.667 → 下一帧 0.033 (begin 清零重开)。时序: begin 在控制器更新里, **晚于我们钩子的
+  首个匹配 tick**; force 后首帧读到的 0.133/0.166/0.633 残值 = 该实例上一轮运行的遗留
+  (DoAction 走缓冲路径时 current 不变、phase 也不变 — phase 不能用来判断 begin 已跑)。
+  修复: 改为 "帧回落到 ≤2dt (新 begin 证据) 后写, 写后每 tick 钉住, 直到时间线超过目标
+  半个 dt 才 settle"; 动作中途切换则放弃。endAt(=控制器+0x6A8) 实测 3:104 期间恒 -1
+  (自动结束阈值未启用, 动作寿命由动作类自己管)。部署 md5 3d086837。
+  **三轮实测: 钉住成功 (settled act=3:81 frame=0.700, 2 writes 自愈 ✓) 但画面无跳转 —
+  instance+8 只是逻辑/记账时间线, 骨架动画另有时钟。已加 CLOCKMINER: 强制动作期间自动扫描
+  两个区域找"每帧恰好±dt"的 float — A=动作 core (instance+0x10, 0xCD0), B=动画组件
+  (*(player+0x468), 0x200; prime suspect anim+0x10C, 原生 getter 0x141bff780 读它做
+  "步进未完成"判断), FRAMETICK 行新增 mot= 字段, 第 28 tick 报告 CLK A/B 命中偏移。
+  部署 md5 1df8bae5。v1 空手而归 (anim 区无 ±dt 字段; instance+0x10 core 实测不可读 —
+  "core" 不在 +0x10)。v2 (md5 a6357ca8): 改"任意恒定步长"检测 (motion 时钟可能是 TIML
+  帧数 +2.0/tick, 不是秒), 扩区域: core/anim468(0x400)/anim470/weapon(0x2450, TIML 采样
+  目的地+0xA50/+0x23C0 在 weapon 上)/playerA(0x400-0x900)/playerTail(0x1D600)/inst(0x60)。
+  平表扫描: 动作id→LMT entry 的 u16/u32 平表不存在, 类对象里也无 LMT 字段 — LMT 选择逻辑
+  在代码/类工厂深处。**但 mot= 字段直接命中**: **MOTION 时钟 = *(float*)(*(player+0x468)+0x10C)**,
+  计 TIML 帧数 (+2.0/逻辑tick, 60/s), 动作/motion 每次 (重)启动归零, 骨架采样吃它 —
+  instance+8 纯逻辑线, 写它画面不动 (v2 实测 mot=62 纹丝不动)。原生 getter 0x141bff780
+  (=anim+0x10C) 的"步进未完成"判断语义吻合。FRAMESEEK v3 (md5 92343850) = 双写 instance+8
+  (秒) + mot (秒×60 TIML 帧), 同套 fresh-begin+钉住+settle 逻辑。
+  **USER-VERIFIED 2026-09-26: 画面跳帧成功** (3:81 目标 0.8s: `frame 0.033->0.8 mot 0->48`
+  → `settled frame=0.833 mot=50`, 局内确认从中段起手)。CLK 报告: anim468 上有 5 个同步
+  +2/帧 时钟: +0x10C(已写)/+0x110/+0x124/+0x128/+0x22C (疑似动画层/混合同步时钟, 只写
+  +0x10C 即可视觉生效, 其余待用); inst+0x8 (step=dt) 交叉验证。v2 挖矿报告 bug 教训:
+  属性钩子 ~10次/帧, "tick 28" 只等于 2-3 个逻辑帧 → 恒定步长命中数永远不够阈值 —
+  已改为每个逻辑帧只挖一次 (frame 值变化才挖)。v2 挖矿报告 bug 教训:
+  属性钩子 ~10次/帧, "tick 28" 只等于 2-3 个逻辑帧 → 恒定步长命中数永远不够阈值 —
+  已改为每个逻辑帧只挖一次 (frame 值变化才挖)。
+- **Shift+F6 = force-action.txt 热重载**
+- **Shift+F6 = force-action.txt 热重载** (原本只在插件 init 读一次; Shift+F7 是 fx-test 的,
+  别搞混)。热重载会连带重载 weapon-type/hit-charge/gauge-lock/gauge-log/gauge-rules/
+  sheath-rewrite 子配置。startFrame 参数单位 = 秒。
+- 工具坑: disasm_rva.py 第一参是 **RVA 不是 VA** (传 0x1417fada0 会 "not mapped")。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
@@ -931,5 +1017,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-25*
-*Current Milestone: 2026-09-25: 收刀拔刀刚1 已实装 (sheath-rewrite: 收刀态{3,11}→{3,86}, 门控=红刃0x2370>=3 且 气刃量0x2368>0.15, 配置 ValorGauge.sheath-rewrite.txt, 第一版因 weapon+0xC71 收刀态读0而失效(该字段语义待钉,已弃用), 收刀判定改用 tracker set-1 前趋动作; 现版 md5 7fe2c220, 待局内验证). 收刀态输入路由定案 — 收刀按R2产生的{3,11}是代码+静态表路由, 武器FSM完全不参与 (待機1000零链路; 重映射器对id11透传; 每武器set-3请求表 0x143FD5590+type*0x130, LS 113条@0x143F4D6A0, 消费链 b670→b830→b590→DoAction; 想纯数据改收刀R2从这张表入手; DLL改写路线 = DIRREWRITE加 收刀态{3,11}→{3,86}, 门控weapon+0xC71). 修正: remapper反编译case N=武器类型N+1 (dispatch有dec eax), case 2就是LS.  气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*
+*Last Updated: 2026-09-26*
+*Current Milestone: 2026-09-26: 动作帧控制定案 — 动作实例 player 控制器(player+0x61C8) instArray+id*8 的 +8 float 就是动作帧 (begin 清零, 每帧+=dt), 无原生"起始帧"API; FRAMESEEK 已实装 (force-action.txt 第4参 startFrame 单位=秒[30Hz], Shift+F6 热重载, phase==2 时一次性写帧, FRAMETICK 诊断随每次 force 记录[值变化才记], 部署 md5 92343850; motion 时钟 = *(player+0x468)+0x10C (TIML帧制) 已破译, v3 双写 USER-VERIFIED: 从任意帧起手 ✓). 2026-09-25: 收刀拔刀刚1 已实装 (sheath-rewrite: 收刀态{3,11}→{3,86}, 门控=红刃0x2370>=3 且 气刃量0x2368>0.15, 配置 ValorGauge.sheath-rewrite.txt, 第一版因 weapon+0xC71 收刀态读0而失效(该字段语义待钉,已弃用), 收刀判定改用 tracker set-1 前趋动作; 现版 md5 7fe2c220, 待局内验证). 收刀态输入路由定案 — 收刀按R2产生的{3,11}是代码+静态表路由, 武器FSM完全不参与 (待機1000零链路; 重映射器对id11透传; 每武器set-3请求表 0x143FD5590+type*0x130, LS 113条@0x143F4D6A0, 消费链 b670→b830→b590→DoAction; 想纯数据改收刀R2从这张表入手; DLL改写路线 = DIRREWRITE加 收刀态{3,11}→{3,86}, 门控weapon+0xC71). 修正: remapper反编译case N=武器类型N+1 (dispatch有dec eax), case 2就是LS.  气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*

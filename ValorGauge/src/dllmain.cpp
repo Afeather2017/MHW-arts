@@ -172,6 +172,63 @@ std::atomic_bool g_insideDoAction{false};
 std::uint32_t g_forceSet = 3;
 std::uint32_t g_forceId = 104;
 float g_forceInvulnSec = 0.5f;
+// Frame seek: jump the action-instance frame counter (instance+8) to a chosen
+// start frame right after a forced action begins. <0 = off; the 4th token of
+// force-action.txt. FRAMETICK diagnostics arm on every accepted force so an
+// ordinary F6 run confirms the field semantics before trusting the write.
+std::atomic_bool g_frameWatchArmed{false};
+std::atomic_bool g_seekArmed{false};
+std::int32_t g_frameWatchSet = 3;
+std::int32_t g_frameWatchId = 0;
+std::int32_t g_frameWatchTicksLeft = 0;
+std::int32_t g_frameTickLogsLeft = 0;
+bool g_frameWatchSeen = false;
+float g_frameLastLogged = -1.0f;
+float g_frameLastDt = -1.0f;
+bool g_seekFired = false;
+std::int32_t g_seekWrites = 0;
+float g_seekFrame = -1.0f;
+// Clock miner v2: while a forced action runs, scan candidate regions for
+// floats whose per-tick delta is a CONSTANT step (any magnitude >= 0.005).
+// v1 only matched +-dt and missed nothing because the motion clock likely
+// counts in TIML frames (+2.0/tick at the 30Hz logic rate) or lives deeper.
+struct ClkRegion {
+    const char* name;
+    std::uint32_t size;
+    std::vector<float> prev;
+    std::vector<float> step;
+    std::vector<std::uint8_t> valid;
+    std::vector<std::uint8_t> hits;
+    const void* lastBase = nullptr;
+};
+ClkRegion g_clkRegions[7];
+std::int32_t g_clkTicks = 0;
+bool g_clkReported = false;
+float g_clkLastFrame = -1.0f;
+
+void ClkResetRegions() {
+    static const struct {
+        const char* name;
+        std::uint32_t size;
+    } defs[] = {
+        {"core", 0xCD0},        {"anim468", 0x400},  {"anim470", 0x200},
+        {"weapon", 0x2450},     {"playerA", 0x500},  {"playerTail", 0x200},
+        {"inst", 0x60},
+    };
+    for (int i = 0; i < 7; ++i) {
+        auto& r = g_clkRegions[i];
+        r.name = defs[i].name;
+        r.size = defs[i].size;
+        r.prev.assign(r.size / 4, 0.0f);
+        r.step.assign(r.size / 4, 0.0f);
+        r.valid.assign(r.size / 4, 0);
+        r.hits.assign(r.size / 4, 0);
+        r.lastBase = nullptr;
+    }
+    g_clkTicks = 0;
+    g_clkReported = false;
+    g_clkLastFrame = -1.0f;
+}
 double g_counterWindowSec = 0.6;
 std::atomic_uint32_t g_clangProbeLogCount{0};
 // The mined clang latch: player+0xB228 sets when the deflect presentation
@@ -189,6 +246,7 @@ std::atomic<std::uintptr_t> g_moduleBase{0};
 bool g_clangLatch = false; // one force per 见切 action
 void TryQueuedForceWrite(const void* entity);
 void TryQueuedFx(const void* entity);
+void TryFrameSeek(const void* entity);
 
 bool IsNormalModeChargingAction(const ActionInfo& action) {
     if (action.actionSet != 3) {
@@ -2405,6 +2463,277 @@ void RecordPropCall(const void* entity, std::uint32_t id, std::uint32_t index,
 #endif // VALOR_PROBE (prop call histogram)
 
 #ifndef VALOR_PROBE
+// --- Frame seek / frame watch ------------------------------------------------
+// Action instances are preallocated per (set,id) under the action controller
+// at player+0x61C8: instArray = *(ctrl + 0x68 + set*0x10), instance =
+// *(instArray + id*8). instance+8 (float) is the ACTION FRAME: zeroed at
+// begin (FUN_14026a1e0), advanced by the per-frame dt (instance+0xC) in the
+// controller updaters (FUN_14026a820 / FUN_141f78600, "frame += dt"). Motion
+// sampling, TIML event windows and the auto-end threshold (ctrl+0x6A8) all
+// key off the controller-visible timeline this counter drives. Writing it
+// right after begin = "play this action from frame N" (TIML events between 0
+// and N are skipped - they are edge-triggered on frame crossing).
+void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id) {
+    if (set < 0 || set >= 4 || id < 0) {
+        return nullptr;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    void* instArray =
+        *reinterpret_cast<void* const*>(bytes + 0x68 + static_cast<std::uintptr_t>(set) * 0x10);
+    if (!instArray ||
+        !IsReadable(instArray, (static_cast<std::size_t>(id) + 1) * sizeof(void*))) {
+        return nullptr;
+    }
+    void* inst = *reinterpret_cast<void* const*>(
+        static_cast<std::uint8_t*>(instArray) + static_cast<std::size_t>(id) * sizeof(void*));
+    if (!inst || !IsReadable(inst, 0x20)) {
+        return nullptr;
+    }
+    return inst;
+}
+
+void ArmFrameSeekDiagnostics() {
+    {
+        std::scoped_lock lock(g_actionMutex);
+        g_frameWatchSet = static_cast<std::int32_t>(g_forceSet);
+        g_frameWatchId = static_cast<std::int32_t>(g_forceId);
+    }
+    g_frameWatchTicksLeft = 2000;
+    g_frameTickLogsLeft = 24;
+    g_frameWatchSeen = false;
+    g_frameLastLogged = -1.0f;
+    g_frameLastDt = -1.0f;
+    g_seekFired = false;
+    g_seekWrites = 0;
+    ClkResetRegions();
+    g_frameWatchArmed.store(true, std::memory_order_release);
+    if (g_seekFrame >= 0.0f) {
+        g_seekArmed.store(true, std::memory_order_release);
+    }
+}
+
+// Runs on the property-getter hook (game thread, every tick). Watches the
+// forced action's frame counter; when seek is configured and the action has
+// actually begun (controller phase 2 = begin ran, frame restarted from 0),
+// writes the start frame once.
+// Track floats whose per-tick delta stays at a constant step: clocks (+),
+// countdowns (-), frame counters. A region whose base pointer changes (object
+// swap at action start) restarts its tracking. Offsets whose step wobbles get
+// their hit counter reset.
+void MineClocks(ClkRegion& r, const void* base) {
+    if (!base || !IsReadable(base, r.size)) {
+        r.lastBase = nullptr;
+        return;
+    }
+    if (r.lastBase != base) {
+        r.lastBase = base;
+        std::fill(r.valid.begin(), r.valid.end(), std::uint8_t{0});
+    }
+    const std::uint32_t n = r.size / 4;
+    auto* p = static_cast<const float*>(base);
+    for (std::uint32_t i = 0; i < n; ++i) {
+        const float v = p[i];
+        if (!r.valid[i]) {
+            r.valid[i] = 1;
+            r.prev[i] = v;
+            r.step[i] = 0.0f;
+            continue;
+        }
+        const float d = v - r.prev[i];
+        r.prev[i] = v;
+        if (d == 0.0f) {
+            continue;
+        }
+        const float ref = r.step[i];
+        if (ref == 0.0f) {
+            if (v == 0.0f || (d < 0.005f && d > -0.005f)) {
+                continue; // noise floor: skip sub-tick drift (gauge decay etc.)
+            }
+            r.step[i] = d;
+            r.hits[i] = 1;
+            continue;
+        }
+        float tol = ref * 0.12f;
+        if (tol < 0.0f) {
+            tol = -tol;
+        }
+        if (tol < 0.002f) {
+            tol = 0.002f;
+        }
+        if (d <= ref + tol && d >= ref - tol) {
+            if (r.hits[i] < 255) {
+                ++r.hits[i];
+            }
+        } else {
+            r.step[i] = 0.0f;
+            r.hits[i] = 0;
+        }
+    }
+}
+
+void TryFrameSeek(const void* entity) {
+    if (!g_frameWatchArmed.load(std::memory_order_acquire)) {
+        return;
+    }
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl || !ModWeaponActive()) {
+        return;
+    }
+    const void* player = static_cast<const std::uint8_t*>(ctrl) - 0x61C8;
+    if (entity != player) {
+        return;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    const std::int32_t phase = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xA8);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+
+    if (g_frameWatchTicksLeft > 0) {
+        --g_frameWatchTicksLeft;
+    } else {
+        g_frameWatchArmed.store(false, std::memory_order_release);
+        Log(g_frameWatchSeen ? "FRAMEWATCH done"
+                             : "FRAMEWATCH timeout (action never became current)");
+        return;
+    }
+    if (set != g_frameWatchSet || id != g_frameWatchId) {
+        if (g_seekArmed.load(std::memory_order_relaxed) && g_seekFired) {
+            g_seekArmed.store(false, std::memory_order_release);
+            Log("FRAMESEEK abandoned (action changed before settling)");
+        }
+        return;
+    }
+    g_frameWatchSeen = true;
+    void* inst = ResolveActionInstance(ctrl, set, id);
+    if (!inst) {
+        return;
+    }
+    auto* instBytes = static_cast<std::uint8_t*>(inst);
+    const float frame = *reinterpret_cast<volatile float*>(instBytes + 8);
+    const float dt = *reinterpret_cast<volatile float*>(instBytes + 0xC);
+    // The property getter fires ~10x per game frame; only log when the value
+    // actually moves so the 24-line budget covers the whole action instead of
+    // two frames. 2026-09-26 first run: dt = 1/30 -> the frame field counts
+    // SECONDS (30Hz logic tick); TIML frames are 60/s, so TIML n = n/60 sec.
+    auto* playerBytes = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    float motTime = -1.0f;
+    void* anim = nullptr;
+    if (IsReadable(playerBytes + 0x468, sizeof(void*))) {
+        anim = *reinterpret_cast<void* const*>(playerBytes + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            motTime = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    if (g_frameTickLogsLeft > 0 && (frame != g_frameLastLogged || dt != g_frameLastDt)) {
+        --g_frameTickLogsLeft;
+        g_frameLastLogged = frame;
+        g_frameLastDt = dt;
+        const float endAt = *reinterpret_cast<volatile float*>(bytes + 0x6A8);
+        std::ostringstream m;
+        m << "FRAMETICK act=" << set << ':' << id << " phase=" << phase
+          << " frame=" << frame << " dt=" << dt << " endAt=" << endAt
+          << " mot=" << motTime;
+        Log(m.str());
+    }
+    // Clock mining (until reported): resolve every candidate region each tick,
+    // but only ONE mining pass per logic tick - property ticks fire ~10x per
+    // game frame, and v2's report fired at "tick 28" after only ~3 frames, so
+    // nothing had enough consistent-step hits to clear the threshold.
+    if (!g_clkReported && g_clkTicks < 40 && frame != g_clkLastFrame) {
+        g_clkLastFrame = frame;
+        ++g_clkTicks;
+        auto* playerBytes2 = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+        const auto deref = [&](std::uintptr_t where) -> const void* {
+            if (!IsReadable(reinterpret_cast<const void*>(where), sizeof(void*))) {
+                return nullptr;
+            }
+            return *reinterpret_cast<void* const*>(where);
+        };
+        void* core = nullptr;
+        if (IsReadable(instBytes + 0x10, sizeof(void*))) {
+            core = *reinterpret_cast<void* const*>(instBytes + 0x10);
+        }
+        MineClocks(g_clkRegions[0], core);
+        MineClocks(g_clkRegions[1], deref(reinterpret_cast<std::uintptr_t>(playerBytes2) + 0x468));
+        MineClocks(g_clkRegions[2], deref(reinterpret_cast<std::uintptr_t>(playerBytes2) + 0x470));
+        MineClocks(g_clkRegions[3], deref(reinterpret_cast<std::uintptr_t>(playerBytes2) + 0x76B0));
+        MineClocks(g_clkRegions[4], playerBytes2 + 0x400);
+        MineClocks(g_clkRegions[5], playerBytes2 + 0x1D600);
+        MineClocks(g_clkRegions[6], instBytes);
+        if (g_clkTicks == 28) {
+            g_clkReported = true;
+            for (int ri = 0; ri < 7; ++ri) {
+                const auto& r = g_clkRegions[ri];
+                if (!r.lastBase) {
+                    continue;
+                }
+                std::ostringstream m;
+                m << "CLK " << r.name << " base=0x" << std::hex
+                  << reinterpret_cast<std::uintptr_t>(r.lastBase) << std::dec << " :";
+                int shown = 0;
+                for (std::uint32_t i = 0; i < r.size / 4 && shown < 14; ++i) {
+                    if (r.hits[i] >= 14) {
+                        m << (shown++ ? "," : "") << "+0x" << std::hex << i * 4 << std::dec
+                          << " step=" << r.step[i] << " (" << static_cast<int>(r.hits[i])
+                          << ')';
+                    }
+                }
+                if (shown) {
+                    Log(m.str());
+                }
+            }
+        }
+    }
+    if (g_seekArmed.load(std::memory_order_relaxed)) {
+        // v3: drive BOTH timelines. instance+8 is logic-side only (v2 test:
+        // pinning it moved nothing on screen); the skeleton samples the MOTION
+        // clock mot = *(float*)(*(player+0x468)+0x10C), which counts TIML
+        // frames (+2.0/tick at the 30Hz logic rate, 60/s overall) and resets
+        // to 0 on every motion (re)start. Seek target: config seconds -> x60
+        // TIML frames. Same fresh-begin detection + pin-until-caught-up as the
+        // frame write, symmetric for both fields.
+        const float motTarget = g_seekFrame * 60.0f;
+        const bool motOk = anim && motTime >= 0.0f;
+        const bool framePast = g_seekFired && frame > g_seekFrame + dt * 0.5f;
+        const bool motPast = !motOk || (g_seekFired && motTime > motTarget + 0.5f);
+        if (framePast && motPast) {
+            g_seekArmed.store(false, std::memory_order_release);
+            std::ostringstream m;
+            m << "FRAMESEEK settled act=" << set << ':' << id << " frame=" << frame
+              << " mot=" << motTime << " (target " << g_seekFrame << "s, "
+              << g_seekWrites << " writes)";
+            Log(m.str());
+        } else if (!g_seekFired || frame < g_seekFrame ||
+                   (motOk && motTime < motTarget)) {
+            if (g_seekWrites > 240) {
+                g_seekArmed.store(false, std::memory_order_release);
+                Log("FRAMESEEK gave up: action never reached the target");
+            } else {
+                if (!g_seekFired || frame < g_seekFrame) {
+                    *reinterpret_cast<volatile float*>(instBytes + 8) = g_seekFrame;
+                }
+                if (motOk && (!g_seekFired || motTime < motTarget)) {
+                    *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) +
+                                                       0x10C) = motTarget;
+                }
+                ++g_seekWrites;
+                if (!g_seekFired) {
+                    g_seekFired = true;
+                    std::ostringstream m;
+                    m << "FRAMESEEK act=" << set << ':' << id << " frame " << frame
+                      << " -> " << g_seekFrame << " mot " << motTime << " -> "
+                      << motTarget << " (dt=" << dt << ')';
+                    Log(m.str());
+                }
+            }
+        }
+    }
+}
+
 // Game-thread consumer of an armed force request: calls DoAction directly -
 // the same entry the FSM's own link execution uses, so a mid-action interrupt
 // is architecturally identical to what the game itself does. Runs inside the
@@ -2446,6 +2775,9 @@ void TryQueuedForceWrite(const void* entity) {
     const bool ok = g_originalDoAction(controller, &force) != 0;
     m << " result=" << (ok ? "accepted" : "rejected");
     Log(m.str());
+    if (ok) {
+        ArmFrameSeekDiagnostics();
+    }
 }
 
 void LoadFxTestConfig() {
@@ -2491,6 +2823,7 @@ void TryQueuedFx(const void* entity) {
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
+    TryFrameSeek(entity);
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE
     RecordPropCall(entity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(id)),
@@ -2724,7 +3057,11 @@ bool InstallPropHistogramHooks() {
 
 #ifndef VALOR_PROBE
 // Optional nativePC\plugins\ValorGauge.force-action.txt:
-// "<set> <id> [invulnSec]" (invulnSec: no-hit window injected at the clang).
+// "<set> <id> [invulnSec] [startFrame]" (invulnSec: no-hit window injected at
+// the clang; startFrame >= 0: play the forced action from that action-clock
+// time instead of 0 - the field counts SECONDS at 30Hz, so TIML frame n
+// (60/s) = n/60 seconds. Skipped frames drop their TIML events, e.g. 见切's
+// f0-f12 parry window). Shift+F6 reloads this file in-game.
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
     std::int32_t set = 0;
@@ -2737,6 +3074,10 @@ void LoadForceActionConfig() {
     if (input >> invulnSec && invulnSec >= 0.0f && invulnSec <= 3.0f) {
         g_forceInvulnSec = invulnSec;
     }
+    float startFrame = -1.0f;
+    if (input >> startFrame && startFrame >= 0.0f && startFrame <= 1000.0f) {
+        g_seekFrame = startFrame;
+    }
     std::ifstream autoCfg("nativePC/plugins/ValorGauge.counter-auto.txt");
     int autoForce = 1;
     if (autoCfg >> autoForce) {
@@ -2746,7 +3087,12 @@ void LoadForceActionConfig() {
     msg << "Force action configured: F6/clang queues set=" << g_forceSet
         << " id=" << g_forceId << ", counter no-hit injection "
         << g_forceInvulnSec << "s, auto-force="
-        << (g_counterAutoForce ? "on" : "off (Ctrl inside window)");
+        << (g_counterAutoForce ? "on" : "off (Ctrl inside window)")
+        << ", startFrame=" << (g_seekFrame >= 0.0f ? "on" : "off");
+    if (g_seekFrame >= 0.0f) {
+        msg << " (" << g_seekFrame << "s)";
+    }
+    msg << ", Shift+F6 reloads";
     Log(msg.str());
     LoadModWeaponTypeConfig();
     LoadHitChargeConfig();
@@ -4319,7 +4665,13 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     g_counterCtrlWasDown = ctrlDown;
 
     const bool f6Down = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
-    if (f6Down && !g_f6WasDown && ModWeaponActive()) {
+    const bool shiftDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (f6Down && !g_f6WasDown && shiftDown) {
+        // Hot reload: force-action.txt (+ the gauge/sheath sub-configs) is
+        // otherwise only read once at plugin init.
+        LoadForceActionConfig();
+        Log("Force action config reloaded (Shift+F6)");
+    } else if (f6Down && !g_f6WasDown && ModWeaponActive()) {
         if (!g_forceArmed.exchange(true)) {
             std::ostringstream m;
             m << "FORCE armed: the next Long Sword transition executes 3:"
