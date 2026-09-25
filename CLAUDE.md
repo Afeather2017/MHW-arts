@@ -850,8 +850,11 @@ Build command:
   同类隐患 GaugeAddHook/g_originalGaugeAdd 改 float 转发 (FUN_142122410 在 xmm0 返回钳位值);
   g_fxNotifyA/B typedef 同步 void*。教训: 每个 detour 必须核对原函数的返回值寄存器 (rax/xmm0),
   声明成 void 丢返回值是隐形炸弹, 症状只在"调用方消费返回值"的路径上爆发。**
-  **user-verified**: 修复后 GS 蓄力不再崩溃; 且 F7 试枪可直接调出大剑蓄力红光 —
-  **FX id 库新增: 0x7D0 = 大剑蓄力红光** (跨武器可发, F7 func=0 即可)。
+  **user-verified**: 修复后 GS 蓄力不再崩溃; 且 F7 试枪可直接调出大剑蓄力红光。
+  **FX id 按"当前手持武器"分表解析 (user 实测更正)**: 同一 id 0x7D0 — 大剑在手 = 蓄力红光,
+  太刀在手 = 普通气刃特效。特效库所有 id 都必须标注"哪个武器表下"; 跨武器借特效 (如太刀出
+  大剑蓄力光) 靠改 id 做不到, 得走别的路 (其他 notify 函数/特效资源层)。0x7D0 记录:
+  蓄力红光(大剑表) / 普通气刃(太刀表)。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
