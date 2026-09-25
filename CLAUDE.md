@@ -829,6 +829,29 @@ Build command:
   — 编辑器里看的是冰原版数据, 改 w03p 前确认导出到 nativePC 的是编辑器那份。
 - **mod 相关**: sheath-rewrite 的红刃门 (+0x2370>=3) 会被等级自动下降在 30~97s 后打断 (红→黄) —
   需要长效红刃可每帧写 +0x2374=1 或写大 +0x2390; 09-24 gauge-lock target 1 = 锁等级计时器 = 永不掉级。
+- **(2026-09-25 晚) GS 崩溃取证 + 规则系统硬门控**: 持大剑 (weapon+0x9F8=0, GS 原始类型=0) 挥砍必崩,
+  WER 两次崩溃同偏移 `MonsterHunterWorld.exe+0x232E245` (0xC0000005) — 游戏代码非本 DLL。
+  崩溃指令 `cmp [rdx+0xB0],0` (rdx=野指针容器), 该处 = 辅助函数 0x14232E240 ("取容器第 index 个校验条目",
+  0x18 步长 + +0xC&0xE 校验, 仅经 lea 函数指针引用无直接调用点); 调用方 FUN_140ADE270 (FX notify 家族,
+  读玩家 +0x8938 event bit2 门控), 容器来自 FUN_140ADECC0 消息查询应答。GS 会话日志止于
+  `FXNOTIFY id=0x7d0 caller=+0xae042b` (0x7D0 = GS 专属特效, LS 从未见)。GS 会话本 DLL 零写入:
+  全部 gameplay 路径被 ModWeaponActive 关死 (GATE CLOSED 贯穿全程), 无 HITATT (空挥未命中),
+  timerhit/timer 规则不可能执行。ADD670 经反汇编确认只读 rcx/edx/r8d 三参 — FXNOTIFY 3参转发无罪。
+  结论: 非本次 timer 改动所致; 待 DLL 移除 A/B 定案 (vanilla GS 特效路径 vs 旧钩子交互)。
+  **顺手修掉真地雷: ApplyActionGaugeRules 原本无武器门控** — 规则 id 与 GS 动作 id 撞号 (或通配)
+  会对 GS 武器结构体跑 LS 专属 gauge 原生函数/偏移 (越界写)。现 ApplyActionGaugeRules 与
+  ExtendLevelDropTimer 均有 weapon+0x9F8==3 硬检查 (ca10904, 部署 md5 c0fb69de)。
+- **(2026-09-25 深夜) GS 蓄力崩溃 ROOT CAUSE + 修复 (54cc5d2, 部署 md5 3ac107ff, user-verified)**:
+  user A/B 定案 (DLL 在就崩/不在就好) + 关键症状 (仅蓄力时崩, 蓄力有红光) → **FxNotifyHook 把
+  FUN_140ADD670 的返回值丢了** (钩子声明为 void)。反汇编实锤 ADD670 结尾 `mov rax,rbx; ret` —
+  返回创建的特效句柄; 太刀调用点 (0x7D2/0x7D3/0x7D7 一次性特效) 不消费返回值所以几周没炸,
+  GS 蓄力红光 (0x7D0, caller +0xae042b) 的调用点继续使用该句柄 → 垃圾 rax → 野指针 →
+  0x232E245 `cmp [rdx+0xB0],0` 崩溃。**修复: FxNotifyHook/g_originalFxNotify 改 void* 转发句柄;
+  同类隐患 GaugeAddHook/g_originalGaugeAdd 改 float 转发 (FUN_142122410 在 xmm0 返回钳位值);
+  g_fxNotifyA/B typedef 同步 void*。教训: 每个 detour 必须核对原函数的返回值寄存器 (rax/xmm0),
+  声明成 void 丢返回值是隐形炸弹, 症状只在"调用方消费返回值"的路径上爆发。**
+  **user-verified**: 修复后 GS 蓄力不再崩溃; 且 F7 试枪可直接调出大剑蓄力红光 —
+  **FX id 库新增: 0x7D0 = 大剑蓄力红光** (跨武器可发, F7 func=0 即可)。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
