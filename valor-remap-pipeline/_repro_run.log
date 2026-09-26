@@ -1,0 +1,41 @@
+=== STEP2 ===
+[backup] E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend.bak-20260927-005957
+[load] remaps=155 natives=154
+[native] obj interp=BEZIER root-locY interp=BEZIER
+[proc] 40/155
+[proc] 80/155
+[proc] 120/155
+[proc] done: {'obj_created': 155, 'xz_zeroed': 155, 'height_bezier': 155, 'ik_removed': 3255, 'skipped': []}
+[verify] problems: none
+[done] saved: E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend
+=== STEP3 ===
+[backup] E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend.bak-20260927-010010
+[tether] module loaded OK
+[load] remaps=155
+[bake] 20/155
+[bake] 40/155
+[bake] 60/155
+[bake] 80/155
+[bake] 100/155
+[bake] 120/155
+[bake] 140/155
+[bake] done, fails=[]
+[verify] 40/155 worst=0.0000
+[verify] 80/155 worst=0.0000
+[verify] 120/155 worst=0.0000
+[verify] done: worst=0.0000 bad=0 []
+[done] saved: E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend
+=== STEP4 ===
+[backup] E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend.bak-20260927-010059
+[ref] 030 loc=(0.1008, -0.0404, 0.5808) quat=(0.0365, 0.0045, -0.0115, 0.9993) scale=(1.0, 2.0, 1.0)
+[load] remaps=155
+[grip] 40/155
+[grip] 80/155
+[grip] 120/155
+[grip] done, fcurves created=0 (expect 0 on re-runs)
+[verify] bad=0 []
+[done] saved: E:/MHW-arts/valor-remap-pipeline/_repro_candidate.blend
+=== COMPARE ===
+reference=155 candidate=155 remap actions
+missing_actions=0 extra_actions=0 value_diffs=0
+REPRODUCIBLE=true

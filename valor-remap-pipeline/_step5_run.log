@@ -1,0 +1,276 @@
+Blender 4.3.2 (hash 32f5fdce0a0a built 2024-12-17 03:35:23)
+Warning: 'ChannelDisplayItems' does not contain '_UL_' with prefix and suffix
+ValueError: bpy_struct "MHWI_OT_batch_rename_physics_bones" registration error: '_fail_count' IntProperty could not register because it starts with an '_'
+Free Kinetics Free License
+register_class(...):
+Warning: 'ChannelDisplayItems' does not contain '_UL_' with prefix and suffix
+Loading translations
+Selected language: en_US
+Available languages: ['auto', 'en_US', 'ja_JP', 'ko_KR']
+Loading translation file: C:\Users\Afeather\AppData\Roaming\Blender Foundation\Blender\4.3\extensions\user_default\cats_blender_plugin\resources\translations\en_US.json
+Loaded 818 translations
+
+### Loading CATS...
+Warning: Unknown phrase: Scene.progress_update.label
+Warning: Unknown phrase: Scene.progress_update.desc
+### Loaded CATS successfully!
+
+MHW_Model_Editor-main addon is installed.
+--- Games: Registering ---
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ImportMesh: register_class(...): already registered as a subclass 'importMHWildsfmesh'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ToPose: register_class(...): already registered as a subclass 'MHWildstpose'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.SnapBones: register_class(...): already registered as a subclass 'MHWildsOpenDictionaryFolder'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.RenameVG: register_class(...): already registered as a subclass 'MHWildsrenamevg'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.RenameMesh: register_class(...): already registered as a subclass 'RenameMeshToREFormat'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ExportFbxskel: register_class(...): already registered as a subclass 'Generatefbxskel'
+--- Games: Done (23 modules) ---
+bl_ext.user_default.Modder_Batch_Tool addon is installed.
+Update armature presets...
+Settings lock timed out, releasing lock
+[backup] E:\MHW-arts\MHW-Valor.blend.bak-20260927-015902
+update_settings_core function called
+Checking setting: embed_textures
+Old value: False
+New value: False
+Checking setting: ui_lang
+Old value: auto
+New value: auto
+No settings changed
+update_ui function called
+update_settings_core function called
+Checking setting: embed_textures
+Old value: False
+New value: False
+Checking setting: ui_lang
+Old value: auto
+New value: auto
+No settings changed
+Settings not updated, scripts not reloaded
+Settings applied successfully
+[load] remaps=155 ref='LMT::w03_00::001'
+[classify] end-pose vs LMT::w03_00::001 f60 (ik-mean deg; <5 -> close):
+   plw_LongSword_100_607_Armature_remap                 ik=  0.19 (max  0.43) body= 2.85 -> CLOSE
+   plw_LongSword_100_147_Armature_remap                 ik=  0.19 (max  0.37) body= 2.74 -> CLOSE
+   plw_LongSword_100_106_Armature_remap                 ik=  0.39 (max  0.89) body= 3.27 -> CLOSE
+   plw_LongSword_100_119_Armature_remap                 ik=  0.42 (max  1.05) body= 3.24 -> CLOSE
+   plw_LongSword_100_160_Armature_remap                 ik=  0.43 (max  1.09) body= 3.44 -> CLOSE
+   plw_LongSword_100_001_Loop.001_Armature_remap        ik=  0.43 (max  1.06) body= 3.74 -> CLOSE
+   plw_LongSword_100_001_Loop_Armature_remap            ik=  0.43 (max  1.06) body= 3.48 -> CLOSE
+   plw_LongSword_100_102_Armature_remap                 ik=  0.44 (max  1.06) body= 3.50 -> CLOSE
+   plw_LongSword_100_404_Armature_remap                 ik=  0.45 (max  1.12) body= 3.57 -> CLOSE
+   plw_LongSword_100_122_Armature_remap                 ik=  0.48 (max  0.78) body= 3.53 -> CLOSE
+   plw_LongSword_100_619_Armature_remap                 ik=  0.49 (max  1.19) body= 3.64 -> CLOSE
+   plw_LongSword_100_008_Armature_remap                 ik=  0.51 (max  1.19) body= 3.52 -> CLOSE
+   plw_LongSword_100_101_Armature_remap                 ik=  0.51 (max  0.91) body= 3.62 -> CLOSE
+   plw_LongSword_100_451_Armature_remap                 ik=  0.52 (max  1.22) body= 3.53 -> CLOSE
+   plw_LongSword_100_453_Armature_remap                 ik=  0.53 (max  1.13) body= 3.72 -> CLOSE
+   plw_LongSword_100_104_Armature_remap                 ik=  0.53 (max  1.25) body= 3.54 -> CLOSE
+   plw_LongSword_100_463_Armature_remap                 ik=  0.55 (max  0.87) body= 3.52 -> CLOSE
+   plw_LongSword_100_450_Armature_remap                 ik=  0.55 (max  1.52) body= 3.65 -> CLOSE
+   plw_LongSword_100_125_Armature_remap                 ik=  0.58 (max  1.60) body= 5.80 -> CLOSE
+   plw_LongSword_100_103_Armature_remap                 ik=  0.60 (max  1.75) body= 3.59 -> CLOSE
+   plw_LongSword_100_618_Armature_remap                 ik=  0.60 (max  1.40) body= 3.66 -> CLOSE
+   plw_LongSword_100_402_Armature_remap                 ik=  0.61 (max  1.35) body= 3.51 -> CLOSE
+   plw_LongSword_100_159_Armature_remap                 ik=  0.61 (max  1.54) body= 3.71 -> CLOSE
+   plw_LongSword_100_454_Armature_remap                 ik=  0.62 (max  1.28) body= 3.98 -> CLOSE
+   plw_LongSword_100_154_Armature_remap                 ik=  0.63 (max  1.31) body= 3.44 -> CLOSE
+   plw_LongSword_100_110_Armature_remap                 ik=  0.64 (max  1.68) body= 4.05 -> CLOSE
+   plw_LongSword_100_138_Armature_remap                 ik=  0.67 (max  1.28) body= 3.57 -> CLOSE
+   plw_LongSword_100_455_Armature_remap                 ik=  0.70 (max  1.28) body= 3.75 -> CLOSE
+   plw_LongSword_100_132_Armature_remap                 ik=  0.74 (max  1.78) body= 3.79 -> CLOSE
+   plw_LongSword_100_011_Armature_remap                 ik=  0.75 (max  1.66) body= 4.03 -> CLOSE
+   plw_LongSword_100_010_Armature_remap                 ik=  0.76 (max  1.78) body= 3.81 -> CLOSE
+   plw_LongSword_100_456_Armature_remap                 ik=  0.76 (max  1.43) body= 3.41 -> CLOSE
+   plw_LongSword_100_111_Armature_remap                 ik=  0.77 (max  1.56) body= 4.01 -> CLOSE
+   plw_LongSword_100_401_Armature_remap                 ik=  0.81 (max  1.84) body= 4.01 -> CLOSE
+   plw_LongSword_100_105_Armature_remap                 ik=  0.83 (max  1.84) body= 3.77 -> CLOSE
+   plw_LongSword_100_162_Armature_remap                 ik=  0.84 (max  1.87) body= 3.94 -> CLOSE
+   plw_LongSword_100_170_Armature_remap                 ik=  0.84 (max  1.87) body= 3.94 -> CLOSE
+   plw_LongSword_100_400_Armature_remap                 ik=  0.84 (max  2.29) body= 3.89 -> CLOSE
+   plw_LongSword_100_108_Armature_remap                 ik=  0.85 (max  2.24) body= 3.92 -> CLOSE
+   plw_LongSword_100_112_Armature_remap                 ik=  0.87 (max  2.39) body= 4.27 -> CLOSE
+   plw_LongSword_100_452_Armature_remap                 ik=  0.87 (max  1.73) body= 3.74 -> CLOSE
+   plw_LongSword_100_114_Armature_remap                 ik=  0.88 (max  2.09) body= 4.11 -> CLOSE
+   plw_LongSword_100_171_Armature_remap                 ik=  0.95 (max  1.93) body= 3.93 -> CLOSE
+   plw_LongSword_100_411_Loop_Armature_remap            ik=  0.97 (max  3.78) body= 4.48 -> CLOSE
+   plw_LongSword_100_403_Armature_remap                 ik=  1.22 (max  2.89) body= 4.45 -> CLOSE
+   plw_LongSword_100_615_Armature_remap                 ik=  1.46 (max  3.22) body= 4.96 -> CLOSE
+   plw_LongSword_100_107_Armature_remap                 ik=  1.47 (max  4.16) body= 3.84 -> CLOSE
+   plw_LongSword_100_013_Armature_remap                 ik=  1.77 (max  3.91) body= 5.20 -> CLOSE
+   plw_LongSword_100_113_Armature_remap                 ik=  1.88 (max  4.38) body= 5.50 -> CLOSE
+   plw_LongSword_100_135_Armature_remap                 ik=  1.89 (max  4.83) body= 5.02 -> CLOSE
+   plw_LongSword_100_012_Armature_remap                 ik=  2.06 (max  6.72) body= 5.82 -> CLOSE
+   plw_LongSword_100_127_Armature_remap                 ik=  2.41 (max  5.79) body= 5.88 -> CLOSE
+   plw_LongSword_100_126_Armature_remap                 ik=  2.56 (max  5.63) body= 5.84 -> CLOSE
+   plw_LongSword_100_172_Armature_remap                 ik=  3.27 (max  7.29) body= 6.54 -> CLOSE
+   plw_LongSword_100_173_Armature_remap                 ik=  4.31 (max 11.08) body= 6.16 -> CLOSE
+   plw_LongSword_100_414_Armature_remap                 ik=  5.95 (max 14.57) body=22.25 -> keep
+   plw_LongSword_100_310_Armature_remap                 ik= 28.16 (max 108.86) body=50.52 -> keep
+   plw_LongSword_100_311_Armature_remap                 ik= 31.11 (max 93.23) body=55.78 -> keep
+   plw_LongSword_100_337_Armature_remap                 ik= 32.95 (max 65.12) body=47.05 -> keep
+   plw_LongSword_100_339_Armature_remap                 ik= 34.14 (max 63.86) body=55.02 -> keep
+   plw_LongSword_100_313_Armature_remap                 ik= 35.93 (max 66.26) body=62.43 -> keep
+   plw_LongSword_100_305_Armature_remap                 ik= 36.06 (max 110.07) body=64.90 -> keep
+   plw_LongSword_100_616_Armature_remap                 ik= 36.46 (max 89.95) body= 3.59 -> keep
+   plw_LongSword_100_617_Armature_remap                 ik= 36.55 (max 90.13) body= 3.59 -> keep
+   plw_LongSword_100_338_Armature_remap                 ik= 37.05 (max 70.85) body=48.60 -> keep
+   plw_LongSword_100_077_Armature_remap                 ik= 37.18 (max 123.62) body=38.87 -> keep
+   plw_LongSword_100_014_Armature_remap                 ik= 37.45 (max 129.11) body=39.25 -> keep
+   plw_LongSword_100_317_Armature_remap                 ik= 38.03 (max 148.36) body=76.12 -> keep
+   plw_LongSword_100_005_Armature_remap                 ik= 38.24 (max 133.20) body=39.80 -> keep
+   plw_LongSword_100_072_Armature_remap                 ik= 38.40 (max 133.74) body=40.07 -> keep
+   plw_LongSword_100_071_Armature_remap                 ik= 38.79 (max 133.54) body=40.17 -> keep
+   plw_LongSword_100_078_Armature_remap                 ik= 39.76 (max 99.93) body=37.29 -> keep
+   plw_LongSword_100_079_Armature_remap                 ik= 39.76 (max 99.93) body=37.29 -> keep
+   plw_LongSword_100_344_Armature_remap                 ik= 39.91 (max 113.23) body=64.76 -> keep
+   plw_LongSword_100_307_Armature_remap                 ik= 40.07 (max 83.65) body=60.54 -> keep
+   plw_LongSword_100_333.001_Armature_remap             ik= 40.83 (max 86.25) body=57.37 -> keep
+   plw_LongSword_100_333_Armature_remap                 ik= 40.83 (max 86.25) body=57.37 -> keep
+   plw_LongSword_100_161_Armature_remap                 ik= 41.39 (max 88.27) body=56.95 -> keep
+   plw_LongSword_100_174_Armature_remap                 ik= 41.39 (max 88.27) body=56.95 -> keep
+   plw_LongSword_100_075_Armature_remap                 ik= 42.34 (max 76.53) body=55.55 -> keep
+   plw_LongSword_100_306_Armature_remap                 ik= 42.54 (max 77.67) body=64.67 -> keep
+   plw_LongSword_100_004_Loop_Armature_remap            ik= 42.82 (max 114.70) body=38.33 -> keep
+   plw_LongSword_100_412_Armature_remap                 ik= 42.94 (max 115.72) body=38.42 -> keep
+   plw_LongSword_100_074_Armature_remap                 ik= 43.32 (max 76.66) body=55.72 -> keep
+   plw_LongSword_100_076_Loop_Armature_remap            ik= 43.53 (max 76.80) body=55.92 -> keep
+   plw_LongSword_100_352_Armature_remap                 ik= 43.81 (max 96.89) body=64.07 -> keep
+   plw_LongSword_100_350_Armature_remap                 ik= 44.20 (max 100.67) body=65.97 -> keep
+   plw_LongSword_100_309_Armature_remap                 ik= 45.16 (max 104.93) body=66.92 -> keep
+   plw_LongSword_100_006_Armature_remap                 ik= 46.28 (max 134.28) body=38.27 -> keep
+   plw_LongSword_100_312_Armature_remap                 ik= 49.18 (max 110.08) body=82.69 -> keep
+   plw_LongSword_100_327_Armature_remap                 ik= 51.19 (max 120.26) body=72.83 -> keep
+   plw_LongSword_100_300_Armature_remap                 ik= 54.90 (max 154.22) body=86.90 -> keep
+   plw_LongSword_100_073_Armature_remap                 ik= 55.78 (max 113.68) body=76.14 -> keep
+   plw_LongSword_100_328_Armature_remap                 ik= 56.27 (max 177.84) body=84.28 -> keep
+   plw_LongSword_100_308_Armature_remap                 ik= 56.84 (max 151.90) body=90.65 -> keep
+   plw_LongSword_100_003_Armature_remap                 ik= 56.90 (max 99.51) body=64.45 -> keep
+   plw_LongSword_100_330_Armature_remap                 ik= 57.02 (max 99.52) body=64.74 -> keep
+   plw_LongSword_100_153_Armature_remap                 ik= 57.11 (max 99.58) body=65.12 -> keep
+   plw_LongSword_100_109_Armature_remap                 ik= 58.14 (max 99.50) body=66.61 -> keep
+   plw_LongSword_100_007_Armature_remap                 ik= 58.60 (max 160.48) body=39.95 -> keep
+   plw_LongSword_100_157_Armature_remap                 ik= 60.53 (max 111.71) body=69.62 -> keep
+   plw_LongSword_100_158_Loop_Armature_remap            ik= 60.71 (max 109.24) body=69.87 -> keep
+   plw_LongSword_100_009_Armature_remap                 ik= 62.11 (max 122.37) body=69.13 -> keep
+   plw_LongSword_100_151_Armature_remap                 ik= 62.81 (max 169.80) body=81.58 -> keep
+   plw_LongSword_100_156_Armature_remap                 ik= 62.83 (max 170.13) body=81.55 -> keep
+   plw_LongSword_100_152_Loop_Armature_remap            ik= 62.83 (max 169.89) body=81.55 -> keep
+   plw_LongSword_100_461_Armature_remap                 ik= 68.36 (max 127.55) body=70.19 -> keep
+   plw_LongSword_100_140_Armature_remap                 ik= 69.93 (max 157.82) body=110.97 -> keep
+   plw_LongSword_100_137_Loop_Armature_remap            ik= 70.25 (max 122.97) body=88.73 -> keep
+   plw_LongSword_100_136_Armature_remap                 ik= 70.26 (max 123.05) body=88.74 -> keep
+   plw_LongSword_100_166_Armature_remap                 ik= 70.71 (max 170.81) body=102.63 -> keep
+   plw_LongSword_100_168_Armature_remap                 ik= 70.82 (max 171.73) body=102.59 -> keep
+   plw_LongSword_100_163_Armature_remap                 ik= 70.82 (max 171.92) body=102.62 -> keep
+   plw_LongSword_100_167_Armature_remap                 ik= 70.83 (max 171.78) body=102.74 -> keep
+   plw_LongSword_100_164_Loop_Armature_remap            ik= 70.85 (max 171.99) body=102.62 -> keep
+   plw_LongSword_100_165_Armature_remap                 ik= 70.87 (max 171.82) body=102.68 -> keep
+   plw_LongSword_100_459_Armature_remap                 ik= 71.08 (max 131.92) body=72.35 -> keep
+   plw_LongSword_100_336_Armature_remap                 ik= 71.33 (max 129.55) body=115.63 -> keep
+   plw_LongSword_100_314_Armature_remap                 ik= 71.71 (max 158.66) body=101.07 -> keep
+   plw_LongSword_100_155_Armature_remap                 ik= 72.77 (max 179.94) body= 3.94 -> keep
+   plw_LongSword_100_353_Armature_remap                 ik= 73.62 (max 178.50) body=109.75 -> keep
+   plw_LongSword_100_460_Armature_remap                 ik= 73.73 (max 143.38) body=74.99 -> keep
+   plw_LongSword_100_462_Armature_remap                 ik= 73.82 (max 179.76) body= 5.86 -> keep
+   plw_LongSword_100_303_Armature_remap                 ik= 73.85 (max 177.33) body=113.83 -> keep
+   plw_LongSword_100_015_Armature_remap                 ik= 73.95 (max 172.70) body=35.52 -> keep
+   plw_LongSword_100_123_Armature_remap                 ik= 74.99 (max 119.51) body=92.82 -> keep
+   plw_LongSword_100_115_Armature_remap                 ik= 75.30 (max 119.06) body=93.06 -> keep
+   plw_LongSword_100_116_Loop_Armature_remap            ik= 75.31 (max 118.57) body=91.72 -> keep
+   plw_LongSword_100_321_Armature_remap                 ik= 75.76 (max 177.24) body=114.23 -> keep
+   plw_LongSword_100_351_Armature_remap                 ik= 76.13 (max 179.34) body=113.65 -> keep
+   plw_LongSword_100_319_Armature_remap                 ik= 76.13 (max 179.80) body=114.90 -> keep
+   plw_LongSword_100_323_Armature_remap                 ik= 77.05 (max 172.89) body=113.58 -> keep
+   plw_LongSword_100_301_Armature_remap                 ik= 77.41 (max 167.77) body=114.18 -> keep
+   plw_LongSword_100_329_Armature_remap                 ik= 79.31 (max 174.68) body=110.05 -> keep
+   plw_LongSword_100_120_Armature_remap                 ik= 80.94 (max 120.15) body=98.57 -> keep
+   plw_LongSword_100_139_Armature_remap                 ik= 80.98 (max 159.31) body=97.16 -> keep
+   plw_LongSword_100_121_Loop_Armature_remap            ik= 81.83 (max 119.97) body=99.09 -> keep
+   plw_LongSword_100_315_Armature_remap                 ik= 82.19 (max 143.95) body=104.98 -> keep
+   plw_LongSword_100_134_Loop_Armature_remap            ik= 87.39 (max 161.36) body=102.72 -> keep
+   plw_LongSword_100_133_Armature_remap                 ik= 88.18 (max 159.87) body=102.79 -> keep
+   plw_LongSword_100_118_Loop_Armature_remap            ik= 88.30 (max 158.95) body=117.23 -> keep
+   plw_LongSword_100_606_Loop_Armature_remap            ik= 88.55 (max 177.96) body=102.51 -> keep
+   plw_LongSword_100_605_Armature_remap                 ik= 88.67 (max 178.14) body=102.59 -> keep
+   plw_LongSword_100_611_Loop_Armature_remap            ik= 88.71 (max 178.23) body=103.06 -> keep
+   plw_LongSword_100_131_Loop_Armature_remap            ik= 89.05 (max 173.37) body=112.04 -> keep
+   plw_LongSword_100_130_Armature_remap                 ik= 89.15 (max 173.28) body=112.08 -> keep
+   plw_LongSword_100_322_Armature_remap                 ik= 90.38 (max 168.20) body=114.63 -> keep
+   plw_LongSword_100_117_Armature_remap                 ik= 90.56 (max 160.62) body=119.30 -> keep
+   plw_LongSword_100_316_Armature_remap                 ik= 91.32 (max 162.04) body=119.10 -> keep
+   plw_LongSword_100_335_Armature_remap                 ik= 93.17 (max 164.92) body=121.97 -> keep
+   plw_LongSword_100_320_Armature_remap                 ik= 94.76 (max 175.20) body=124.65 -> keep
+   plw_LongSword_100_318_Armature_remap                 ik= 96.25 (max 175.32) body=126.49 -> keep
+   plw_LongSword_100_128_Armature_remap                 ik= 96.93 (max 151.01) body=126.28 -> keep
+   plw_LongSword_100_304_Armature_remap                 ik=103.68 (max 163.68) body=132.91 -> keep
+   plw_LongSword_100_302_Armature_remap                 ik=104.63 (max 174.46) body=135.35 -> keep
+[close] closed=52 already-zero=7
+   plw_LongSword_100_607_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_147_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_106_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_119_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_160_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_102_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_404_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_122_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_619_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_008_Armature_remap                 end -> (+0.0001, +0.0000)
+   plw_LongSword_100_101_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_451_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_453_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_104_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_463_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_450_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_125_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_103_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_618_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_402_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_159_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_454_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_154_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_110_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_138_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_455_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_132_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_011_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_010_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_456_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_111_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_401_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_105_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_162_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_170_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_400_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_108_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_112_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_452_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_114_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_171_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_403_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_615_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_107_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_013_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_113_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_135_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_012_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_127_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_126_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_172_Armature_remap                 end -> (+0.0000, +0.0000)
+   plw_LongSword_100_173_Armature_remap                 end -> (+0.0000, +0.0000)
+[verify] bad=0 []
+Info: Saved "MHW-Valor.blend"
+[done] saved: E:\MHW-arts\MHW-Valor.blend
+### Unloading CATS...
+Unregistered 132 CATS classes.
+UNLOADING ICONS!
+DONE!
+shapekey button was not registered
+Stopping settings threads...
+Settings threads stopped.
+### Unloaded CATS successfully!
+
+MHW_Model_Editor-main addon is uninstalled.
+bl_ext.user_default.Modder_Batch_Tool addon is uninstalled.
+Read blend: "E:\MHW-arts\MHW-Valor.blend"
+
+Blender quit
