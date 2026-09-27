@@ -55,7 +55,8 @@ assert abs(ref_vals[("MhBone_030", "scale", 1)] - 2.0) < 1e-6, "030.scaleY != 2 
 assert abs(ref_vals[("MhBone_047", "scale", 1)] - 1.0) < 1e-6, "047.scaleY != 1"
 
 remaps = sorted([a for a in bpy.data.actions
-                 if a.name.startswith("plw_") and a.name.endswith("_remap")],
+                 if a.name.endswith("_remap")
+                 and (a.name.startswith("plw_") or "mhgu_source" in a)],
                 key=lambda a: a.name)
 print("[load] remaps=%d" % len(remaps), flush=True)
 

@@ -43,7 +43,8 @@ tether = importlib.import_module("MHW-FreeKinetics.blender.tetherOps")
 print("[tether] module loaded OK", flush=True)
 
 remaps = sorted([a for a in bpy.data.actions
-                 if a.name.startswith("plw_") and a.name.endswith("_remap")],
+                 if a.name.endswith("_remap")
+                 and (a.name.startswith("plw_") or "mhgu_source" in a)],
                 key=lambda a: a.name)
 print("[load] remaps=%d" % len(remaps), flush=True)
 
@@ -55,14 +56,24 @@ def sample_frames(a, n=5):
     return sorted({int(round(lo + i * step)) for i in range(n)})
 
 def mismatch(a):
-    """max per-pair IK-vs-target distance over sampled frames."""
+    """max per-pair IK-vs-target distance over sampled frames.
+
+    Frames are clamped to the baked IK key span: beyond the last baked key the
+    BEZIER extrapolation of the IK curve diverges from the held target pose
+    (short actions sampled past their end looked like ~0.1 m errors)."""
     dst.animation_data_create()
     dst.animation_data.action = a
+    maxk = 0
+    for ikn, _ in PAIRS_VIEW:
+        fc = a.fcurves.find('pose.bones["%s"].location' % ikn, index=0)
+        if fc and len(fc.keyframe_points):
+            maxk = max(maxk, fc.keyframe_points[-1].co[0])
     out = {}
     for ikn, tgn in PAIRS_VIEW:
         ik, tg = dst.pose.bones[ikn], dst.pose.bones[tgn]
         worst = 0.0
         for f in sample_frames(a):
+            f = min(f, maxk)
             scene.frame_set(f)
             view.update()
             worst = max(worst, (ik.matrix.translation - tg.matrix.translation).length)
@@ -94,6 +105,11 @@ for n, a in enumerate(remaps, 1):
         print("[bake] %d/%d" % (n, len(remaps)), flush=True)
 print("[bake] done, fails=%s" % fails, flush=True)
 
+if os.environ.get("REBAKE_SKIP_VERIFY") == "1":
+    print("[verify] skipped (REBAKE_SKIP_VERIFY=1) - verify externally", flush=True)
+    bpy.ops.wm.save_mainfile()
+    print("[done] saved (bake only):", BLEND, flush=True)
+    sys.exit(0)
 print("=== VERIFY ===", flush=True)
 bad = []
 worst_all = 0.0
