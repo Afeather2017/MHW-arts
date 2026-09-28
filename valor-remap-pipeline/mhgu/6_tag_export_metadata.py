@@ -34,7 +34,16 @@ recipe = {}
 for b in a.bones:
     if b.boneId >= 0:
         recipe[(b.boneId, b.usage % 3)] = b.bufferType
-print("[recipe] %d (bone,usage) entries from origin entry %d" % (len(recipe), ORIGIN_ENTRY), flush=True)
+# 2026-09-29: entry 104's own 030/047 scale tracks are KEYLESS (bufType 1) and its
+# constants are vanilla-correct for THAT move only.  Keyed grip ladders tagged 1 get
+# collapsed back to keyless constants by the exporter (keys silently dropped ->
+# hand never switches in game).  Vanilla hand-switch actions 109/113 key their
+# scale tracks with bufType 5 - use that for the socket scale rows.
+lmt109 = Lmt.parseLMT(ORIGIN)
+for b in [x for x in [y for y in lmt109.ActionHeaders if y.id == 109][0].bones
+          if b.boneId in (30, 47) and b.usage == 2]:
+    recipe[(b.boneId, 2)] = b.bufferType
+print("[recipe] %d (bone,usage) entries from origin entry %d (scale rows overridden from 109)" % (len(recipe), ORIGIN_ENTRY), flush=True)
 
 def tag(fc, bone_id, buf):
     for m in list(fc.modifiers):

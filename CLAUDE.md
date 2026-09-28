@@ -1026,6 +1026,14 @@ Build command:
   f158=1); 补阶梯按此打标, 勿用 104 的 keyless bufType=1。
   **fcurve 归组**: 9_group_channels.py 批量归组(组名=骨骼名, object=Object; 两 blend
   已跑: 61378+67462 条), 7_merge 重建时自带归组不再丢。
+  **(2026-09-29) 刚1 换手不生效真因闭环**: 用户写好 5 键阶梯后导出, 部署文件 entry104
+  的 030/047 scale = **0 键 keyless 轨, basis 与原版 104 常量逐字节相同**(basis=阶梯首键)
+  — keyed+bufType1 被导出器压回 keyless 常量, 键全丢。**修复 = scale 六条 fcurve 重打
+  LIMITS min_x=5**; 6_tag 配方已改 scale 行从原版 109 读 5(否则每次重跑又打回 1)。
+  语义: 030.Y=2→左插座持有 / 047.Y=2→右插座持有(109 右手段两者同 2, 047 优先), 1=闲置;
+  原版 104 本身就是常量左插座(对它自己的动作正确)。另: MASTER 的 LMT::w03_00::104
+  已不存在(疑似被孤儿清理), entry104 节点现直连 192_remap(tetherFrame 已绑, 导出
+  root✓/cm✓); 重跑 MASTER 上的 7_merge 会因缺原生动作 FAIL(WORK 文件仍有)。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
