@@ -24,6 +24,8 @@
 4_grip_left_from_lmt106.py [共用] 左手绑定(030=106 原样, scaleY=2)
 7_merge_into_native.py        按 (原生entry;;remap) 对,把 remap 原位合并进原生 entry 动作
 6_tag_export_metadata.py      给特殊骨骼 fcurve 补 LIMITS 元数据 + 剥 _s 通道(导出前最后一步)
+9_group_channels.py           批量 fcurve 归组(组名=骨骼名,object 级归 Object;7_merge 重建
+                              会丢组,批量合并后跑一遍;7_merge 重建时现已自带归组)
 ```
 
 - 环境变量:`MHGU_WORK_BLEND` 工作文件;`MERGE_PAIRS="native;;remap|..."` 批量合并配对;
@@ -197,6 +199,14 @@ verify 段会断言)。补绑后 remap 直连导出 = 81 轨 + root ✓ + cm ✓
 - "All" 指全部 IK 骨骼类型勾选框,不是全部动画——不会碰别的动作。
 
 ## 刚1 握持状态动画(2026-09-27,已写入 MASTER)
+
+**原版换手轨道实测(2026-09-28,给 104 补换手的参照配方)**:原版 109/113 的 030/047
+scale(usage 2)用 **bufType=5**,瞬时台阶用**同帧成对键**(109 的 047: f69=1→f70=2→
+f128=1;030: f69=2→f158=1)。给 104 写阶梯按这个打标/排键——**不能沿用 104 自己的
+keyless bufType=1**(有键曲线标 1 会被导出器强制改成 auto)。现状:192_remap 的
+030.scale-Y 恒 2、047.scale-Y 恒 1(用户 Blender 逐帧确认)→ 游戏全程左手持刀、
+换手不发生(9-28 定案,符合"状态对从未写入"预期;游戏侧插座切换机制经原版 109/113
+对照排除嫌疑)。
 
 w07::192(刚1)有左手→右手→左手的换手段。已写入 MASTER 的 `LMT::w03_00::104`:
 - `[0,12]` 双手 = 030.scl[1]=2 + 047.scl[1]=1(刀在左插座)

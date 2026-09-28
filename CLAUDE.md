@@ -1019,6 +1019,13 @@ Build command:
   (见 mhgu/README.md 已知问题: 030/047 挂点常量偏移/游戏挂点数学/scale-Y 插值待钉);
   逆向侧已有基础: 2026-09-20 纳刀合并机制章节(挂点表控制器 +0xAF0/+0xFA0/+0x1450、
   行表 [表+0x4A8]+row*0xC0、vtable+0x110 写 ctrl+0x181)。
+  **(2026-09-28 晚续) 刚1 游戏全程左手持刀定案**: 用户原版对照(103/104/105/107/108/
+  110/111 一致, 换手的 109/113 也一致)排除游戏数学偏移; 实测 192_remap 的 030.scale-Y
+  恒 2 / 047.scale-Y 恒 1 → 状态对从未写入。**原版换手参照配方**: 109/113 的 030/047
+  scale = bufType 5 + 同帧成对键瞬时台阶(109: 047 f69=1→f70=2→f128=1, 030 f69=2→
+  f158=1); 补阶梯按此打标, 勿用 104 的 keyless bufType=1。
+  **fcurve 归组**: 9_group_channels.py 批量归组(组名=骨骼名, object=Object; 两 blend
+  已跑: 61378+67462 条), 7_merge 重建时自带归组不再丢。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).

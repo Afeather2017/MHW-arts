@@ -104,6 +104,8 @@ for native_name, remap_name in pairs:
             continue  # nothing left in range; skip rather than write an empty curve
         path = ("pose.bones[\"%s\"].%s" % (bone, prop)) if bone != "__obj__" else prop
         fc = N.fcurves.new(data_path=path, index=idx)
+        gname = bone if bone != "__obj__" else "Object"
+        fc.group = N.groups.get(gname) or N.groups.new(gname)  # dopesheet: one row per bone
         fc.keyframe_points.add(len(keys))
         for k, (fr, v, interp) in zip(fc.keyframe_points, keys):
             k.co = (fr, v)
