@@ -113,6 +113,8 @@ FreeKinetics 的 MHGU 解码**偶发**(进程级)把某 entry(观察到 056)解�
 → `7_merge_into_native.py` 内置 `ensure_min_two_keys`:合并前后把所有单键
 曲线升级为 2 键(等值)。**同时:不要把裸 remap 直接接进 entry 导出**——
 那既有本坑又必然缺轨迹(坑①);永远接合并后的原生动作 `LMT::w03_00::NNN`。
+(2026-09-28 修正:裸 remap 直连的真实死因 = `freehk.tetherFrame` 未绑定,
+见坑⑬;补绑定后 remap 直连也可用,252-rot 差 1 轨无影响。)
 
 ### 坑⑫ 自烘焙的 IK 通道在游戏里缩成一团(Blender 精确也没用)
 tetherOps 烘焙的 IK(247-253)在 Blender 里与目标骨骼距离 0.0000,但导出进游戏
@@ -138,6 +140,28 @@ Blender 里完全看不出来。
 **结论:全量打标(6_tag)之后,导出器自动做米→厘米,无需任何手动缩放**
 (曾手动 ×100 反而叠加成 ×10000——IK 目标跑到 38 米外,同样拉毁骨架)。
 自烘焙 IK + 全量打标的直接导出 = 应该完全正常(待游戏内复测)。
+
+### 坑⑬ 把 remap 直接连进 entry 再导出 = wrongik 签名复刻(2026-09-28 局内复发,机制已闭环)
+症状:缩成一团复发。部署文件 entry104 = **79 轨 + 缺 (-1,3)/(-1,4) 根位移轨 +
+IK/重心米值**(249loc[0]=(-0.38,0.10,0.32))——与 wrongik 逐值同源,但不是同一文件。
+根因(受控实验复现,逐值一致):**remap 动作缺 `freehk.tetherFrame` 绑定**。
+导出器 LMTActionParser 的 tether 取自 `action.freehk.tetherFrame`(不是场景设置):
+- ARP 新建动作不会设它 → remap = None;原生导入的动作(103/104)= m_mesh Armature;
+- tether=None 时 ① `restoreRootFromObject` 不跑 → Root 两条轨没了;
+  ② 骨架逆变换/骨骼功能表全套跳过 → fcurve 米值原样 float 直写文件。
+曲线级 LIMITS 打标(6_tag)救不了它——那是另一层。**修复 = 补绑定一行**:
+`act.freehk.tetherFrame = bpy.data.objects["m_mesh Armature"]`(6_tag 已内置,
+verify 段会断言)。补绑后 remap 直连导出 = 81 轨 + root ✓ + cm ✓,与管线产物逐值一致
+(实测)。和"接哪个动作""名字"无关——只认 tetherFrame。
+**二进制签名速查**(parseLMT 一眼判定):
+| 文件 | entry104 轨数 | root(-1,3)/(-1,4) | 249loc[0] |
+|---|---|---|---|
+| 好(管线/绑定后 remap 直连) | 81 | ✓ | ≈(-35.9, 10.4, 32.1) cm |
+| 坏(未绑定动作直连) | 79 | ✗ | ≈(-0.38, 0.10, 0.32) m |
+注意:remap 比 104 少 MhBone_252 旋转 4 条曲线(合并流程补的)→ 81 vs 82 轨,
+局内已验证无影响(9-27 的 103/104 同为 81 轨配方)。252-rot 若要补,跑 7_merge。
+一键复跑+五文件对比自检:`_rerun_and_compare.py`(MERGE_PAIRS 已含 103+104)。
+坏文件留证:`nativePC/.../w03_00-curled-20260928-2000.lmt`。
 
 ### 坑⑪ 自检护身符
 对 w07.lmt::106 做"我导入 vs 旧成功导入"逐键自检(max diff 5.7e-4)是一次性

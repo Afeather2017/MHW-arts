@@ -49,6 +49,21 @@ def tag(fc, bone_id, buf):
 
 remaps = sorted([x for x in bpy.data.actions
                  if x.name.endswith("_remap") and "mhgu_source" in x], key=lambda x: x.name)
+
+# ---- action-level tether binding (2026-09-28 坑⑬) ----
+# The exporter's LMTActionParser takes its tether from action.freehk.tetherFrame,
+# NOT from the scene.  ARP creates fresh actions, so remaps are born unbound
+# (tetherFrame=None); wiring an unbound action straight into an entry exports
+# raw metre floats (no tether-inverse pass) and drops the Root tracks
+# (restoreRootFromObject never runs) = the hunter collapses in game.
+tethered = 0
+arm = bpy.data.objects.get("m_mesh Armature")
+for act in remaps:
+    if arm is not None and act.freehk.tetherFrame is None:
+        act.freehk.tetherFrame = arm
+        tethered += 1
+print("[tether] %d remaps bound to m_mesh Armature" % tethered, flush=True)
+
 tagged = removed = 0
 for act in remaps:
     for fc in list(act.fcurves):
@@ -69,6 +84,9 @@ print("[tag] %d remaps: %d fcurves tagged, %d non-native channels removed" % (le
 
 # ---- verify ----
 bad = []
+untethered = [act.name for act in remaps if act.freehk.tetherFrame is None]
+if untethered:
+    bad += [(n, "<action>", "tetherFrame=None") for n in untethered]
 for act in remaps:
     for fc in act.fcurves:
         if not fc.data_path.startswith("pose.bones["):

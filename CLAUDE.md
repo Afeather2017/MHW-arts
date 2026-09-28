@@ -945,6 +945,81 @@ Build command:
   已按锚点/步骤/验证/写回格式收录 `Reverse/ADDRESS_RECOVERY.md` 第 7 章
   (原第 7 章顺延为第 8 章); FRAMESEEK 不新增钩子地址, 会过期的只有结构偏移。
 
+### 2026-09-26 (2) spiritreckoning（居合开刃）逆向: 轮询+缓冲槽写入的动作衔接 (定案: 整体无改进价值, 可借两个原语)
+
+- **文件身份**: `Reverse/spiritreckoning.dll.c` = `.bak-20260901` 旧版的反编译
+  (指纹: 0xc06d 立即数只在 bak 的轮询线程里); 交付版
+  `MHW-MHRS-migrate/spirit-reckoning/nativePC/plugins/spiritreckoning.dll` 是重编新版,
+  机制相同、偏移已更新 (0x2CEC→0x2CED, 新增读 0x2370 等级/0x2D24, anim 标记换 0xC132)。
+  DLL 内部名 `居合开刃.dll`, 导出 `?Load@@YA_NXZ` (Stracker 插件约定)。
+  `MHW-MHRS-migrate/居合开刃源码/` 工程**不是**它的源码 (无对应偏移, 是另一模板工程)。
+- **机制 = 后台轮询线程, 不是 hook**: `Load()` 起两个线程 — FUN_18000c7d0 (按键监视,
+  GetAsyncKeyState WASD+配置VK → DAT_180064e2c 移动计时) 和 FUN_1800134f0 (**动作链轮询**:
+  先 Sleep(10s) 等加载, 然后 5ms 一圈, QPC 高精度睡眠 FUN_180009840)。
+  配置在 `nativePC/plugins/Reckoning/key_config.json` (热键 VK)。
+- **三个信息源**: ① 当前动作 = `player+0x6274/+0x6278` (我们已知的 controller+0xAC/+0xB0);
+  ② **动作时钟 = `*(float*)(*(player+0x468)+0x10C)`** (就是我们 09-26 破译的 motion 时钟,
+  TIML 帧 60fps) 跟**手调帧阈值**比 (5/60/70/78/87/110/117/134/200/206 硬编码);
+  ③ 动画状态标记 = `*(int*)(anim+0xE9C4)`: 迁移招自定义标记 0xc06c/0xc06d,
+  原生气刃系 0xc132/0xc138。**没有"动作完成"事件/回调, 纯帧数轮询硬衔接**。
+- **衔接原语 = 写控制器缓冲请求槽**: `*(int*)(player+0x6284)=set; *(int*)(player+0x6288)=id`
+  = controller+0xBC/+0xC0 — **正是 DoAction 忙时缓冲请求用的同一个槽** (09-26 控制器全图),
+  游戏更新器在当前动作可派生的帧自己消费 → 后招在原生衔接帧播出, 观感如原生派生。
+  旧版 104 链: anim 标记 0xc06c 且 motion≤5f (起手) 武装 pending {3,0x68};
+  current==3:0x69 (105 在放) → 写 {3,0x68} 进缓冲槽 → 105 结束自动接 104。
+  其余链段: 3:0x45 到 200f→写{3,1}或{3,0}; 3:0x6b 到 78f→{3,7}; 3:7 到 134f→{3,0};
+  全是"到帧数就写缓冲槽"。注意 0x6284 的 qword 写 = {set,id} 一次写双字。
+- **唯一一次函数调用**: 0xc06d 招 motion>70f 且 weapon+0x2CEC==1 (motion<70f 时清锁存)
+  → `call [rip→槽0x630B0]`, rcx=**weapon**。槽值烧死 **0x1421211F0** (旧版) /
+  交付版槽 0x5E0A0 烧死 **0x142121190** (当前版本, 反汇编显示写 weapon+0x23A8 一带,
+  在太刀气刃状态簇 0x212xxxx, 邻接 FUN_142122410/FUN_142123510)。
+  全局槽 (旧0x63060/新0x5E058) 烧死 **0x145011760** = 玩家链根 (`[它]+0x50`=player)。
+  **两个槽都没有重定位表项** → 版本锁死, 跨更新必死, 与旧 ValorLS 硬调 0x142134B70 同款死法。
+  (PE 分析工具向: bak .data 在 RVA 0x63000 起, 交付版在 0x5E000; rip-rel 引用暴力扫描
+  时别忘了加 TEXT_VA 基址, 否则目标全偏 0x1000。)
+- **定案 (user 判定): 整体无改进价值** — 5ms 轮询 + 手调帧阈值 + 烧死地址, 比现有
+  钩子体系糙。可借用的只有两个原语: ① **写 controller+0xBC/+0xC0 缓冲槽排队后招** —
+  我们没用过的原语, 比 force-DoAction 更贴原生 (游戏自己挑衔接帧/走正常取消窗口),
+  刚1 链或 Valor 派生链可试用, 放游戏线程钩子里写比它的 5ms 旁路线程稳;
+  ② motion 时钟 ≥ 阈值即"完成"判定 (帧÷60=秒), FRAMESEEK 场景可直接复用。
+
+### 2026-09-27 MHGU→MHW 动画迁移链调通(mhgu-valor;坑目录见 valor-remap-pipeline/mhgu/README.md)
+
+- 工作文件 `mhgu-valor-mhw.blend`(= MHW-Valor 副本,MHRS 155 动作保留在 MASTER 未动);
+  脚本 `valor-remap-pipeline/mhgu/0~7`。数据事实:MHGU LMT 单位=厘米(÷100);重心骨=GLB `0:0`,
+  其 locY ≡ 原生 106 MhBone_000 locY(0.4713/0.4714 同源铁证);地面位移在 -1 Root 轨道(LMT)/
+  `reference.loc`(GLB),轴映射 obj[1]=−rawZ;w07::106 与 w03_00::106 仅重心通道同源,肢体不同。
+- 局内"缩成一团"= **导出轨迹缺失**(15 条,只有 IK+根),不是 IK 数值错:FreeKinetics 按原生
+  entry 轨迹布局逐轨导出,remap 直接接 entry 会被 omitted。修复=`7_merge_into_native.py`
+  原位合并进原生 entry(luocha 路线);配 4-bit 帧增量 ≤15 切分 + frame0/末帧键 + 排序后切分
+  (三 bug 曾叠加:未排序数组 gap 算出负数静默跳过切分)。
+- 其余已钉:ARP 前必须抽走源动作的 object 曲线(否则地面位移污染重心位置);000 永不写旋转
+  (0:0 旋转走腰 013,按用户 bmap 原样);0:0 loc 逐字拷贝到 000(轴恒等);object 位移直通不镜像;
+  场景 frame_end 污染 ARP 批量长度 + remap 丢 freehk 元数据 → 钉范围+裁剪+拷贝;
+  fill 拷 106 曲线要按目标长度裁剪;根管线 plw_ 过滤会空跑(验证必须断言处理数量);
+  v67 解析器偶发丢 entry(重解析并集重试);LMT 导入 channelNames 第一元素才是真路径。
+- **2026-09-27 局内验证通过(最终):entry 103(樱花 sa::151)+ 104(刚1 w07::192)=
+  自烘焙 IK(米)+ 6_tag 全量打标 + 导出器自动 m→cm = 正常,脚手跟随迁移动作本身**。
+  (此前"自烘焙 IK 缩成一团"的真正原因 = 打标缺失导致导出省略身体轨迹 + IK 位置
+  以米冒充厘米差 100 倍;全量打标后导出器自动转 cm,自烘焙 IK 可用,
+  PRESERVE_NATIVE_IK=1 仅作后备。证据链:w03_00-wrongik.lmt。)全部 25 个 remap 已全量打标+min-2-keys,可直接导出。
+  待办:其余招式槽位映射(MERGE_PAIRS 批量 7_merge)+ 绝对回避定位(不在 w07_sa 8 动作内)。
+- **2026-09-28 "缩成一团"复发定案(已重新部署, md5 c375f133, 待局内复测)**: 部署文件
+  entry104 = 79 轨 + 缺 (-1,3)/(-1,4) 根位移轨 + IK/重心米值(249loc[0]=(-0.38,0.10,0.32))
+  = wrongik 同签名。**根因(受控实验复现,逐值一致) = `LMT::w07::192_remap` 缺
+  `freehk.tetherFrame` 绑定**(ARP 新建动作不设它;原生导入的 103/104 = m_mesh Armature)。
+  导出器 LMTActionParser 的 tether 取自动作的 freehk.tetherFrame 而非场景: tether=None →
+  `restoreRootFromObject` 不跑(Root 两轨没了) + 骨架逆变换跳过(米值 float 直写)。
+  曲线级打标救不了动作级绑定。**修复 = `act.freehk.tetherFrame = m_mesh Armature` 一行**;
+  6_tag 已内置绑定+verify 断言。补绑后 remap 直连导出 = 81 轨 cm ✓ 与管线产物逐值一致
+  (remap 缺 MhBone_252 旋转 → 81 vs 82 轨,9-27 同配方局内已验证无影响)。
+  和名字/接哪个动作无关,只认 tetherFrame。一键复跑+五文件对比: `mhgu/_rerun_and_compare.py`。
+  坏文件留证: `nativePC/.../w03_00-curled-20260928-2000.lmt`。
+  **下一主任务(2026-09-28 用户定): 武器位置** — 游戏内刀位 vs Blender 预览不一致
+  (见 mhgu/README.md 已知问题: 030/047 挂点常量偏移/游戏挂点数学/scale-Y 插值待钉);
+  逆向侧已有基础: 2026-09-20 纳刀合并机制章节(挂点表控制器 +0xAF0/+0xFA0/+0x1450、
+  行表 [表+0x4A8]+row*0xC0、vtable+0x110 写 ctrl+0x181)。
+
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
 - **Hi-Res Pack Confusion:** chunkG60.bin contains Hi-Res DLC, not base game data — ignore for weapon modding.
@@ -1020,5 +1095,5 @@ MHWNoChunk and MHWEditor
 
 ---
 
-*Last Updated: 2026-09-26*
+*Last Updated: 2026-09-28*
 *Current Milestone: 2026-09-26: 动作帧控制定案 — 动作实例 player 控制器(player+0x61C8) instArray+id*8 的 +8 float 就是动作帧 (begin 清零, 每帧+=dt), 无原生"起始帧"API; FRAMESEEK 已实装 (force-action.txt 第4参 startFrame 单位=秒[30Hz], Shift+F6 热重载, phase==2 时一次性写帧, FRAMETICK 诊断随每次 force 记录[值变化才记], 部署 md5 92343850; motion 时钟 = *(player+0x468)+0x10C (TIML帧制) 已破译, v3 双写 USER-VERIFIED: 从任意帧起手 ✓). 2026-09-25: 收刀拔刀刚1 已实装 (sheath-rewrite: 收刀态{3,11}→{3,86}, 门控=红刃0x2370>=3 且 气刃量0x2368>0.15, 配置 ValorGauge.sheath-rewrite.txt, 第一版因 weapon+0xC71 收刀态读0而失效(该字段语义待钉,已弃用), 收刀判定改用 tracker set-1 前趋动作; 现版 md5 7fe2c220, 待局内验证). 收刀态输入路由定案 — 收刀按R2产生的{3,11}是代码+静态表路由, 武器FSM完全不参与 (待機1000零链路; 重映射器对id11透传; 每武器set-3请求表 0x143FD5590+type*0x130, LS 113条@0x143F4D6A0, 消费链 b670→b830→b590→DoAction; 想纯数据改收刀R2从这张表入手; DLL改写路线 = DIRREWRITE加 收刀态{3,11}→{3,86}, 门控weapon+0xC71). 修正: remapper反编译case N=武器类型N+1 (dispatch有dec eax), case 2就是LS.  气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*
