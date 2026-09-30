@@ -26,6 +26,19 @@
 6_tag_export_metadata.py      给特殊骨骼 fcurve 补 LIMITS 元数据 + 剥 _s 通道(导出前最后一步)
 9_group_channels.py           批量 fcurve 归组(组名=骨骼名,object 级归 Object;7_merge 重建
                               会丢组,批量合并后跑一遍;7_merge 重建时现已自带归组)
+10_apply_rules_divide.py      对用户手搓的 divide_*/*_before_divide 自定义动作(左手握持+根位移)
+                              套全套规则:坑⑬ tether 绑定 + frameCount/starType + object 层整形
+                              (删 arp_retarget_bound/scale,旋转恒等 2 键)+ 030/047=106 左手常量
+                              + 000 删旋转缩放 + 6_tag v2 动态打标(030/047 scale 行=109 的 5)
+                              + min-2-keys。2026-09-30 跑过 5 个动作,导出器级验证 valid=True
+                              ×5/82 变换轨/2 Root 轨,警告签名与局内验证过的 151/192_remap 同族。
+                              **复用**:`RULE_ACTIONS="动作名1,动作名2" blender -b MHW-Valor.blend
+                              --python mhgu/10_apply_rules_divide.py`(缺省=divide 批次 5 个)。
+_new_actions 工具链            新动作接入槽位的四步(全部无头、只写 LMT 不动 blend):
+  _verify_exporter_divide.py  ① parser 预检(-- 传动作名),valid=True 才可接线;
+  _repro_wiring.py            ② 无头接线+正式导出(ENTRY/ACTION/OUT 环境变量,=GUI 按钮代码路径);
+  _check_repro_entry.py       ③ 产物解析(轨数/Root 双轨/挂点形态,-- 传 lmt+entryId);
+  _preflight_tree.py          ④ 全树 154 动作预检(接线后跑,problems 必须=0)。
 ```
 
 - 环境变量:`MHGU_WORK_BLEND` 工作文件;`MERGE_PAIRS="native;;remap|..."` 批量合并配对;
@@ -165,6 +178,20 @@ verify 段会断言)。补绑后 remap 直连导出 = 81 轨 + root ✓ + cm ✓
 一键复跑+五文件对比自检:`_rerun_and_compare.py`(MERGE_PAIRS 已含 103+104)。
 坏文件留证:`nativePC/.../w03_00-curled-20260928-2000.lmt`。
 
+### 坑⑭ 无头改完 blend,GUI 旧会话直接接线导出 = 崩在 bounds() 空包络(2026-09-30)
+症状:divide_short 接进 103 导出报 `ValueError: mathutils.Vector(): sequence size is 0,
+expected >= 2`,traceback 在 LMTActionParser.__init__ → compile → bounds;但换两个
+居合槽位又能导出,看似灵异。机理:脚本/headless 保存的 blend **不会进入已开着的 GUI
+会话**,会话里还是改前的旧动作(无 tether/starType/旧键),接线上去的和磁盘上判若两物。
+崩溃点精确条件(导出器代码实锤):bounds() 对非 Root 轨取 `vector_keyframes[1:]`、
+对 Root 轨取 `[1:-1]`——**Root 轨恰好 2 键**(或非 Root 恰 1 键且 buffered)时包络为空。
+正常管线产物出不了这种状态,出现即 = 动作数据不是管线产物。
+→ 修复 = **File > Revert 重载后再接线导出**(用户实测重启即好)。
+诊断工具:`_preflight_tree.py`(全树预检)+ `_verify_exporter_divide.py`(单动作
+parser 预检)+ `_repro_wiring.py`(无头接线+正式导出复现)。
+注意接线细节:entry 的 LMT Animation 输入上**只能留一条连线**,旧连线不删会被
+`next(iter(actionNodes))` 取到旧动作。
+
 ### 坑⑪ 自检护身符
 对 w07.lmt::106 做"我导入 vs 旧成功导入"逐键自检(max diff 5.7e-4)是一次性
 锁死导入正确性的投资——之后所有导入 bug(路径错、轴错、丢键)都被它当场拦截。
@@ -176,6 +203,8 @@ verify 段会断言)。补绑后 remap 直连导出 = 81 轨 + root ✓ + cm ✓
 |---|---|---|---|
 | LMT::w07::192 | 刚1 | 104 | ✅ **局内验证通过**(自烘焙IK+cm) |
 | LMT::w07_sa::151 | 樱花气刃斩 | 103 | ✅ **局内验证通过**(自烘焙IK+cm) |
+| divide_short | 居合斩(用户自定义) | 103 | ✅ **导出验证通过**(2026-09-30 无头接线导出,82轨+Root 双轨;局内待测) |
+| divide_long / left_up / rigit_up / right_down_before_divide | 待用户指认 | 待定 | 已按规则处理,可直接接线导出(`RULE_ACTIONS` 可复用 10 号脚本) |
 | LMT::w07_sa::001/002/003/051/056/101/102 | 待用户指认(妖刀罗刹/圆月斩/镜花构/特殊纳刀在其间) | 待定 | 已转换可直接导出 |
 | 绝对回避 | 未找到(不在 w07_sa 8 动作内;候选=w07.lmt 其余 entry 或共通 motion) | — | 待定位 |
 

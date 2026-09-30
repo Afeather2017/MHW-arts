@@ -1042,6 +1042,33 @@ Build command:
   已不存在(疑似被孤儿清理), entry104 节点现直连 192_remap(tetherFrame 已绑, 导出
   root✓/cm✓); 重跑 MASTER 上的 7_merge 会因缺原生动作 FAIL(WORK 文件仍有)。
 
+### 2026-10-01 用户手搓动作接入规则化: 10_apply_rules_divide.py + 无头接线验证工具链 (mhgu README 同步)
+
+- 用户在 MASTER (MHW-Valor.blend) 直接新增自定义动作 (divide_long 63f / divide_short 57f /
+  left_up·rigit_up·right_down_before_divide 各 6f; 拼写 rigit 是动作真名), 全部左手握持
+  + 带前后左右根位移, ARP 原始烘培态 (871 fcurves, tether=None/frameCount=-1/starType=None,
+  000 带恒等旋转缩放, 030/047 被 ARP 烘成逐帧)。`mhgu/10_apply_rules_divide.py` 一次套完全套
+  已验证规则 (坑⑬ tether + 坑⑥ frameCount/starType + object 层整形 + 030/047=106 左手常量
+  + 000 清理 + 6_tag v2 打标 + min-2-keys), 5 动作 871→314 fcurves, 全绿保存 (.bak 留档)。
+  **复用: `RULE_ACTIONS="动作名1,动作名2" blender -b MHW-Valor.blend --python
+  mhgu/10_apply_rules_divide.py`**, 后续新动作同流程。
+- 导出器级验证: LMTActionParser (导出同代码路径) valid=True ×5, 82 变换轨满额, Root 双轨;
+  警告签名与局内验证过的 151/192_remap 同族 (UNEXPORTABLE 7 = object 层设计性忽略,
+  INVALID_ENCODING_NONKEY ≈43/44 = 常量轨自动降级, 两边一致 = 背景噪声)。
+- **divide_short→entry103 无头接线+正式导出成功** (mhgu-export-repro.lmt, 82 轨, frameCount
+  57, Root 双轨, 030/047 = keyless 常量左手 — 与原版 104 常量左插座同形; **纯常量左手动作的
+  scale 就该是 keyless bufType1, bufType5 只对真有换手阶梯键的动作必需**)。
+- **坑⑭ (README): 无头改完 blend, 开着的 GUI 会话必须 File>Revert 重载后再接线导出** —
+  旧会话拿内存里的旧动作导出, 崩 `bounds() ValueError: Vector(): sequence size is 0`
+  (精确条件 = Root 轨恰好 2 键/非 Root 恰 1 键且 buffered, 正常管线产物出不了该状态);
+  用户实测重启即好。entry 的 LMT Animation 输入只能留一条连线, 旧连线不删会被
+  `next(iter(actionNodes))` 取到旧动作。
+- 无头工具链 (mhgu/): `_preflight_tree.py` 全树 154 动作预检 (problems 必须=0) →
+  `_verify_exporter_divide.py` 单动作 parser 预检 (-- 传名) → `_repro_wiring.py`
+  无头接线+正式导出 (ENTRY/ACTION/OUT, 不保存 blend) → `_check_repro_entry.py`
+  产物解析 (-- 传 lmt+entryId)。
+- 存盘 MASTER 的树: entry103←103_mhworig, 104←104_mhworig, 140←192_remap, 101/102←原生。
+
 ### 2026-09-30 motion 选择机制破译: motion id = LMT entry | 0xC000 (动作层硬编码, FSM 无关; 填补 "LMT 选择逻辑在类工厂深处" 的开放项)
 
 - **动作实例 +0x30 = motion id, 打包公式 `entry & 0x1FF | 0xC000`** (cJumpSlashLanding
