@@ -2103,7 +2103,8 @@ long long __fastcall CondEvalHook(unsigned int a1, long long a2, long long a3) {
         m << "COND631 evaluated -> " << std::dec << result;
         Log(m.str());
     }
-    if (isForesightSuccess && result != 0 && ModWeaponActive()) {
+    if (isForesightSuccess && result != 0 && ModWeaponActive() &&
+        g_counterAutoForce && !g_clangLatch) {
         // The vanilla success+hit latch just evaluated true: this is the exact
         // 刚1 trigger moment. Open the counter window and arm the force.
         if (!g_clangLatch) {
@@ -2777,6 +2778,28 @@ void TryQueuedForceWrite(const void* entity) {
     Log(m.str());
     if (ok) {
         ArmFrameSeekDiagnostics();
+        // The forced call goes through the trampoline, so the DoActionHook
+        // never sees it: without this sync the tracker keeps reporting 见切
+        // and every negation watcher stays armed throughout the counter move
+        // (observed 2026-09-30: one clang forced 刚1 twice ~0.1s apart, the
+        // second one re-triggered by the new motion's own event bit).
+        {
+            std::scoped_lock lock(g_actionMutex);
+            ActionInfo forced{};
+            forced.actionSet = static_cast<std::int32_t>(g_forceSet);
+            forced.actionId = static_cast<std::int32_t>(g_forceId);
+            g_lastLongSwordAction = forced;
+            // One force per 见切 action: every trigger source is blocked until
+            // the next 86/101/102 entry re-arms the latch (DoActionHook reset).
+            g_clangLatch = true;
+        }
+        // Consume the counter window: a spirit press after the fire must not
+        // arm a second force from the same clang.
+        g_counterWindowUntil = {};
+        std::ostringstream changed;
+        changed << "Long Sword action changed (forced): set=" << g_forceSet
+                << " id=" << g_forceId;
+        Log(changed.str());
     }
 }
 
@@ -3134,7 +3157,8 @@ void OpenCounterWindow(const char* reason) {
         }
     }
     std::ostringstream m;
-    m << "COUNTER WINDOW OPEN (" << reason << ") - press the spirit key to counter";
+    m << "COUNTER WINDOW OPEN (" << reason << ") nohit=" << g_forceInvulnSec
+      << "s - press the spirit key to counter";
     Log(m.str());
 }
 #endif // !VALOR_PROBE (counter window / force config)
@@ -3410,7 +3434,7 @@ void PollModTriggers() {
         auto* negBitAddr = reinterpret_cast<std::uint32_t*>(player + 0x8954);
         if (IsReadable(negBitAddr, sizeof(std::uint32_t))) {
             const bool negBit = (*negBitAddr & 0x04000000u) != 0;
-            if (negBit && !g_negBitPrev) {
+            if (negBit && !g_negBitPrev && !g_clangLatch) {
                 g_clangLatch = true;
                 OpenCounterWindow("negation bit 250 set (player+0x8954)");
                 if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
@@ -3432,7 +3456,7 @@ void PollModTriggers() {
             if (weapon && IsReadable(weapon + 0x23A0, sizeof(float))) {
                 const float flash =
                     *reinterpret_cast<const float*>(weapon + 0x23A0);
-                if (flash > 0.5f && g_flashPrev <= 0.5f) {
+                if (flash > 0.5f && g_flashPrev <= 0.5f && !g_clangLatch) {
                     g_clangLatch = true;
                     OpenCounterWindow("deflect flash (weapon+0x23A0)");
                     if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
@@ -3487,7 +3511,7 @@ void PollModTriggers() {
             pm662 = m662;
             pev0 = ev0;
         }
-        if (in86 && bit15 && !g_fsuccBitPrev) {
+        if (in86 && bit15 && !g_fsuccBitPrev && !g_clangLatch) {
             g_clangLatch = true;
             OpenCounterWindow("foresight success bit15 (player+0x8938)");
             if (g_counterAutoForce && !g_forceArmed.exchange(true)) {

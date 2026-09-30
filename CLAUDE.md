@@ -410,6 +410,11 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   re-adding ValorGauge.dll during research builds and the sibling check stood
   the probe down (two wasted rounds). Auto-install removed from both targets;
   deploy explicitly, one DLL at a time.
+- (2026-09-29) 部署文件名损坏事故: plugins 里的 DLL 被改名成 `ValorGauge.d ll`
+  (d 后面带空格, 扩展名不再是 .dll) → Stracker 扫描 *.dll 加载不到 → 全部功能
+  无反应 (F6/叮触发链/overlay 全灭), 症状像"DLL 关了功能"。诊断特征: **所有功能
+  死 + ValorGauge.log 时间戳停在旧会话 = DLL 根本没被加载, 先查文件名/加载状态,
+  再查代码**。已改回 `ValorGauge.dll` (md5 92343850 未变, 无需重部署)。
 
 ### 2026-09-19 FSM 驱动链: how zero-inbound nodes (居合 101/102) are entered
 
@@ -1036,6 +1041,77 @@ Build command:
   成对键台阶(10/11 换右, 44/45 换回, 60/60 收尾)。另: MASTER 的 LMT::w03_00::104
   已不存在(疑似被孤儿清理), entry104 节点现直连 192_remap(tetherFrame 已绑, 导出
   root✓/cm✓); 重跑 MASTER 上的 7_merge 会因缺原生动作 FAIL(WORK 文件仍有)。
+
+### 2026-09-30 motion 选择机制破译: motion id = LMT entry | 0xC000 (动作层硬编码, FSM 无关; 填补 "LMT 选择逻辑在类工厂深处" 的开放项)
+
+- **动作实例 +0x30 = motion id, 打包公式 `entry & 0x1FF | 0xC000`** (cJumpSlashLanding
+  begin 反汇编级实锤; 0xFFFF = 不换 motion 哨兵, 见 FUN_141783710)。begin handler
+  (实例 vtable+0x30) 经 **玩家 vtable+0x288(player, motionId, ...)** 启动 motion;
+  部分变体走 +0x290/+0x298 (带混合参数)。之前 anim+0xE9C4 读到的 0xc06c/0xc132
+  标记就是这个空间的 id (0xC132 = 特殊納刀 LMT306 ✓ 旁证)。
+- **id→LMT entry 没有平表**: 每动作类的工厂 (类 vtable+8/+0x10, 构造 0x50 小实例或
+  0xCD0/0xCD8 大实例) 在函数体里**硬编码立即数**写 motion id (小实例 +0x30 直写;
+  大实例写 +0xCD0, begin 时 FUN_1417fdd30 式拷到 +0x30)。提取: 类表 0x142EF5C30
+  (113 项, stride 0x20, **classPtr 在 +8**) → classPtr 首.qword = 类 vtable → vtable+8/
+  +0x10 工厂 → 函数体搜 0xC000-0xC7FF u32。批量扫描 17 已知对 6/17 直命中
+  (79→105/81→102/83→127/86→140(+170)/87→170/92→174); 共享类 (67/77 同 classPtr)
+  的 motion 由 begin/运行时决定, 工厂扫描不适用。
+- **运行时 motion 重映射行表**: cJumpSlashLanding begin 遍历实例 +0x48 行数组
+  (4×i32: {前一动作set, 前一动作id, 新LMT entry, 触发帧}, 数量在 +0xCC8, 运行时
+  由排队方填充, 类模板不含), 命中条件 = 前一动作匹配 **且 motion 时钟
+  (anim+0x10C) == 行帧** → 播 `row[2]&0x1FF|0xC000`。0x141881xxx 有一个排队
+  {3,11}/{3,12} 后逐个盖章 +0xCD0=0xC09C 的编排器实例 (某架势下 11/12 改播 156)。
+- **实锤案例 = LMT 156 = ジャンプ気刃２連斬り（二段目）**: action **77** (用户局内
+  3:77 见到; begin 0x1417FE600 = `mov [rcx+0x30],0xC09C; jmp 通用begin`) 和 **76**
+  (共用类 cJumpSlashLanding) 开场直播 156; **73/74** begin (0x1417FE5A0) 播 155
+  (一段目, 其 TIML ノードID f0=48→f25=60 在 f25 自切二段命中节点); 另有两个
+  per-frame helper 监视 "当前 motion==0xC09B && vtable+0x2A8()" → 衔接 0xC09C。
+  **76/77/73/74 全部无 FSM 节点** (同 98/99/100/103, 纯动作层 id, 靠请求/链数据
+  进入)。col 交叉验证: TIML CollisionTimelineObject ノードID → wp03.col names 表
+  node 列 = 招式日文名 (node 60 = ジャンプ気刃2連斬り二段目 ✓)。
+- 陷阱记录: ① 跨武器撞号 — weapon type 8 (斩斧) id 114 的工厂也写 0xC09C, 那是
+  斩斧自己 LMT 的 156, motion-id 立即数必须按武器区段归属; ② 类名探测要从 vtable
+  末尾对齐, 共享类 vtable 会让"vtable+0x20 起即名字"猜偏 (67/77 同 vtable);
+  ③ mhgu 迁移链的 "LMT entry 104 = MHGU 192" 用的正是这套实例 +0x30 直读, 所以
+  改 LMT entry 内容即可换动作, 无需动代码。
+- 事故快照 (2026-09-30): `nativePC/hm/wp/wp03/mot/w03_00/` 目录整体缺失 (含部署的
+  MHGU 迁移版 LMT) — 用户局内跑的是包内原版数据; 是有意清理还是误删待确认,
+  部署迁移 LMT 前先补目录。
+
+### 2026-09-30 (2) 刚1 双弹反定案: force 链三缺陷 + tracker 失步 (已修复, 部署 md5 9e45890d)
+
+- **症状**: 刚1弹反触发后短时间内按 Ctrl → 弹反再触发一次; 且刚1 (3:77) 期间体感有无敌帧残留
+  (刚1 本体应无任何无敌帧)。用户先验: FSM 写的就是"刚1后不接弹反", 故怀疑 DLL — 正确。
+- **日志铁证** (ValorGauge.log ~613867): 一次叮 → `COUNTER WINDOW OPEN (deflect flash)` →
+  FORCE 3:77 → **~4 帧后 `COUNTER WINDOW OPEN (negation bit 250)` → 第二次 FORCE 3:77**,
+  且第二次仍打 `interrupting 3:86`; FRAMETICK 帧数归零 = 刚1从头重播。三连
+  `COUNTER INPUT` (614027/38/49) = 0.6s 窗内每次 Ctrl 边沿都再武装。
+- **缺陷1 (主犯) force 绕过钩子 → tracker 永远停在 3:86**: TryQueuedForceWrite 直调
+  g_originalDoAction (trampoline), DoActionHook 不跑, g_lastLongSwordAction 不更新 →
+  `inEvasionNow`/`ActionIsForesightSlash()` (只认 3:86) 在刚1全程为 true, 三个 negation
+  检测器 (flash/bit250/bit15) 整个刚1期间仍在"见切门内"站岗。
+- **缺陷2 刚1播放中 bit250 再升起 → 重新开窗+重新武装**: 3:77 自己的动作 TIML 事件键
+  (per-motion 事件同 id 不同义, 09-18 翻滚教训同款) 在刚1开始 2-4 帧内置位 bit250,
+  被当成"见切弹反"→ 第二次 FORCE。另: flash 和 bit250 本就对同一次叮先后各触发一次,
+  arm/consume 错开 → 单次叮天然双发。
+- **缺陷3 反击窗 fire 后不清零 + Ctrl 边沿无动作门控**: OpenCounterWindow 只写
+  g_counterWindowUntil; 0.6s 内任何 Ctrl 上升沿都再武装。
+- **修复 (dllmain.cpp, 5 处)**: ① TryQueuedForceWrite 成功后同步 tracker = {3, 刚1id} +
+  置 g_clangLatch + 打 `Long Sword action changed (forced)` 日志; ② fire 成功即消费窗口
+  (g_counterWindowUntil 清零); ③ 三个触发点接线 `&& !g_clangLatch` (注释
+  "one force per 见切 action" 写了从未生效 — 只有 VALOR_PROBE 的 SoundPostHook 读过;
+  DoActionHook 仅在进入 86/101/102 时清锁存, 恰好是想要的每见切一次性); ④ CondEvalHook
+  (631 判真无条件武装, 无动作门无 autoForce 门) 补 `g_counterAutoForce && !g_clangLatch`
+  (本次日志无 COND631 行, 属休眠路径); ⑤ 窗口日志带 `nohit=<秒>` 便于局内核对注入状态。
+- **残留无敌判定**: 叮触发链当前**无注入** (部署 force-action.txt = `3 77 0 0`, 第三参
+  invulnSec=0 → OpenCounterWindow 的 pool+0xE4 写入被门掉; 默认值 0.5 只在缺参时生效)。
+  ClangSoundVirtualHook (2188) 是死代码 (InstallClangSoundVirtualHook 无调用点)。
+  故体感残留最可能是**见切自身 TIML b26 窗口 (f0-f12, 0.2s) 穿过 mid-action 强制切换漏进
+  刚1** (游戏侧, force 绕 FSM 的副作用) — 修完双发后局内复测: 若仍残留, 下一个杠杆是把
+  force 推迟到见切弹反窗 (f12 = 0.2s) 之后触发。
+- **杂项**: `ValorGauge.counter-action.txt` (内容 "86") 无代码读取 = 死配置;
+  `counter-repeat.txt` (Ctrl 脉冲) 功能已不在现源码中, 配置文件同为遗留。
+  上一版部署 md5 92343850 → 本版 9e45890d32f6b863ada58f76ef258df4。
 
 ### Known Issues
 - **Cracked/Repacked Versions:** FitGirl repacks etc. have altered chunk files incompatible with Nexus mods. Your install appears legitimate (Stracker + nativePC mods work).
