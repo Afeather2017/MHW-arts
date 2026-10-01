@@ -1,0 +1,72 @@
+[nTimelineParam::CollisionTimelineObject] バンク[0]  (1 keys)
+    f0=0
+[nTimelineParam::CollisionTimelineObject] ノードID[0]  (1 keys)
+    f0=42
+[nTimelineParam::CollisionTimelineObject] mFlag  (3 keys)
+    f0=0  f22=1  f33=0
+[nTimelineParam::PlMotionCommon] mAttackAdjustAngleIndex  (1 keys)
+    f0=0
+[nTimelineParam::PlMotionCommon] mFlag  (3 keys)
+    f0=2269118470  f18=33554438  f120=6
+[nTimelineParam::PlMotionCommon] mTrigger  (1 keys)
+    f0=2048
+[nTimelineParam::PlMotionInput] mFlag  (5 keys)
+    f0=0  f18=1073823744  f28=1073824000  f38=3221472000  f110=3221472001
+[nTimelineParam::PlMotionInput] mFlag1  (3 keys)
+    f0=0  f18=67112960  f38=201338880
+[nTimelineParam::PlMotionInput] mFlag2  (3 keys)
+    f0=0  f18=4194640  f38=12583920
+[nTimelineParam::PlMotionVisual] mFlag  (3 keys)
+    f0=0  f20=8  f25=0
+[nTimelineParam::nWwiseTimeline::EventCollision00] ReqNo(On) A  (1 keys)
+    f0=1
+[nTimelineParam::nWwiseTimeline::EventCollision00] SkipTime A  (1 keys)
+    f0=0
+[nTimelineParam::nWwiseTimeline::EventCollision00] ReqNo(On) B  (1 keys)
+    f0=2
+[nTimelineParam::nWwiseTimeline::EventCollision00] SkipTime B  (1 keys)
+    f0=0
+[nTimelineParam::nWwiseTimeline::EventCollision00] mFlag  (5 keys)
+    f0=0  f21=2  f28=0  f97=2  f113=0
+[nTimelineParam::nWwiseTimeline::EventGroup01] ReqNo A  (1 keys)
+    f0=115
+[nTimelineParam::nWwiseTimeline::EventGroup01] ReqNo B  (1 keys)
+    f0=145
+[nTimelineParam::nWwiseTimeline::EventGroup01] ReqNo C  (1 keys)
+    f0=135
+[nTimelineParam::nWwiseTimeline::EventGroup01] ReqNo D  (1 keys)
+    f0=111
+[nTimelineParam::nWwiseTimeline::EventGroup01] ReqNo E  (1 keys)
+    f0=139
+[nTimelineParam::nWwiseTimeline::EventGroup01] mTrigger  (7 keys)
+    f0=0  f14=2  f21=1  f64=0  f67=2  f98=0  f99=1
+[nTimelineParam::nWwiseTimeline::EventGroup02] ReqNo A  (1 keys)
+    f0=1105
+[nTimelineParam::nWwiseTimeline::EventGroup02] mTrigger  (2 keys)
+    f0=0  f14=1
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo A  (1 keys)
+    f0=5655
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo B  (1 keys)
+    f0=5660
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo C  (1 keys)
+    f0=5610
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo D  (1 keys)
+    f0=5620
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo E  (1 keys)
+    f0=5645
+[nTimelineParam::nWwiseTimeline::EventGroup06] ReqNo F  (1 keys)
+    f0=5640
+[nTimelineParam::nWwiseTimeline::EventGroup06] mTrigger  (8 keys)
+    f0=0  f2=1  f15=4  f22=2  f32=32  f76=16  f107=8  f115=0
+[nTimelineParam::nWwiseTimeline::EventGroup07] ReqNo A  (1 keys)
+    f0=5622
+[nTimelineParam::nWwiseTimeline::EventGroup07] ReqNo B  (1 keys)
+    f0=5623
+[nTimelineParam::nWwiseTimeline::EventGroup07] mTrigger  (2 keys)
+    f0=0  f12=1
+[nTimelineParam::nWwiseTimeline::GameParameter] TargetReqNo A  (1 keys)
+    f0=1
+[nTimelineParam::PlMotionCommon] mFlag4  (1 keys)
+    f0=4
+[nTimelineParam::EffectParameter1] WorkNo00  (1 keys)
+    f0=3196

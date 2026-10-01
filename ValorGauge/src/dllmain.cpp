@@ -1055,6 +1055,13 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
 }
 #endif
 
+// SHEATHREASSERT: set by a sheath-counter rule fire; while active, an
+// incoming engine guard-reaction load ({3,37}) is swallowed in DoActionHook
+// so it cannot overwrite the just-forced counter move.
+std::atomic_int64_t g_sheathReassertUntilMs{0};
+std::atomic_int32_t g_sheathReassertSet{3};
+std::atomic_int32_t g_sheathReassertId{77};
+
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
@@ -1249,6 +1256,24 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             Log(message.str());
         }
     }
+#ifndef VALOR_PROBE
+    // SHEATHREASSERT: swallow the engine's guard-reaction load during the
+    // reassert window (nothing is written to the action pipeline, so 37 is
+    // simply never queued and the forced counter keeps playing).
+    if (validAction && controller == g_lockedPlayerController &&
+        action->actionSet == 3 && action->actionId == 37 &&
+        g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                .count()) {
+        std::ostringstream m;
+        m << "SHEATHREASSERT: swallowed guard reaction 3:37 (keeping 3:"
+          << g_sheathReassertId.load(std::memory_order_relaxed) << ")";
+        Log(m.str());
+        g_insideDoAction.store(false, std::memory_order_release);
+        return true;
+    }
+#endif
     const bool result = g_originalDoAction(controller, action) != 0;
 #ifndef VALOR_PROBE
     if (result && validAction && controller == g_lockedPlayerController &&
@@ -1281,6 +1306,63 @@ bool ActionIsRoll() {
     std::scoped_lock lock(g_actionMutex);
     auto& a = g_lastLongSwordAction;
     return a && a->actionSet == 3 && a->actionId == 18;
+}
+
+// --- Sheathe i-frame counter (特殊纳刀 family 98/99/100) ----------------------
+// The TIML b26+mTrigger recipe grants these motions raw i-frames, but the
+// vanilla negation latches (bit15 handler = 86, bit250 handler = 101/102) are
+// action-gated and never fire for the sheathe family - "hit during i-frames"
+// is undetectable there without mining. This watcher both MINES the shared
+// event-bit array (player+0x8938..) during the watched actions (F5 = manual
+// "got hit" marker) and fires config rules: a rising edge on the configured
+// event bit opens the counter window and force-queues the switch target.
+// Config nativePC/plugins/ValorGauge.sheath-counter.txt (default inert):
+//   rule <duringIds> <eventBit> <toSet> <toId>
+//   mine <duringIds>
+// duringIds = comma list of set-3 action ids; eventBit = index into the
+// event-bit array (dword*32+bit, e.g. 250 = dword7 bit26).
+struct SheathCounterRule {
+    std::vector<std::uint32_t> duringIds;
+    std::uint32_t eventBit = 0;
+    std::uint32_t toSet = 0;
+    std::uint32_t toId = 0;
+    bool prev = false;
+    bool dispatchBased = false; // drule: fire on rejected type-6 dispatch
+    bool armorBased = false;    // arule: fire on connected hit (armor window)
+    // Per-rule one-shot: re-armed when the watched action id changes. The
+    // global g_clangLatch must NOT gate these rules - it only re-arms on
+    // 86/101/102, so a single fire would block every later sheathe guard.
+    bool fired = false;
+    std::uint32_t lastActId = 0;
+};
+std::vector<SheathCounterRule> g_sheathRules;
+std::vector<std::uint32_t> g_sheathMineIds;
+std::atomic_uint32_t g_sheathMineLogCount{0};
+std::uint32_t g_sheathMinePrevEv[8] = {};
+bool g_sheathMinePrimed = false;
+
+bool ParseIdList(const std::string& text, std::vector<std::uint32_t>& out) {
+    out.clear();
+    std::size_t i = 0;
+    while (i <= text.size()) {
+        std::size_t j = text.find(',', i);
+        if (j == std::string::npos) j = text.size();
+        if (j > i) {
+            try {
+                out.push_back(
+                    static_cast<std::uint32_t>(std::stoul(text.substr(i, j - i))));
+            } catch (...) {
+                return false;
+            }
+        }
+        i = j + 1;
+        if (j == text.size()) break;
+    }
+    return !out.empty();
+}
+
+bool SheathIdsContain(const std::vector<std::uint32_t>& ids, std::uint32_t id) {
+    return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
 
 #ifdef VALOR_PROBE
@@ -1337,9 +1419,12 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
 // so the mod filters a1 against the locked local player before charging.
 using DmgCalcFn = long long(__fastcall*)(long long, long long, std::uint32_t*);
 DmgCalcFn g_originalDmgCalc = nullptr;
+// Set by whichever DmgCalcHook is installed while inside a hit-dispatch call.
+// A type-6 dispatch that finishes without this flag = the hit was negated
+// (见切-style arbitration rejection or a no-hit window eating the hit).
+bool g_damageThisDispatch = false; // game thread only
 
 #ifdef VALOR_PROBE
-bool g_damageThisDispatch = false; // game thread only
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
     g_damageThisDispatch = true;
@@ -1971,9 +2056,215 @@ void NotifyPlayerHitConnected(long long attacker) {
     }
 }
 
+long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3);
+void SheathArmorHitCheck(long long attacker, long long defenderCtx);
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
+    g_damageThisDispatch = true;
     NotifyPlayerHitConnected(a1);
-    return g_originalDmgCalc(a1, a2, a3);
+    long long result = g_originalDmgCalc(a1, a2, a3);
+    SheathArmorHitCheck(a1, a2);
+    return result;
+}
+
+// Armor-window hit reaction (arule): a monster hit CONNECTED while the player
+// is inside a watched sheathe action (the super-armor tail of LMT306; the
+// i-frame head self-protects this rule from early hits). Clamps HP so the
+// hit cannot kill (design: eat the damage, survive with 1), then fires the
+// configured switch via the counter-window + force path. HP chain pinned in
+// the decompile: FUN_141f62320 = mov rcx,[rcx+0x7630]; jmp FUN_141216910 =
+// movss xmm0,[rcx+0x64] -> HP = *(float*)(*(player+0x7630)+0x64)
+// (+0x60 in the same object reads as the max-HP getter twin, unverified).
+void OpenCounterWindow(const char* reason);
+void SheathArmorHitCheck(long long attacker, long long defenderCtx) {
+    bool hasArmorRule = false;
+    for (const auto& rule : g_sheathRules) {
+        if (rule.armorBased) {
+            hasArmorRule = true;
+            break;
+        }
+    }
+    if (!hasArmorRule) {
+        return;
+    }
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    const auto localPlayer =
+        reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
+    if (attacker == localPlayer) {
+        return; // player-dealt hit, not received
+    }
+    ActionInfo cur;
+    bool haveCur = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            cur = *g_lastLongSwordAction;
+            haveCur = true;
+        }
+    }
+    if (!haveCur || cur.actionSet != 3) {
+        return;
+    }
+    const std::uint32_t id = cur.actionId;
+    const SheathCounterRule* match = nullptr;
+    for (const auto& rule : g_sheathRules) {
+        if (rule.armorBased && SheathIdsContain(rule.duringIds, id)) {
+            match = &rule;
+            break;
+        }
+    }
+    if (!match) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    // Pin the defender field for future tightening: log a2 vs player once.
+    static std::atomic_uint32_t armorDefLogs{0};
+    if (armorDefLogs.load() < 8) {
+        armorDefLogs.fetch_add(1);
+        std::ostringstream m;
+        m << "SHEADRULE hit a2=0x" << std::hex << std::uppercase
+          << static_cast<std::uintptr_t>(defenderCtx)
+          << " player=0x" << static_cast<std::uintptr_t>(localPlayer)
+          << " (a2==player => defender field pinned) act=3:" << std::dec << id;
+        Log(m.str());
+    }
+    // No-death clamp: survive with 1 HP.
+    if (IsReadable(player + 0x7630, sizeof(void*))) {
+        auto* vitals = *reinterpret_cast<std::uint8_t**>(player + 0x7630);
+        if (vitals && IsReadable(vitals + 0x64, sizeof(float))) {
+            float hp = *reinterpret_cast<const float*>(vitals + 0x64);
+            if (hp < 1.0f) {
+                *reinterpret_cast<float*>(vitals + 0x64) = 1.0f;
+                std::ostringstream m;
+                m << "SHEADRULE: lethal hit during 3:" << id
+                  << " - HP clamped to 1 (no-death)";
+                Log(m.str());
+            }
+        }
+    }
+    if (g_clangLatch) {
+        return;
+    }
+    g_clangLatch = true;
+    g_forceSet = match->toSet;
+    g_forceId = match->toId;
+    std::ostringstream m;
+    m << "SHEADRULE: armor-window hit during 3:" << id << " - force "
+      << match->toSet << ':' << match->toId;
+    Log(m.str());
+    OpenCounterWindow("sheath arule");
+    if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+        Log("SHEADRULE: auto-force armed");
+    }
+}
+
+// --- Sheathe i-frame dispatch monitor + drule trigger ------------------------
+// FUN_141f71960 routes every hit attempt; 0xD returns are the per-frame
+// ambient checks. Evidence so far: 见切/居合 negated hits arrive here as type-6
+// with a non-0xD code and no damage-calc entry (arbitration-level deflect),
+// while roll i-frames produce ZERO type-6 traffic (query-level exclusion).
+// The TIML b26 windows on 98/99/100 behave like rolls in-game (no 叮), but
+// whether ANY type-6 traffic exists for them is exactly what SHEATHDISPATCH
+// logging answers: if negated hits during the window show up here, the drule
+// gives the switch-on-hit for pure i-frames; if the log stays empty, the
+// exclusion is upstream of the dispatcher and the armor-window route is the
+// fallback.
+using HitDispatchFn = std::int32_t* (__fastcall*)(std::int64_t*, std::int64_t*);
+HitDispatchFn g_originalHitDispatch = nullptr;
+void OpenCounterWindow(const char* reason);
+
+std::int32_t* __fastcall SheathDispatchHook(std::int64_t* a1, std::int64_t* a2) {
+    // Info only: mirror the dispatcher's interaction-type read (vtable+8).
+    // NOTE: an earlier build gated all logging on this == 6 and produced zero
+    // output across sessions (the read itself never yields 6 - the old
+    // "[log only]"-era code that verified clang=non-0xD had no such gate).
+    // Log semantics back to the verified form: non-0xD return = real
+    // interaction attempt; 0xD = the per-frame ambient flood (excluded).
+    long long interactType = -1;
+    if (a2 && IsReadable(a2, sizeof(void*))) {
+        void* obj = *reinterpret_cast<void**>(a2);
+        if (obj && IsReadable(obj, 0x10)) {
+            void* vtbl = *reinterpret_cast<void**>(obj);
+            if (IsReadable(reinterpret_cast<char*>(vtbl) + 8, sizeof(void*))) {
+                using TypeGetterFn = long long (__fastcall*)(std::int64_t*);
+                auto fn = *reinterpret_cast<TypeGetterFn*>(
+                    reinterpret_cast<char*>(vtbl) + 8);
+                if (IsReadable(reinterpret_cast<const void*>(fn), 1)) {
+                    interactType = fn(a2);
+                }
+            }
+        }
+    }
+    g_damageThisDispatch = false;
+    auto* result = g_originalHitDispatch(a1, a2);
+    const auto code = reinterpret_cast<std::uintptr_t>(result);
+    if (code == 0xD) {
+        return result; // ambient per-frame flood
+    }
+    const bool rejected = !g_damageThisDispatch;
+    ActionInfo cur;
+    bool haveCur = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            cur = *g_lastLongSwordAction;
+            haveCur = true;
+        }
+    }
+    if (!haveCur || cur.actionSet != 3) {
+        return result;
+    }
+    const std::uint32_t id = cur.actionId;
+    bool watched = SheathIdsContain(g_sheathMineIds, id) ||
+                   id == 86; // 见切 = known-clang calibration control
+    for (const auto& rule : g_sheathRules) {
+        if (rule.dispatchBased && SheathIdsContain(rule.duringIds, id)) {
+            watched = true;
+            break;
+        }
+    }
+    if (!watched) {
+        return result;
+    }
+    if (g_sheathMineLogCount.load() < 400) {
+        ++g_sheathMineLogCount;
+        std::ostringstream m;
+        m << "SHEATHDISPATCH" << std::hex << std::uppercase
+          << " code=0x" << code << " type=" << interactType << std::dec
+          << " dmg=" << (g_damageThisDispatch ? 1 : 0)
+          << (rejected ? " REJECTED" : " DAMAGE") << " act=3:" << id;
+        Log(m.str());
+    }
+    if (!rejected) {
+        return result;
+    }
+    for (const auto& rule : g_sheathRules) {
+        if (!rule.dispatchBased || !SheathIdsContain(rule.duringIds, id)) {
+            continue;
+        }
+        if (g_clangLatch) {
+            break;
+        }
+        g_clangLatch = true;
+        g_forceSet = rule.toSet;
+        g_forceId = rule.toId;
+        std::ostringstream m;
+        m << "SHEATHDRULE: dispatch-rejected hit during 3:" << id
+          << " - force " << rule.toSet << ':' << rule.toId;
+        Log(m.str());
+        OpenCounterWindow("sheath drule");
+        if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+            Log("SHEATHDRULE: auto-force armed");
+        }
+        break;
+    }
+    return result;
 }
 #endif
 
@@ -2354,6 +2645,14 @@ bool InstallPoolQueryHook() {
         Log("Damage calc hook failed (hit charging inactive)");
     } else {
         Log("Damage calc hook installed (hit-based valor charging)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch]),
+                      reinterpret_cast<void*>(&SheathDispatchHook),
+                      reinterpret_cast<void**>(&g_originalHitDispatch)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch])) != MH_OK) {
+        Log("Hit dispatcher hook failed (sheath dispatch monitor inactive)");
+    } else {
+        Log("Hit dispatcher hook installed (SHEATHDISPATCH monitoring)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),
@@ -3085,6 +3384,105 @@ bool InstallPropHistogramHooks() {
 // time instead of 0 - the field counts SECONDS at 30Hz, so TIML frame n
 // (60/s) = n/60 seconds. Skipped frames drop their TIML events, e.g. 见切's
 // f0-f12 parry window). Shift+F6 reloads this file in-game.
+void LoadSheathCounterConfig() {
+    g_sheathRules.clear();
+    g_sheathMineIds.clear();
+    g_sheathMinePrimed = false;
+    std::ifstream input("nativePC/plugins/ValorGauge.sheath-counter.txt");
+    if (!input) {
+        Log("Sheath counter: no ValorGauge.sheath-counter.txt - trigger inert");
+        return;
+    }
+    std::string line;
+    int ruleCount = 0;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        std::string kind;
+        if (!(ss >> kind)) {
+            continue;
+        }
+        if (kind == "rule") {
+            std::string ids;
+            unsigned long bit = 0, toSet = 0, toId = 0;
+            if (ss >> ids >> bit >> toSet >> toId) {
+                SheathCounterRule rule;
+                if (ParseIdList(ids, rule.duringIds)) {
+                    rule.eventBit = static_cast<std::uint32_t>(bit);
+                    rule.toSet = static_cast<std::uint32_t>(toSet);
+                    rule.toId = static_cast<std::uint32_t>(toId);
+                    rule.prev = false;
+                    g_sheathRules.push_back(rule);
+                    ++ruleCount;
+                } else {
+                    Log("Sheath counter: bad id list in rule line - skipped");
+                }
+            } else {
+                Log("Sheath counter: malformed rule line - skipped");
+            }
+        } else if (kind == "drule") {
+            // Dispatch-reject rule: fired from SheathDispatchHook when a
+            // type-6 hit dispatch during a watched action finishes with a
+            // non-0xD code and no damage processing (a negated hit).
+            std::string ids;
+            unsigned long toSet = 0, toId = 0;
+            if (ss >> ids >> toSet >> toId) {
+                SheathCounterRule rule;
+                if (ParseIdList(ids, rule.duringIds)) {
+                    rule.dispatchBased = true;
+                    rule.toSet = static_cast<std::uint32_t>(toSet);
+                    rule.toId = static_cast<std::uint32_t>(toId);
+                    g_sheathRules.push_back(rule);
+                    ++ruleCount;
+                } else {
+                    Log("Sheath counter: bad id list in drule line - skipped");
+                }
+            } else {
+                Log("Sheath counter: malformed drule line - skipped");
+            }
+        } else if (kind == "arule") {
+            // Armor rule: fired from DmgCalcHook when a monster hit CONNECTS
+            // while the player is inside a watched action (the super-armor
+            // tail of the sheathe). Also clamps HP to survive with 1.
+            std::string ids;
+            unsigned long toSet = 0, toId = 0;
+            if (ss >> ids >> toSet >> toId) {
+                SheathCounterRule rule;
+                if (ParseIdList(ids, rule.duringIds)) {
+                    rule.armorBased = true;
+                    rule.toSet = static_cast<std::uint32_t>(toSet);
+                    rule.toId = static_cast<std::uint32_t>(toId);
+                    g_sheathRules.push_back(rule);
+                    ++ruleCount;
+                } else {
+                    Log("Sheath counter: bad id list in arule line - skipped");
+                }
+            } else {
+                Log("Sheath counter: malformed arule line - skipped");
+            }
+        } else if (kind == "mine") {
+            std::string ids;
+            if (ss >> ids) {
+                ParseIdList(ids, g_sheathMineIds);
+            }
+        }
+    }
+    std::ostringstream m;
+    m << "Sheath counter: " << ruleCount << " rule(s) loaded, mine ids=";
+    if (g_sheathMineIds.empty()) {
+        m << "(none)";
+    } else {
+        for (std::size_t i = 0; i < g_sheathMineIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_sheathMineIds[i];
+        }
+    }
+    Log(m.str());
+}
+
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
     std::int32_t set = 0;
@@ -3123,6 +3521,7 @@ void LoadForceActionConfig() {
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
     LoadSheathRewriteConfig();
+    LoadSheathCounterConfig();
     std::ostringstream wt;
     wt << "Mod weapon gate: only weapon type "
        << g_modWeaponType.load(std::memory_order_relaxed)
@@ -3519,6 +3918,150 @@ void PollModTriggers() {
             }
         }
         g_fsuccBitPrev = bit15;
+    }
+}
+
+// Per-frame sheathe-family watcher: config rules (event-bit rising edge while
+// inside a watched action -> counter window + force switch) plus the mining
+// logger that finds WHICH bit (if any) the negation of the TIML i-frame
+// windows produces. See the SheathCounterRule block for the config format.
+void PollSheatheCounter() {
+    if (g_sheathRules.empty() && g_sheathMineIds.empty()) {
+        return;
+    }
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    if (!ModWeaponActive()) {
+        for (auto& rule : g_sheathRules) {
+            rule.prev = false;
+        }
+        g_sheathMinePrimed = false;
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    ActionInfo cur;
+    bool haveCur = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            cur = *g_lastLongSwordAction;
+            haveCur = true;
+        }
+    }
+    const bool set3 = haveCur && cur.actionSet == 3;
+    const std::uint32_t id = haveCur ? cur.actionId : 0;
+
+    std::uint32_t ev[8] = {};
+    const bool evReadable = IsReadable(player + 0x8938, sizeof(ev));
+    if (evReadable) {
+        std::memcpy(ev, player + 0x8938, sizeof(ev));
+    }
+
+    // 1) Config rules: rising edge on the rule's event bit.
+    for (auto& rule : g_sheathRules) {
+        if (rule.dispatchBased || rule.armorBased) {
+            continue; // not bit rules (drule fires in the dispatch hook,
+                      // arule in the damage hook); their eventBit is garbage
+        }
+        if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
+            rule.prev = false;
+            rule.fired = false;
+            rule.lastActId = 0;
+            continue;
+        }
+        if (id != rule.lastActId) {
+            rule.lastActId = id;
+            rule.fired = false; // new action instance: re-arm the one-shot
+        }
+        if (!evReadable || rule.eventBit >= 256) {
+            continue;
+        }
+        const bool state =
+            (ev[rule.eventBit >> 5] >> (rule.eventBit & 31)) & 1u;
+        if (state && g_sheathMineLogCount.load() < 480) {
+            ++g_sheathMineLogCount;
+            std::ostringstream m;
+            m << "SHEATHRULEDBG bit=" << rule.eventBit << " state=" << state
+              << " prev=" << rule.prev << " fired=" << rule.fired
+              << " act=3:" << id;
+            Log(m.str());
+        }
+        if (state && !rule.prev && !rule.fired) {
+            rule.fired = true;
+            g_forceSet = rule.toSet;
+            g_forceId = rule.toId;
+            g_sheathReassertSet.store(
+                static_cast<std::int32_t>(rule.toSet), std::memory_order_relaxed);
+            g_sheathReassertId.store(
+                static_cast<std::int32_t>(rule.toId), std::memory_order_relaxed);
+            g_sheathReassertUntilMs.store(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count() +
+                    1200,
+                std::memory_order_relaxed);
+            std::ostringstream m;
+            m << "SHEATHCOUNTER: event bit " << rule.eventBit
+              << " rose during 3:" << id << " - force " << rule.toSet << ':'
+              << rule.toId;
+            Log(m.str());
+            OpenCounterWindow("sheath-counter rule");
+            if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
+                Log("SHEATHCOUNTER: auto-force armed");
+            }
+        }
+        rule.prev = state;
+    }
+
+    // 2) Mining: log every event-dword change while inside a watched action
+    //    (edges only; F5 drops a manual "got hit" marker into the same log).
+    const bool mining = set3 && !g_sheathMineIds.empty() &&
+                        SheathIdsContain(g_sheathMineIds, id);
+    if (mining && evReadable) {
+        if (!g_sheathMinePrimed) {
+            std::memcpy(g_sheathMinePrevEv, ev, sizeof(ev));
+            g_sheathMinePrimed = true;
+            std::ostringstream m;
+            m << "IFRMINE armed in 3:" << id << std::hex << std::uppercase;
+            for (int d = 0; d < 8; ++d) {
+                m << " ev" << d << "=0x" << ev[d];
+            }
+            Log(m.str());
+        } else {
+            for (int d = 0; d < 8; ++d) {
+                if (ev[d] == g_sheathMinePrevEv[d]) {
+                    continue;
+                }
+                const std::uint32_t rose = ev[d] & ~g_sheathMinePrevEv[d];
+                if (g_sheathMineLogCount.load() < 400) {
+                    ++g_sheathMineLogCount;
+                    std::ostringstream m;
+                    m << "IFRMINE ev" << d << " 0x" << std::hex
+                      << std::uppercase << g_sheathMinePrevEv[d] << " -> 0x"
+                      << ev[d] << std::dec;
+                    if (rose) {
+                        m << " rose=[";
+                        for (int b = 0; b < 32; ++b) {
+                            if (rose & (1u << b)) {
+                                m << d * 32 + b << ',';
+                            }
+                        }
+                        m << ']';
+                    }
+                    m << " act=3:" << id;
+                    Log(m.str());
+                }
+            }
+            std::memcpy(g_sheathMinePrevEv, ev, sizeof(ev));
+        }
+    } else {
+        g_sheathMinePrimed = false;
     }
 }
 #endif // !VALOR_PROBE
@@ -4676,6 +5219,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
 #else
     PollValorLifecycle();
     PollModTriggers();
+    PollSheatheCounter();
     PollGaugeLock();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
@@ -4720,6 +5264,20 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                                                                      : "2374")
           << " <- " << g_gaugeLockValue.load(std::memory_order_relaxed)
           << " per frame";
+        Log(m.str());
+    }
+    // Sheathe i-frame mining marker (F5): drops a "got hit" marker into the
+    // log while the IFRMINE watcher is armed on a watched action.
+    if (f5Down && !g_gaugeLockKeyWasDown && !g_sheathMineIds.empty()) {
+        std::ostringstream m;
+        m << "IFRMINE MARK (user: hit landed)";
+        {
+            std::scoped_lock lock(g_actionMutex);
+            if (g_lastLongSwordAction) {
+                m << " act=" << g_lastLongSwordAction->actionSet << ':'
+                  << g_lastLongSwordAction->actionId;
+            }
+        }
         Log(m.str());
     }
     g_gaugeLockKeyWasDown = f5Down;

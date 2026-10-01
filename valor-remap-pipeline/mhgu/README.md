@@ -309,3 +309,22 @@ scale-Y 状态键([0,12]=(2,1) / [13,44]=(1,2) / [45,61]=(2,1))与几何换手�
   动作本身(身体/重心/IK)已验证正确;刀位待后续用 MHW_Model_Editor 导入武器模型
   对照游戏截图校准 030/047 的常量偏移。
 - entry 104 为 81 轨(标准 82):一条常量轨迹在 min-2 处理中合并,游戏实测无影响。
+
+## 特殊纳刀系 TIML 无敌帧(2026-10-01)
+
+- **配方**(307/308 实测闭合):`PlMotionCommon mFlag` b26(0x04000000)窗口 + 一枚
+  `mTrigger` 2048 键在窗口内;`b24`(0x01000000)= 超甲,双开时 no-hit 胜。
+- **已应用**(`apply_sheathe_iframes.py`,幂等,仓库根):
+  - entry 306(动作 98 特殊纳刀):mFlag f0/f10/f15 OR b26(全程窗口,无清除键),
+    mTrigger f0 0→2048。
+  - entry 312(动作 100):mFlag f0 OR b26(与 b24 双开,全程)+ **结构化插入**
+    PlMotionCommon mTrigger 轨 {f0=2048}(文件尾追加 16 对齐数组 + 类型槽重指针;
+    entry 的 types/transforms/keys 数组已验证无共享)。
+  - 目标文件 = 游戏目录 `nativePC/hm/wp/wp03/mot/w03_00/w03_00.lmt`
+    (改前快照 `.pre-iframes.bak` 在同目录)。
+- **⚠️ 导出覆盖警告(坑⑮)**:blend 里 entry 306/312 的 "TIML Data" 输入接了
+  TIMLDataNode(原生快照),`exportNodeToFile` inject 模式 = **整个 entry 替换**,
+  下次导出会把这两个 entry 的 TIML 打回原版(306 无敌帧消失)。**凡导出动过
+  306/312 的 LMT,重跑 `python apply_sheathe_iframes.py`**(幂等,已应用则跳过)。
+  blend 侧根治(bake 进 TIML fcurve,u32 拆高低 16 位两条,见 timl_importer.py
+  TIMLFlagImport)= 待办。

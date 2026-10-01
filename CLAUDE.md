@@ -1232,7 +1232,97 @@ Copy-Item -LiteralPath (Join-Path $stage 'plw_longsword_100.motlist.glb') `
 
 MHWNoChunk and MHWEditor
 
+### 2026-10-01 特殊纳刀系(98/306 + 100/312)无敌帧 + 受击切换触发链(局内验证待做)
+
+- **TIML 已改**(游戏目录 w03_00.lmt,`.pre-iframes.bak` 快照;幂等脚本
+  `apply_sheathe_iframes.py`):entry 306(动作 98 特殊纳刀)mFlag f0/f10/f15
+  OR b26 全程窗口 + mTrigger f0=2048;entry 312(动作 100)mFlag f0=0x05000000
+  (b26+b24 全程)+ **结构化插入** PlMotionCommon mTrigger 轨 {f0=2048}
+  (文件尾 16 对齐追加 keys/transforms 数组 + 类型槽 {toff,tcount} 重指针;
+  types/transforms/keys 数组先验证 entry 独占才动手)。
+  **坑⑮:blend 里 306/312 的 entry 节点接了 TIMLDataNode(TIML Data 输入),
+  exportNodeToFile inject = 整个 entry 替换 → 导出会把 TIML 打回原版;
+  凡导出动过这两个 entry,重跑 apply_sheathe_iframes.py**。blend 侧根治
+  (TIML 在 blend 是 action fcurve,u32 拆高低 16 位,见 timl_importer.py
+  TIMLFlagImport)= 待办。工具坑:patch_timl_defense.py 只能 dump/move/setval,
+  插键/建轨要结构化脚本;0x06400000 的十进制是 104857600(手算十进制必错,
+  用 python 算)。动作链按用户定案:98(特殊纳刀)→99(入鞘状态,无独立 LMT
+  映射)→100(LMT312);action-list.md 里"99→306 特殊纳刀"是旧行,以 98 为准。
+- **受击切换 = sheath-counter 系统**(mod build,部署 md5 48d4f78705e1e7d0623b866c794bdc8a):
+  见切/居合的 bit15/bit250 处理器按动作 id 门控(86/101/102),98/99/100 没有原生
+  处理器 → "无敌帧中被打到"的信号未知(可能像翻滚一样完全静默,见 09-18)。
+  `ValorGauge.sheath-counter.txt`:`mine <ids>` = 期间挖 event-bit 数组
+  (player+0x8938..8 dwords)边沿,日志 `IFRMINE evN 0x.. -> 0x.. rose=[bit..] act=3:x`;
+  **F5 = "被打到了"手动标记**(与 gauge-lock 共用 F5 边沿,lock 当前关不冲突);
+  `rule <ids> <eventBit> <toSet> <toId>` = bit 上升沿 → counter 窗口 +
+  no-hit(g_forceInvulnSec)+ force DoAction(先写 g_forceSet/g_forceId 再 arm,
+  见切同款"先叮后注入"顺序)。默认文件只开 mine,rule 注释待挖矿结果。
+  若挖矿全静默(翻滚同款)→ 下一步钩 TIML no-hit 碰撞拒绝点(FUN_141f66dd0 上游)。
+- **(2026-10-01 下午)首局挖矿 + 分层定案**:TIML b26 = 查询层排除(与翻滚同类,
+  零事件零表现,用户局内确认无敌但不叮);见切=仲裁层弹反(b22 窗口+id 门控 handler)。
+  bit250 置位点全在伤害结算函数内(FUN_141217e50/14121ea10),查询层排除到不了;
+  pool 查询 FUN_140aee690 type8 = no-hit 检查但调用方全是 FSM 属性 getter。
+  **mod 版新装 HitDispatch 钩子(SHEATHDISPATCH,mine ids+86 对照)**:98/100 无敌帧
+  中被命中若日志出现 type-6 non-0xD 无伤害 → 启用配置 `drule`(已带注释行)=
+  纯无敌帧受击切换;若空 → 走超甲窗路线(b24+DmgCalcHook,代价挨伤害)。
+  新部署 md5 待游戏关闭后覆盖(构建产物就绪,旧版 48d4f787 被游戏锁定)。
+- **(2026-10-01 晚)SHEATHDISPATCH 零输出 = 钩子 bug 修正**:当前源码的分发器
+  日志格式从未产出过(vtable+8 类型镜像永远≠6 → 入口全提前返回),旧的 133 条
+  HITDISPATCH(code=0x6B)是类型镜像加入前的"[log only]"老代码产物;"clang =
+  non-0xD + 无伤害"语义仍有效。修复(部署 md5 ab2d10039ba8a5344a41ed211e30ecbd):
+  去掉类型门控,0xD 洪泛排除,non-0xD 记 SHEATHDISPATCH,drule 触发同步。
+  判读要点:老笔记记录 non-0xD 在窗口开着时连空挥都出现 → 下局必须带空挥对照组,
+  hit/whiff 的 code 值无差别则转超甲窗方案。用户 MARK 落点 3:99/3:0(链后段),
+  下次尽量在 98/100 本体动作里标。
+- **(2026-10-01 深夜)分发器判读完毕 + 方案定案**:修好的钩子实测——98 的分发器
+  爆发确定性(每次恰好 33 行,空挥一样,负 float 计时器漂移),三次见切弹反零输出
+  (老"clang=non-0xD"证据不复现)→ 分发器不可判别,路线关闭。用户定案选
+  **超甲尾窗方案**(否决怪物出招触发/手动触发;另提案"见切 FSM 播不同 LMT"留后):
+  306 f15 回退原值 = 无敌 f0-f14 + 霸体 f15+(apply_sheathe_iframes.py 已改幂等,
+  修了 set_trigger_f0 返回值双义 bug);mod 加 `arule <ids> <toSet> <toId>`
+  (DmgCalcHook: 霸体段命中→HP 钳制保底 1 + counter 窗口 + force 切换,配置已启用
+  目标 3:77)。HP 链钉死:***(float*)(*(player+0x7630)+0x64)***(+0x60 疑似 MaxHP);
+  DmgCalc 出参是分类 out 不可钳伤害。部署 md5 84ef445a7a1b5b2321fb8c7200a7a9e7。
+  待验:钳制vs死亡判定时序、a2 防御方钉定(日志前 8 条 SHEADRULE hit)、多人误触。
+- **(2026-10-01 深夜2)b31 = 防御/弹开窗位(重大)**:用户回忆突刺(105)当年加过
+  防御帧有音效;仓库根 105.txt = 当年配方 dump:f0=0x87400006(b31+b26+b25+b22),
+  原版突刺无 b31/b26 → **b31(0x80000000)= 防御窗,叮类机制 TIML 可写**(见切叮窗
+  = b31+b22;307/308 无 b31 故叮靠 handler)。当前 105 已被导出冲回原版(配方存
+  105.txt)。已应用:306 f15=0x87400006(照抄配方)= 无敌头 f0-f14 + 防御尾到末,
+  arule 保留兜底(防御被拒→命中照连→arule 触发)。待局内验证:纳刀家系是否允许
+  防御帧、防御音效、以及防御交互在 mod 侧的可测信号(FXNOTIFY/SHEATHDISPATCH/bit15)。
+- **(2026-10-01 深夜3)用户规则: b26 罩死 b31**——无敌帧与防御帧同窗时只有无敌
+  生效(b26 查询层先吃掉命中,防御交互不发生)。第一轮 105/306 都用 b31+b26 同窗
+  (0x87400006)故无声。已改:105 f0 与 306 f15 → **0x82400006(b31+b25+b22,无
+  b26)**,306 无敌头 f0-f14 不动与防御尾无重叠;脚本已同步。105.txt 是含 b26 的
+  后-state,非当初工作态。判读:105 有音=配方成立;306 有音=纳刀允许防御(再看
+  可测信号);306 无音=家系封死 → 见切 FSM 播不同 LMT 上位。
+- **(2026-10-01 深夜4)★bit28 = 格挡位(定案,修正 b31 误判)★**:用户提供历史
+  会话——全武器 LMT 扫描:**mFlag bit28(0x10000000)= 格挡有效**(CB/SnS/GL/GS
+  有,太刀家系无;守备架势 = 单键 f0 整段 0x10000000 或 |bit31)。当年实验:突刺
+  105 f0=0x12400006(bit28+b25+b22,无无敌)→ 正面格挡成立(音效/削伤/掉耐力/
+  不硬直),背对照常掉血。**b31 非防御位**(深夜2/3 的推断作废,守备架势里只是
+  伴随位)。引擎细节:方向=朝向防御锥;后果链=格挡成功分支统一;伤害分类写反应
+  管理器 +0x769=0x100/0x101,仲裁 +0x768/769/76A → FUN_1411cac40(格挡反应装填);
+  格挡参数 weapon+0x8A0/0x8A4(守备时长)+0x8A8 三组等级表(太刀缺块则 DLL 补)。
+  叮+蓝光候选评估器表通用(复用居合槽位或 DLL 置属性 0x35 族即白得演出)。
+  已应用:105 f0 与 **306 f15 → 0x12400006**(306=无敌头 f0-f14+格挡尾,无重叠,
+  脚本同步幂等验证)。判读:105 正面格挡=配方成立;306 格挡=家系允许→钉切换信号;
+  306 无 105 有=家系差异;都无=LS 缺 +0x8A0 块→DLL 补参数。
+- **(2026-10-01 深夜5)★闭环: bit28 整段格挡成立 + bit250 受击信号 + 3:37 揭底★**:
+  306 三键全 0x12400006(整段单值格挡)→ 格挡音效成立!此前"全程无敌"= f0/f10 的
+  b26 键毒化整段(按动作生效非按键窗;b26 多键布局在 306 不可用,防御用单值
+  bit28)。**3:37 = LS 格挡反应动作**(格挡成功→FUN_1411cac40 装填→动作换成 37;
+  太刀原生不格挡故从未见过;"预知被打马上换动作"之谜 = 同一现象,非 DLL bug)。
+  **bit250 在 3:98 上升(IFRMINE 实录)= 受击检测信号到手**。已接线:
+  `rule 98,99,100 250 3 77`(sheath-counter.txt,Shift+F6 生效)——格挡被击 →
+  counter 窗口 + force 77;格挡链不走 DmgCalc(arule 静默 ✓)。竞态:引擎先装
+  37,rule 延迟 1-2 帧切走(37 闪 1-2 帧;介意→钩 FUN_1411cac40 空转抑制)。
+  306 终态:三键 0x12400006 + mTrigger 2048@f0;无敌头+格挡尾的多键布局放弃
+  (b26 毒化整段,锁存机制未挖);apply_sheathe_iframes.py 目标值待定案同步
+  (重跑会洗回头尾布局,实验期勿跑)。
+
 ---
 
-*Last Updated: 2026-09-28*
+*Last Updated: 2026-10-01*
 *Current Milestone: 2026-09-26: 动作帧控制定案 — 动作实例 player 控制器(player+0x61C8) instArray+id*8 的 +8 float 就是动作帧 (begin 清零, 每帧+=dt), 无原生"起始帧"API; FRAMESEEK 已实装 (force-action.txt 第4参 startFrame 单位=秒[30Hz], Shift+F6 热重载, phase==2 时一次性写帧, FRAMETICK 诊断随每次 force 记录[值变化才记], 部署 md5 92343850; motion 时钟 = *(player+0x468)+0x10C (TIML帧制) 已破译, v3 双写 USER-VERIFIED: 从任意帧起手 ✓). 2026-09-25: 收刀拔刀刚1 已实装 (sheath-rewrite: 收刀态{3,11}→{3,86}, 门控=红刃0x2370>=3 且 气刃量0x2368>0.15, 配置 ValorGauge.sheath-rewrite.txt, 第一版因 weapon+0xC71 收刀态读0而失效(该字段语义待钉,已弃用), 收刀判定改用 tracker set-1 前趋动作; 现版 md5 7fe2c220, 待局内验证). 收刀态输入路由定案 — 收刀按R2产生的{3,11}是代码+静态表路由, 武器FSM完全不参与 (待機1000零链路; 重映射器对id11透传; 每武器set-3请求表 0x143FD5590+type*0x130, LS 113条@0x143F4D6A0, 消费链 b670→b830→b590→DoAction; 想纯数据改收刀R2从这张表入手; DLL改写路线 = DIRREWRITE加 收刀态{3,11}→{3,86}, 门控weapon+0xC71). 修正: remapper反编译case N=武器类型N+1 (dispatch有dec eax), case 2就是LS.  气刃量定案 — weapon+0x2374 float 0..1 (HUD getter FUN_140616d60 ×100; DropLevel 从 player+0x7810 +0x9AC/+0x9B4 回填; 直接写此 float 即可配置, 锁满需每帧写). weapon+0x2368 双重语义未决 (居合架势 int 0/1/2 vs 0..1 float 累加器, FUN_140b980c0 用它+0x236C 做动作重定向) — 未经 A/B 不要当气刃量覆盖. 2026-09-20: 纳刀合并机制实锤 — 动作id驱动挂点表切换状态机 (收刀系槽位 5/6/9/10 复用定案; 详见 Sheath_Research 文末). 刚1 counter-parry COMPLETE + mod/probe SPLIT VERIFIED. 2026-09-19: FSM drive chain mapped — zero-inbound nodes (居合 101/102, rolls) are entered by request-ActionNo match; iai chain = ほぼ全攻撃(1013)→居合斬り開始(-10 marker)→特殊纳刀架势 weapon+0x2368 (FUN_14211cc60)→remapper FUN_14118c320 request-id remap (0→100,1→101,2→102...)→DoAction 0x140269CE0→node. Corrections: 0x2368 = stance flag not selector; 763/764 remaps are set-1. FSM map tool: dump_fsm_xml.py → wp03_fsm_map.md. ValorGauge.dll = LS-only mod, triggers: 见切 bit15 / 居合 bit250 / deflect flash / condEval-631 → no-hit + auto-force; BGM bug RESOLVED by the split (user-verified). ValorProbe.dll = passive research build, never auto-installed. Backlog: kenki-gate via 練気ゲージ判定 (0x274/0x275), gauge UI polish, 大居合(102) request-id-2 upstream trigger, +0x2368 float/int 交错实测, 命中充电字段钉死*
