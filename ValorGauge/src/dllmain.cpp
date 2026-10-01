@@ -1337,7 +1337,16 @@ struct SheathCounterRule {
 };
 std::vector<SheathCounterRule> g_sheathRules;
 std::vector<std::uint32_t> g_sheathMineIds;
+std::vector<std::uint32_t> g_sheathBlueIds; // bluesim: mimic the 见切/居合
+// per-move handlers while inside these actions. The vanilla handlers
+// (FUN_142125060 for 86, FUN_142124F70 for 101/102) are dispatched by action
+// id via function-pointer tables, so custom actions never run them; bluesim
+// writes the same outputs: +0x2399 latch, +0x2CED, per-frame
+// +0x23A0/+0x23A4 <- playerParam+0x8A8/0x8B8, FX 0x7D7 (blue flash) and
+// 0x7D4 (iai sound) once per action.
 std::atomic_uint32_t g_sheathMineLogCount{0};
+std::uint32_t g_sheathBlueActId = 0;
+bool g_sheathBlueFx = false;
 std::uint32_t g_sheathMinePrevEv[8] = {};
 bool g_sheathMinePrimed = false;
 
@@ -2572,6 +2581,88 @@ unsigned long long __fastcall PostEventNameHook(const char* name, unsigned long 
 
 #endif // VALOR_PROBE (wwise diagnostics)
 
+#ifndef VALOR_PROBE
+// SHEATHEMOTION: patch the 见切 (86) action-class factory motion id so the
+// vanilla foresight flow plays the custom sheathe motion. The deflect/arm/
+// FSM machinery is code-side (per-action-class) and stays 100% vanilla -
+// only the skeleton changes. Class table: LS set-3 (RVA 0x2EF5C30, 113
+// entries, stride 0x20, {u32 id, u32 set, void* classPtr, pad}); the class
+// factories (class vtable+8/+0x10) embed the motion id immediate
+// entry|0xC000 (86 -> 0xC08C, direct hit verified 2026-09-30).
+// Config nativePC/plugins/ValorGauge.motion-swap.txt "<fromEntry> <toEntry>"
+// (missing = off; e.g. "140 306").
+static void ApplySheatheMotionPatch() {
+    std::ifstream input("nativePC/plugins/ValorGauge.motion-swap.txt");
+    unsigned long fromEntry = 0, toEntry = 0;
+    if (!(input >> fromEntry >> toEntry) || fromEntry >= 0x200 ||
+        toEntry >= 0x200 || fromEntry == toEntry) {
+        Log("Sheathe motion swap: no/bad ValorGauge.motion-swap.txt - off");
+        return;
+    }
+    const std::uint32_t fromMotion = (static_cast<std::uint32_t>(fromEntry) & 0x1FF) | 0xC000;
+    const std::uint32_t toMotion = (static_cast<std::uint32_t>(toEntry) & 0x1FF) | 0xC000;
+    const auto base = g_moduleBase.load(std::memory_order_relaxed);
+    const auto* table = reinterpret_cast<const std::uint8_t*>(base + 0x2EF5C30);
+    if (!IsReadable(table, 113 * 0x20)) {
+        Log("Sheathe motion swap: class table unreadable");
+        return;
+    }
+    int patchCount = 0;
+    for (int i = 0; i < 113; ++i) {
+        const auto* entry = table + i * 0x20;
+        std::uint32_t id = 0;
+        std::memcpy(&id, entry, 4);
+        void* classPtr = nullptr;
+        std::memcpy(&classPtr, entry + 8, sizeof(void*));
+        if (!classPtr || !IsReadable(classPtr, sizeof(void*))) {
+            continue;
+        }
+        void* vtbl = *reinterpret_cast<void**>(classPtr);
+        if (!vtbl || !IsReadable(reinterpret_cast<const std::uint8_t*>(vtbl) + 0x18,
+                                 sizeof(void*) * 2)) {
+            continue;
+        }
+        for (int fi = 1; fi <= 2; ++fi) {
+            void* factory = nullptr;
+            std::memcpy(&factory, reinterpret_cast<const std::uint8_t*>(vtbl) + fi * 8,
+                        sizeof(void*));
+            if (!factory || !IsReadable(factory, 0x140)) {
+                continue;
+            }
+            for (std::size_t off = 0; off + 4 <= 0x140; off += 4) {
+                std::uint32_t imm = 0;
+                std::memcpy(&imm, reinterpret_cast<const std::uint8_t*>(factory) + off, 4);
+                if (imm != fromMotion) {
+                    continue;
+                }
+                void* target =
+                    reinterpret_cast<std::uint8_t*>(factory) + off;
+                DWORD oldProtect = 0;
+                if (!VirtualProtect(target, 4, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                    Log("Sheathe motion swap: VirtualProtect failed");
+                    continue;
+                }
+                std::memcpy(target, &toMotion, 4);
+                DWORD restored = 0;
+                VirtualProtect(target, 4, oldProtect, &restored);
+                FlushInstructionCache(GetCurrentProcess(), target, 4);
+                ++patchCount;
+                std::ostringstream m;
+                m << "SHEATHEMOTION: class id=" << id << " factory" << fi
+                  << " +0x" << std::hex << off << ": motion 0x" << fromMotion
+                  << " -> 0x" << toMotion << std::dec;
+                Log(m.str());
+            }
+        }
+    }
+    std::ostringstream m;
+    m << "Sheathe motion swap: " << patchCount << " immediate(s) patched ("
+      << fromEntry << " -> " << toEntry << ")";
+    Log(m.str());
+}
+#endif // !VALOR_PROBE
+
+
 bool InstallPoolQueryHook() {
     const HMODULE game = GetModuleHandleW(nullptr);
     MODULEINFO module{};
@@ -2671,6 +2762,7 @@ bool InstallPoolQueryHook() {
         Log("FX notify hook installed (FXNOTIFY logging)");
     }
 #endif
+    ApplySheatheMotionPatch();
     ValidateMemoryMap();
     return true;
 }
@@ -3387,7 +3479,10 @@ bool InstallPropHistogramHooks() {
 void LoadSheathCounterConfig() {
     g_sheathRules.clear();
     g_sheathMineIds.clear();
+    g_sheathBlueIds.clear();
     g_sheathMinePrimed = false;
+    g_sheathBlueActId = 0;
+    g_sheathBlueFx = false;
     std::ifstream input("nativePC/plugins/ValorGauge.sheath-counter.txt");
     if (!input) {
         Log("Sheath counter: no ValorGauge.sheath-counter.txt - trigger inert");
@@ -3463,6 +3558,11 @@ void LoadSheathCounterConfig() {
             } else {
                 Log("Sheath counter: malformed arule line - skipped");
             }
+        } else if (kind == "bluesim") {
+            std::string ids;
+            if (ss >> ids) {
+                ParseIdList(ids, g_sheathBlueIds);
+            }
         } else if (kind == "mine") {
             std::string ids;
             if (ss >> ids) {
@@ -3478,6 +3578,15 @@ void LoadSheathCounterConfig() {
         for (std::size_t i = 0; i < g_sheathMineIds.size(); ++i) {
             if (i) m << ',';
             m << g_sheathMineIds[i];
+        }
+    }
+    m << ", bluesim ids=";
+    if (g_sheathBlueIds.empty()) {
+        m << "(none)";
+    } else {
+        for (std::size_t i = 0; i < g_sheathBlueIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_sheathBlueIds[i];
         }
     }
     Log(m.str());
@@ -4064,7 +4173,193 @@ void PollSheatheCounter() {
         g_sheathMinePrimed = false;
     }
 }
+
+// Bluesim: per-frame mimic of the 见切/居合 per-move handlers while inside a
+// watched action (the vanilla handlers are dispatched by action id through
+// function-pointer tables, so custom actions never run them). Writes the
+// same outputs: once per action the +0x2399 / +0x2CED latches and the FX
+// 0x7D7 (foresight blue flash) + 0x7D4 (iai sound); every frame
+// weapon+0x23A0 / +0x23A4 <- playerParam+0x8A8 / +0x8B8 (the success-armor
+// timers that also drive event bit 151 while positive).
+void PollSheatheBlueSim() {
+    if (g_sheathBlueIds.empty()) {
+        return;
+    }
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    if (!ModWeaponActive()) {
+        g_sheathBlueActId = 0;
+        g_sheathBlueFx = false;
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    ActionInfo cur;
+    bool haveCur = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            cur = *g_lastLongSwordAction;
+            haveCur = true;
+        }
+    }
+    if (!haveCur || cur.actionSet != 3 ||
+        !SheathIdsContain(g_sheathBlueIds, cur.actionId)) {
+        g_sheathBlueActId = 0;
+        g_sheathBlueFx = false;
+        return;
+    }
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x8808, sizeof(void*))) {
+        return;
+    }
+    if (cur.actionId != g_sheathBlueActId) {
+        g_sheathBlueActId = cur.actionId;
+        g_sheathBlueFx = false;
+    }
+    if (!g_sheathBlueFx) {
+        g_sheathBlueFx = true;
+        if (IsReadable(weapon + 0x2399, 1)) {
+            weapon[0x2399] = 1;
+        }
+        if (IsReadable(weapon + 0x2CED, 1)) {
+            weapon[0x2CED] = 1;
+        }
+        auto* emitter = *reinterpret_cast<void**>(weapon + 0x8808);
+        if (emitter && g_fxNotifyA) {
+            g_fxNotifyA(emitter, 0x7D7, 0); // foresight blue flash + sound
+            g_fxNotifyA(emitter, 0x7D4, 0); // iai deflect sound
+        }
+        std::ostringstream m;
+        m << "BLUESIM armed in 3:" << cur.actionId;
+        Log(m.str());
+    }
+    if (IsReadable(weapon + 0x7810, sizeof(void*))) {
+        auto* playerParam = *reinterpret_cast<std::uint8_t**>(weapon + 0x7810);
+        if (playerParam && IsReadable(playerParam + 0x8B8, sizeof(float) * 2)) {
+            if (IsWritable(weapon + 0x23A0, sizeof(float))) {
+                *reinterpret_cast<float*>(weapon + 0x23A0) =
+                    *reinterpret_cast<const float*>(playerParam + 0x8A8);
+            }
+            if (IsWritable(weapon + 0x23A4, sizeof(float))) {
+                *reinterpret_cast<float*>(weapon + 0x23A4) =
+                    *reinterpret_cast<const float*>(playerParam + 0x8B8);
+            }
+        }
+    }
+}
 #endif // !VALOR_PROBE
+
+#ifdef VALOR_PROBE
+// POOLDIFF: per-frame reaction-pool snapshot diff. Hypothesis: the deflect
+// ("blue i-frame") windows of 见切/居合 are reaction-pool timers (same family
+// as the no-hit timer pool+0xE4 = query type 8); the arbitration picks
+// guard/deflect/damage by which timer is running. Log every pool field that
+// RISES above 0.5 (a defense window opening) - the offset that spikes on a
+// 见切 deflect is the deflect timer.
+std::uint8_t g_poolDiffPrev[0x180] = {};
+std::uint8_t g_poolDiffPrevMgr[0x30] = {}; // mgr +0x760..0x790 (reaction slots)
+bool g_poolDiffPrimed = false;
+std::atomic_uint32_t g_poolDiffLogs{0};
+
+void PollPoolDiff() {
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x7D20, sizeof(void*))) {
+        return;
+    }
+    auto* mgr = *reinterpret_cast<std::uint8_t**>(player + 0x7D20);
+    if (!mgr || !IsReadable(mgr + 0x28, sizeof(void*))) {
+        return;
+    }
+    auto* pool = *reinterpret_cast<std::uint8_t**>(mgr + 0x28);
+    if (!pool || !IsReadable(pool, sizeof(g_poolDiffPrev))) {
+        return;
+    }
+    if (!g_poolDiffPrimed) {
+        std::memcpy(g_poolDiffPrev, pool, sizeof(g_poolDiffPrev));
+        if (IsReadable(mgr + 0x760, sizeof(g_poolDiffPrevMgr))) {
+            std::memcpy(g_poolDiffPrevMgr, mgr + 0x760, sizeof(g_poolDiffPrevMgr));
+        }
+        g_poolDiffPrimed = true;
+        return;
+    }
+    auto logRise = [&](const char* tag, std::size_t off, float oldVal, float newVal) {
+        if (g_poolDiffLogs.load() >= 600) {
+            return;
+        }
+        ++g_poolDiffLogs;
+        std::ostringstream m;
+        m << "POOLDIFF " << tag << " +0x" << std::hex << off << std::dec
+          << ": " << oldVal << " -> " << newVal;
+        std::uint32_t newRaw;
+        std::memcpy(&newRaw, pool + off, 4);
+        m << " (raw 0x" << std::hex << newRaw << ")" << std::dec;
+        {
+            std::scoped_lock lock(g_actionMutex);
+            if (g_lastLongSwordAction) {
+                m << " act=" << g_lastLongSwordAction->actionSet << ':'
+                  << g_lastLongSwordAction->actionId;
+            }
+        }
+        Log(m.str());
+    };
+    for (std::size_t off = 0; off + 4 <= sizeof(g_poolDiffPrev); off += 4) {
+        float newVal;
+        std::memcpy(&newVal, pool + off, 4);
+        float oldVal;
+        std::memcpy(&oldVal, g_poolDiffPrev + off, 4);
+        // Defense windows on LS are short (0.2-0.5 s) - a 0.5 threshold
+        // missed them entirely in the first mining round. Any rise past
+        // 0.05 from at-or-below it, or a jump > 0.1, is a window event.
+        if (newVal > 0.05f && oldVal <= 0.05f) {
+            logRise("pool", off, oldVal, newVal);
+        } else if (newVal - oldVal > 0.1f && newVal > 0.1f) {
+            logRise("pooljump", off, oldVal, newVal);
+        }
+    }
+    std::memcpy(g_poolDiffPrev, pool, sizeof(g_poolDiffPrev));
+    // MGR classification region (+0x760-0x790): the guard/deflect reaction
+    // slots (+0x769 u16 = 0x100/0x101 lives here) - raw-change detection.
+    if (IsReadable(mgr + 0x760, sizeof(g_poolDiffPrevMgr))) {
+        for (std::size_t off = 0; off + 4 <= sizeof(g_poolDiffPrevMgr); off += 4) {
+            std::uint32_t newRaw, oldRaw;
+            std::memcpy(&newRaw, mgr + 0x760 + off, 4);
+            std::memcpy(&oldRaw, g_poolDiffPrevMgr + off, 4);
+            if (newRaw != oldRaw && g_poolDiffLogs.load() < 600) {
+                ++g_poolDiffLogs;
+                std::ostringstream m;
+                m << "POOLDIFF mgr +0x" << std::hex << (0x760 + off) << ": 0x"
+                  << oldRaw << " -> 0x" << newRaw << std::dec;
+                {
+                    std::scoped_lock lock(g_actionMutex);
+                    if (g_lastLongSwordAction) {
+                        m << " act=" << g_lastLongSwordAction->actionSet << ':'
+                          << g_lastLongSwordAction->actionId;
+                    }
+                }
+                Log(m.str());
+            }
+        }
+        std::memcpy(g_poolDiffPrevMgr, mgr + 0x760, sizeof(g_poolDiffPrevMgr));
+    }
+}
+#endif // VALOR_PROBE (POOLDIFF)
 
 #ifdef VALOR_PROBE
 void PollReactionWatch() {
@@ -5205,6 +5500,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollDiffCapture();
     PollPropHistogram();
     PollReactionWatch();
+    PollPoolDiff();
     MinerCaptureFrame();
     const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
     if (f5Down && !g_f9WasDown) {
@@ -5220,6 +5516,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollValorLifecycle();
     PollModTriggers();
     PollSheatheCounter();
+    PollSheatheBlueSim();
     PollGaugeLock();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.

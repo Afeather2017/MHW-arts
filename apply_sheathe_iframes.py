@@ -242,24 +242,32 @@ def main():
     _n, actions = D.parse_lmt(buf)
 
     changed = False
-    # --- 306 特殊纳刀: 整段 bit28 格挡(终态, 局内验证 2026-10-01)---
-    # b26 多键布局(无敌头+防御尾)在该动作上会毒化整段(全程无敌, 机制未挖),
-    # 终态 = 三键单值 0x12400006(bit28+b25+b22+基线) + mTrigger 2048@f0.
-    # 引擎链: 格挡成功 → 音效 + bit250 上升 → mod rule 强制切换 + 吞 37.
-    changed |= set_flag_exact(buf, 306, actions, 0, 0x12400006,
-                              allowed_old=(0x06400000, 0x02400000))
-    changed |= set_flag_exact(buf, 306, actions, 10, 0x12400006,
-                              allowed_old=(0x07400000, 0x03400000))
-    changed |= set_flag_exact(buf, 306, actions, 15, 0x12400006,
-                              allowed_old=(0x07400006, 0x03400006,
+    # --- 306 特殊纳刀: 见切形窗口(实验态 2026-10-01 深夜, 设计重构中)---
+    # 三键单值 0x80400000(b31+b22, 见切 f0 原样) + mTrigger 2048@f0.
+    # 背景: motion-swap 把 86 见切指向 entry 141, 306 现由动作 98 使用;
+    # 98 的最终防御设计(普通无敌帧 b26 vs 见切形窗口)待定, 当前保持见切形.
+    changed |= set_flag_exact(buf, 306, actions, 0, 0x80400000,
+                              allowed_old=(0x12400006, 0x06400000, 0x02400000))
+    changed |= set_flag_exact(buf, 306, actions, 10, 0x80400000,
+                              allowed_old=(0x12400006, 0x07400000, 0x03400000))
+    changed |= set_flag_exact(buf, 306, actions, 15, 0x80400000,
+                              allowed_old=(0x12400006, 0x07400006, 0x03400006,
                                            0x87400006, 0x82400006))
     changed |= set_trigger_f0(buf, 306, actions)
+
+    # --- 141 见切换皮基底: b31 弹反窗(镜像 140: f0 清 b22 留 b31)---
+    # blend 导出会用快照 TIML 冲掉本节, 每次导出后重跑本脚本即可恢复.
+    changed |= set_flag_exact(buf, 141, actions, 0, 0x80400000,
+                              allowed_old=(0x02400006, 0x80400006))
+    changed |= set_flag_exact(buf, 141, actions, 100, 0x80000000,
+                              allowed_old=(0x02000006, 0x80000000))
 
     # --- 105 突刺 guard control(对照组)---
     changed |= ensure_guard_105(buf, actions)
 
-    # --- 312: full-motion i-frames (no reactive switch on the draw attack) ---
-    changed |= or_flag(buf, 312, actions, 0, B26, 0x01000000)
+    # --- 312: 见切形窗口(实验态, 与 306 一致)---
+    changed |= set_flag_exact(buf, 312, actions, 0, 0x80400000,
+                              allowed_old=(0x05000000, 0x01000000))
     r = set_trigger_f0(buf, 312, actions)
     if r is None:
         changed |= insert_trigger_track(buf, 312, actions)
