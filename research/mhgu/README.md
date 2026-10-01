@@ -148,3 +148,12 @@ revil_toolset.exe lmt_to_json w07_sa.lmt
 ```
 
 This produces `w07_sa.json` containing animation event groups.
+
+## Common motions (14 weapons) — 2026-10-01
+
+All 14-weapon shared motions live in `arc/player/quest/com.arc`:
+`player/mot/co/co_0/1/2/6.lmt` (500 slots / 280 non-empty), extracted to
+`extracted_common/com/player/mot/co/`. Lobby variants: `extracted_lobby/`
+(`lco_0~3.lmt`). Weapon arcs contain only `wXX.lmt` + `wXX_sa.lmt`; style
+archives are command lists (plbasecmd XFS) with no motions. Full inventory,
+romfs sweep results and pipeline notes: see [COMMON_MOTIONS.md](COMMON_MOTIONS.md).
