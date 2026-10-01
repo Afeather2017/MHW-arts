@@ -206,7 +206,33 @@ parser 预检)+ `_repro_wiring.py`(无头接线+正式导出复现)。
 | divide_short | 居合斩(用户自定义) | 103 | ✅ **导出验证通过**(2026-09-30 无头接线导出,82轨+Root 双轨;局内待测) |
 | divide_long / left_up / rigit_up / right_down_before_divide | 待用户指认 | 待定 | 已按规则处理,可直接接线导出(`RULE_ACTIONS` 可复用 10 号脚本) |
 | LMT::w07_sa::001/002/003/051/056/101/102 | 待用户指认(妖刀罗刹/圆月斩/镜花构/特殊纳刀在其间) | 待定 | 已转换可直接导出 |
+| LMT::w07::195 | 勇气纳刀·松开按键收刀 | 待定(收刀系槽位候选 5/6/9/10) | ✅ **已转换入 MASTER**(2026-10-01,parser 预检 valid=True/81轨/Root双轨,保真 1mm) |
+| LMT::w07::196 | 勇气纳刀·保持按下(构,无位移) | 待定 | ✅ **已转换入 MASTER**(同上) |
+| LMT::w07::095 | 勇气纳刀·被打断触发 | 待定 | ✅ **已转换入 MASTER**(同上) |
 | 绝对回避 | 未找到(不在 w07_sa 8 动作内;候选=w07.lmt 其余 entry 或共通 motion) | — | 待定位 |
+
+### 增量迁移配方(2026-10-01 验证,新 MHGU 动作照此复用)
+
+源动作在 `E:\MHW-arts\mhgu.blend`(全部 0 引用,**该文件永不可保存**,只许作为
+append 源);增量链已固化为脚本:
+
+1. `mhgu/_append_sources.py` — 从 mhgu.blend append 源动作进工作文件
+   `mhgu-valor-mhw.blend`,补 `mhgu_source="w07.lmt#<id>"` + fake_user;
+2. `MHGU_ONLY=<动作名>` 跑 2_arp_remap(每动作一次);
+3. 3_fill / 3b_cog 照跑(幂等);
+4. **4_object_root_motion 是 ONE-SHOT**——增量用 `mhgu/_4_object_root_motion_new.py`
+   (同逻辑,只处理还没有 object 曲线的 remap);
+5. 3_rebake_ik(VALOR_BLEND=工作文件;原脚本 verify 段 `frame_set(float)` 会崩,
+   已修 `int(min(f,maxk))`);4_grip → 6_tag → 8_min2keys;
+6. `mhgu/_transfer_to_master.py` — append 3 个 `_remap` 进 MASTER + 重绑
+   tether 到 MASTER 自己的 m_mesh Armature(append 不搬运指针,坑⑬变体) + fake_user;
+7. `_verify_exporter_divide.py`(MASTER 里跑)+ `mhgu/_fidelity_check.py`(保真抽查)。
+
+三个新动作落盘形态(2026-10-01 MASTER 实测):81 变换轨/Root 双轨/tether 绑定/
+030=(106 常量,scaleY=2)左手/047 scaleY=1/000 与 247-253 全长轨/object 位移轨
+(195 后撤 -1.44m,196 构静止,095 前移 +4.38m)。警告码 7/50/2/43 与局内验证过的
+151/192_remap 同族。**挂点态定案(用户确认 2026-10-01):三招都是左手,落盘的
+030/047 左手常量 = 终态,无需换手/刀入鞘精调。**
 
 ## 验证清单(交付前全绿)
 

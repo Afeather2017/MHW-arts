@@ -1069,6 +1069,25 @@ Build command:
   产物解析 (-- 传 lmt+entryId)。
 - 存盘 MASTER 的树: entry103←103_mhworig, 104←104_mhworig, 140←192_remap, 101/102←原生。
 
+### 2026-10-01 (2) 勇气纳刀三招迁入 MASTER + MHGU 增量迁移配方固化 (mhgu README 同步)
+
+- **`LMT::w07::195`(松开收刀)/`196`(保持按下构,无位移)/`095`(受击打断) 已全链迁入
+  MASTER (MHW-Valor.blend)**, 源 = 用户给的 `E:\MHW-arts\mhgu.blend` (84 个 w07/w07_sa
+  导入动作, 全部 0 引用 — **该文件永不可保存, 只许作 append 源**, 一存 0 引用动作全灭)。
+- **增量链固化 (mhgu/README "增量迁移配方" 节)**: `_append_sources.py` (append+补
+  mhgu_source+fake_user) → 2_arp_remap `MHGU_ONLY=` 每动作一次 → 3_fill/3b (幂等) →
+  **`_4_object_root_motion_new.py` (外科版, 原版 ONE-SHOT 守卫会拒绝增量)** →
+  3_rebake_ik (原脚本 verify 段 `frame_set(float)` 必崩, 已修 `int(min(f,maxk))`) →
+  4_grip → 6_tag → 8_min2keys → `_transfer_to_master.py` (**append 不搬运
+  freehk.tetherFrame 指针, 进 MASTER 后必须重绑**, 坑⑬的 append 变体) →
+  `_verify_exporter_divide.py` + `_fidelity_check.py` (保真抽查, 3 招 max 1mm)。
+- 落盘形态 (MASTER 实测): 81 变换轨/Root 双轨/tether 绑/frameCount=143/169/121/
+  030=106 左手常量 (scaleY=2)/047 scaleY=1/000+247-253 全长/object 位移 (195 后撤
+  -1.44m, 196 静止, 095 前移 +4.38m); 警告码 7/50/2/43 = 已验证同族背景噪声。
+  parser 预检 valid=True ×3。**挂点态用户确认三招全左手 → 030/047 左手常量 = 终态,
+  无需精调。**
+- 待办: 三招收刀系槽位接线 (候选 5/6/9/10, 09-20 定案), `_repro_wiring.py` 可直接用。
+
 ### 2026-09-30 motion 选择机制破译: motion id = LMT entry | 0xC000 (动作层硬编码, FSM 无关; 填补 "LMT 选择逻辑在类工厂深处" 的开放项)
 
 - **动作实例 +0x30 = motion id, 打包公式 `entry & 0x1FF | 0xC000`** (cJumpSlashLanding

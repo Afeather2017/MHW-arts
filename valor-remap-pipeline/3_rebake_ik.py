@@ -73,7 +73,7 @@ def mismatch(a):
         ik, tg = dst.pose.bones[ikn], dst.pose.bones[tgn]
         worst = 0.0
         for f in sample_frames(a):
-            f = min(f, maxk)
+            f = int(min(f, maxk))
             scene.frame_set(f)
             view.update()
             worst = max(worst, (ik.matrix.translation - tg.matrix.translation).length)
