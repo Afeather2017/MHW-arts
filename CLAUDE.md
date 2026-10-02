@@ -1321,6 +1321,22 @@ MHWNoChunk and MHWEditor
   306 终态:三键 0x12400006 + mTrigger 2048@f0;无敌头+格挡尾的多键布局放弃
   (b26 毒化整段,锁存机制未挖);apply_sheathe_iframes.py 目标值待定案同步
   (重跑会洗回头尾布局,实验期勿跑)。
+- **(2026-10-02) 强化射击(特殊射击) TIML: 纯表现层定案 (user-verified, TIML 路线死)**:
+  签名 (vanilla) = `PlMotionCommon.mTrigger` **`f34=1024(bit10)+f36=1(bit0)` 成对点火
+  通知** (332/338/341/344/347 加 f0=2048 无敌门变体); `mSlingerShellAttach 3→0@f36→3`
+  弹壳分离同帧; 家族 = LMT 332~349 共 15 entry 全 134f 键位一致 (296/297 = @f9/12
+  101f 变体); 306~311 的孤立 1024 语义不同勿混。类表: **id 43/44/45=cKijin1ComboShot
+  Base/F/R, 46/47/48/51=Kijin2 Base/F/L/R, 49/50/98=Kijin3 Base/F/L,
+  81=cActWpOnSlingerShot**。104 能接射击却无任何射击专属键 = 接受门不在 TIML。
+  实验: 105 突刺塞触发对 (sharekeys.py 重指向 338) → 只有画面震动; 341 全套 TIML
+  复制到 105 → 投石音效+震动, **无伤害无投射物**。定案: TIML=纯表现 (音/震/弹壳
+  动画), 点火/伤害/输入接受全在 cKijinNComboShot 动作类代码侧。改造路线归一:
+  ① motion-swap 托管 43~51/98 槽; ② DLL combo-force (duringIds+VK→force {3,43}族)。
+  工具 `research/mhw/shot_weave/`: analyze.py (scan/diff/windows) + sharekeys.py
+  (transform 头重指向他 entry 键数组, 零字节增长; 正式方案应复制数组)。
+  **附带: 部署版 341 丢整个 PlMotionCommon (7轨) = blend 导出管线写残** (全表审计
+  仅此一处, 141/142/143 为管线增益; 修复需 blend 侧; 导出后跑 analyze.py diff 审计;
+  手改部署 LMT 会被下次导出冲掉)。
 
 ---
 
