@@ -1401,3 +1401,27 @@ MHWNoChunk and MHWEditor
 - col 侧:bank8(見切り攻撃)rng 提至 100/124(居合档);move25 HitLag 0.1→0.05;
   Lingering=1 实验撤回(疑似 boot 崩且非洞因)。node 63→59 后 bank0(50/62)偏短,
   需要距离时把 bank0 抬到 100/124 或换 node 84(bank9)。
+
+### 2026-10-03 新工程文件(MHW-Valor-new.blend)重建 + LMT 合并工具战报
+
+- **新工程工作流(已验证可落地的形态)**:GUI 里 FreeKinetics 导入**原版**
+  w03_00-origin.lmt(百试百灵)→ `overlay_converted_actions.py` 把
+  MHW-Valor.blend 里的转换动作曲线拷到同名 action(103/140/141-143/306/312/
+  338/341/339/340/343/357-367)→ `restore_vanilla_entries.py`(GUI 内跑)
+  导入原版 + 给所有**非转换** entry 恢复原版曲线 + 全部动作 Fake user + 保存。
+  转换 entry 的 TIML(攻击窗/输入窗/射击摘除)不靠 blend——导出后由
+  `apply_valor_attack_config.py` 重打,blend 侧保持原版即可。
+- **二进制 LMT 合并(build_clean_base_lmt.py)= 搁置**:结构上已通(区间移植、
+  规范 TIML 重建、全指针审计 0 违规),但 FreeKinetics 的解析器还咬人:
+  (1) types 数组**顺序读**且读前 `align16(timlOffset+40)` 跳齐——TIML 必须
+  单区域连续且 types 紧跟头部(CTO 追加造成的两段式 TIML = 原始导入崩溃根因);
+  (2) 骨骼关键帧读取存在**越界过量读**(12B/键 的 stride 走到文件尾)——原版文件
+  尾部永远有后续 entry 兜底所以从不暴露,合并文件尾=最后一个 entry 就炸;
+  (3) 64KB 零填充不够兜。结论:导入走 Blender 原生流程,二进制合并只在
+  游戏部署链(指针驱动)有需求时再回来修。
+- **字段偏移备忘**(fcurve 骨骼头 48B):bufferSize=i32@+12、bufferOffset=i64@+16、
+  lerpOffset=i64@+40——读反了会把文件头当缓冲起点拉出几十 MB 的"跨度"。
+- **trace 工具**:tools/parse_test.py(FreeKinetics 解析自测)、
+  tools/trace_timl.py(TIML 逐结构追踪)、tools/find_bad_overlay.py(逐 entry
+  二分)。注意 blender headless 会话的插件加载顺序有随机性,解析测试结果
+  偶发不稳定,以两次一致为准。
