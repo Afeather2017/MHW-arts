@@ -2067,9 +2067,92 @@ void NotifyPlayerHitConnected(long long attacker) {
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3);
 void SheathArmorHitCheck(long long attacker, long long defenderCtx);
+void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id);
+// MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
+// during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
+// become visible against the damage-window timeline.
+static std::atomic<std::int32_t> g_motionTraceLeft{150};
+static std::uint32_t g_motionTraceLast = 0xFFFFFFFFu;
+static void MotionTraceTick(const void* entity);
+// HITFRAME: log every connected local-player hit with the current action and
+// the motion clock (anim+0x10C, TIML frames) so authored attack windows can be
+// correlated with real hit timing (ichimonji mid-window hole investigation).
+static std::atomic<std::int32_t> g_hitFrameLogsLeft{80};
+static void LogHitFrame(long long attacker) {
+    if (g_hitFrameLogsLeft.load(std::memory_order_relaxed) <= 0) return;
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl) return;
+    const auto localPlayer =
+        reinterpret_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    if (reinterpret_cast<long long>(localPlayer) != attacker) return;
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    if (set != 3) return;
+    float frame = -1.0f;
+    void* inst = ResolveActionInstance(ctrl, set, id);
+    if (inst) frame = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(inst) + 8);
+    float mot = -1.0f;
+    if (IsReadable(localPlayer + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(localPlayer + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            mot = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    g_hitFrameLogsLeft.fetch_sub(1, std::memory_order_relaxed);
+    float motion = -1.0f;
+    void* inst2 = ResolveActionInstance(ctrl, set, id);
+    if (inst2) {
+        motion = static_cast<float>(
+            *reinterpret_cast<volatile std::uint32_t*>(static_cast<std::uint8_t*>(inst2) + 0x30));
+    }
+    std::ostringstream m;
+    m << "HITFRAME act=" << set << ':' << id << " frame=" << frame << " mot=" << mot
+      << " motion=" << motion;
+    Log(m.str());
+}
+static void MotionTraceTick(const void* entity) {
+    if (g_motionTraceLeft.load(std::memory_order_relaxed) <= 0) return;
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl || !ModWeaponActive()) return;
+    if (entity != static_cast<const void*>(static_cast<std::uint8_t*>(ctrl) - 0x61C8)) return;
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    if (*reinterpret_cast<volatile std::int32_t*>(bytes + 0xA8) != 2) return;
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    if (set != 3) return;
+    void* inst = ResolveActionInstance(ctrl, set, id);
+    if (!inst) return;
+    const std::uint32_t motion =
+        *reinterpret_cast<volatile std::uint32_t*>(static_cast<std::uint8_t*>(inst) + 0x30);
+    if (motion == g_motionTraceLast) return;
+    g_motionTraceLast = motion;
+    g_motionTraceLeft.fetch_sub(1, std::memory_order_relaxed);
+    float mot = -1.0f;
+    const auto player = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    if (IsReadable(player + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(player + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            mot = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    std::ostringstream m;
+    m << "MOTIONTRACE act=" << set << ':' << id << " motion=0x" << std::hex << motion
+      << std::dec << " (entry " << (motion & 0x1FF) << ") mot=" << mot;
+    Log(m.str());
+}
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
     g_damageThisDispatch = true;
     NotifyPlayerHitConnected(a1);
+    LogHitFrame(a1);
     long long result = g_originalDmgCalc(a1, a2, a3);
     SheathArmorHitCheck(a1, a2);
     return result;
@@ -2581,6 +2664,22 @@ unsigned long long __fastcall PostEventNameHook(const char* name, unsigned long 
 
 #endif // VALOR_PROBE (wwise diagnostics)
 
+// MOTIONCOND (mod): conditional motion swap for one action (valor design:
+// qi-blade-3 action 68 -> LMT 142 with W held, 141 without, vanilla 108
+// unless the spirit gauge is red). While the watched action is fresh
+// (frame < 0.2 s) the instance motion id (+0x30) is rewritten to
+// entry|0xC000 and the motion restarts via player vtable+0x288 (the same
+// 3-arg call the native mid-motion swap helpers use).
+struct MotionBind {
+    std::uint32_t actionId = 0; // the action always plays this LMT entry
+    std::uint32_t entry = 0;
+    bool swapped = false;
+    std::uint32_t lastActId = 0;
+    std::uint32_t missTicks = 0; // transient id-read glitches must not re-arm
+    float prevFrame = 0.0f;      // backwards jump = the action re-began
+};
+std::vector<MotionBind> g_motionBinds;
+
 #ifndef VALOR_PROBE
 // SHEATHEMOTION: patch the 见切 (86) action-class factory motion id so the
 // vanilla foresight flow plays the custom sheathe motion. The deflect/arm/
@@ -2593,71 +2692,111 @@ unsigned long long __fastcall PostEventNameHook(const char* name, unsigned long 
 // (missing = off; e.g. "140 306").
 static void ApplySheatheMotionPatch() {
     std::ifstream input("nativePC/plugins/ValorGauge.motion-swap.txt");
+    std::string token;
     unsigned long fromEntry = 0, toEntry = 0;
-    if (!(input >> fromEntry >> toEntry) || fromEntry >= 0x200 ||
-        toEntry >= 0x200 || fromEntry == toEntry) {
-        Log("Sheathe motion swap: no/bad ValorGauge.motion-swap.txt - off");
+    bool patchMotion = false;
+    if (!(input >> token)) {
+        Log("Sheathe motion swap: no ValorGauge.motion-swap.txt - off");
         return;
     }
-    const std::uint32_t fromMotion = (static_cast<std::uint32_t>(fromEntry) & 0x1FF) | 0xC000;
-    const std::uint32_t toMotion = (static_cast<std::uint32_t>(toEntry) & 0x1FF) | 0xC000;
+    if (token != "cond") {
+        // factory-patch form: "<fromEntry> <toEntry>" first line; "bind ..."
+        // lines (and cond-only files) skip the factory patch.
+        fromEntry = std::strtoul(token.c_str(), nullptr, 10);
+        if ((input >> toEntry) && fromEntry < 0x200 && toEntry < 0x200 &&
+            fromEntry != toEntry) {
+            patchMotion = true;
+        } else {
+            Log("Sheathe motion swap: bad first pair - factory patch off");
+        }
+        input >> token; // optional "cond" keyword
+    }
+    while (input >> token) {
+        if (token != "bind") {
+            continue;
+        }
+        unsigned long actionId = 0, entry = 0;
+        if (input >> actionId >> entry && actionId < 0x200 && entry < 0x200) {
+            MotionBind bind;
+            bind.actionId = static_cast<std::uint32_t>(actionId);
+            bind.entry = static_cast<std::uint32_t>(entry);
+            g_motionBinds.push_back(bind);
+        }
+    }
+    if (!patchMotion && g_motionBinds.empty()) {
+        Log("Sheathe motion swap: nothing configured - off");
+        return;
+    }
     const auto base = g_moduleBase.load(std::memory_order_relaxed);
-    const auto* table = reinterpret_cast<const std::uint8_t*>(base + 0x2EF5C30);
-    if (!IsReadable(table, 113 * 0x20)) {
-        Log("Sheathe motion swap: class table unreadable");
-        return;
-    }
     int patchCount = 0;
-    for (int i = 0; i < 113; ++i) {
-        const auto* entry = table + i * 0x20;
-        std::uint32_t id = 0;
-        std::memcpy(&id, entry, 4);
-        void* classPtr = nullptr;
-        std::memcpy(&classPtr, entry + 8, sizeof(void*));
-        if (!classPtr || !IsReadable(classPtr, sizeof(void*))) {
-            continue;
+    if (patchMotion) {
+        const std::uint32_t fromMotion =
+            (static_cast<std::uint32_t>(fromEntry) & 0x1FF) | 0xC000;
+        const std::uint32_t toMotion =
+            (static_cast<std::uint32_t>(toEntry) & 0x1FF) | 0xC000;
+        const auto* table = reinterpret_cast<const std::uint8_t*>(base + 0x2EF5C30);
+        if (!IsReadable(table, 113 * 0x20)) {
+            Log("Sheathe motion swap: class table unreadable");
+            return;
         }
-        void* vtbl = *reinterpret_cast<void**>(classPtr);
-        if (!vtbl || !IsReadable(reinterpret_cast<const std::uint8_t*>(vtbl) + 0x18,
-                                 sizeof(void*) * 2)) {
-            continue;
-        }
-        for (int fi = 1; fi <= 2; ++fi) {
-            void* factory = nullptr;
-            std::memcpy(&factory, reinterpret_cast<const std::uint8_t*>(vtbl) + fi * 8,
-                        sizeof(void*));
-            if (!factory || !IsReadable(factory, 0x140)) {
+        for (int i = 0; i < 113; ++i) {
+            const auto* entry = table + i * 0x20;
+            std::uint32_t id = 0;
+            std::memcpy(&id, entry, 4);
+            void* classPtr = nullptr;
+            std::memcpy(&classPtr, entry + 8, sizeof(void*));
+            if (!classPtr || !IsReadable(classPtr, sizeof(void*))) {
                 continue;
             }
-            for (std::size_t off = 0; off + 4 <= 0x140; off += 4) {
-                std::uint32_t imm = 0;
-                std::memcpy(&imm, reinterpret_cast<const std::uint8_t*>(factory) + off, 4);
-                if (imm != fromMotion) {
+            void* vtbl = *reinterpret_cast<void**>(classPtr);
+            if (!vtbl || !IsReadable(reinterpret_cast<const std::uint8_t*>(vtbl) + 0x18,
+                                     sizeof(void*) * 2)) {
+                continue;
+            }
+            for (int fi = 1; fi <= 2; ++fi) {
+                void* factory = nullptr;
+                std::memcpy(&factory,
+                            reinterpret_cast<const std::uint8_t*>(vtbl) + fi * 8,
+                            sizeof(void*));
+                if (!factory || !IsReadable(factory, 0x140)) {
                     continue;
                 }
-                void* target =
-                    reinterpret_cast<std::uint8_t*>(factory) + off;
-                DWORD oldProtect = 0;
-                if (!VirtualProtect(target, 4, PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                    Log("Sheathe motion swap: VirtualProtect failed");
-                    continue;
+                for (std::size_t off = 0; off + 4 <= 0x140; off += 4) {
+                    std::uint32_t imm = 0;
+                    std::memcpy(&imm,
+                                reinterpret_cast<const std::uint8_t*>(factory) + off, 4);
+                    if (imm != fromMotion) {
+                        continue;
+                    }
+                    void* target = reinterpret_cast<std::uint8_t*>(factory) + off;
+                    DWORD oldProtect = 0;
+                    if (!VirtualProtect(target, 4, PAGE_EXECUTE_READWRITE,
+                                        &oldProtect)) {
+                        Log("Sheathe motion swap: VirtualProtect failed");
+                        continue;
+                    }
+                    std::memcpy(target, &toMotion, 4);
+                    DWORD restored = 0;
+                    VirtualProtect(target, 4, oldProtect, &restored);
+                    FlushInstructionCache(GetCurrentProcess(), target, 4);
+                    ++patchCount;
+                    std::ostringstream m;
+                    m << "SHEATHEMOTION: class id=" << id << " factory" << fi
+                      << " +0x" << std::hex << off << ": motion 0x" << fromMotion
+                      << " -> 0x" << toMotion << std::dec;
+                    Log(m.str());
                 }
-                std::memcpy(target, &toMotion, 4);
-                DWORD restored = 0;
-                VirtualProtect(target, 4, oldProtect, &restored);
-                FlushInstructionCache(GetCurrentProcess(), target, 4);
-                ++patchCount;
-                std::ostringstream m;
-                m << "SHEATHEMOTION: class id=" << id << " factory" << fi
-                  << " +0x" << std::hex << off << ": motion 0x" << fromMotion
-                  << " -> 0x" << toMotion << std::dec;
-                Log(m.str());
             }
         }
     }
     std::ostringstream m;
-    m << "Sheathe motion swap: " << patchCount << " immediate(s) patched ("
-      << fromEntry << " -> " << toEntry << ")";
+    m << "Sheathe motion swap: " << patchCount << " immediate(s) patched";
+    if (patchMotion) {
+        m << " (" << fromEntry << " -> " << toEntry << ")";
+    }
+    for (const auto& bind : g_motionBinds) {
+        m << "; bind " << bind.actionId << "->" << bind.entry;
+    }
     Log(m.str());
 }
 #endif // !VALOR_PROBE
@@ -3234,10 +3373,111 @@ void TryQueuedFx(const void* entity) {
     Log(m.str());
 }
 
+#ifndef VALOR_PROBE
+// MOTIONBIND per-tick: see MotionBind. Runs on the game thread inside the
+// property-getter hook (~10x/frame), same cadence as FRAMESEEK. Each bound
+// action plays its bound LMT entry unconditionally (the FSM/routing decides
+// WHICH action fires; the DLL only guarantees the action<->LMT pairing).
+void PollMotionBind(const void* entity) {
+    if (g_motionBinds.empty()) {
+        return;
+    }
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl || !ModWeaponActive()) {
+        return;
+    }
+    if (entity != static_cast<const void*>(
+                       static_cast<const std::uint8_t*>(ctrl) - 0x61C8)) {
+        return;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    if (set != 3) {
+        return;
+    }
+    for (auto& bind : g_motionBinds) {
+        if (static_cast<std::uint32_t>(id) != bind.actionId) {
+            if (++bind.missTicks > 3) {
+                bind.swapped = false;
+                bind.lastActId = 0;
+                bind.missTicks = 0;
+            }
+            continue;
+        }
+        bind.missTicks = 0;
+        if (bind.swapped) {
+            continue;
+        }
+        if (bind.lastActId != static_cast<std::uint32_t>(id)) {
+            bind.lastActId = static_cast<std::uint32_t>(id);
+            bind.swapped = false;
+        }
+        void* inst = ResolveActionInstance(ctrl, set, id);
+        if (!inst) {
+            continue;
+        }
+        const float frame =
+            *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(inst) + 8);
+        // A backwards frame jump = the action re-began (chained re-cast):
+        // re-arm so the re-cast binds again. Our own restart sets prevFrame
+        // = -1 so it does not re-trigger itself.
+        if (frame + 0.5f < bind.prevFrame) {
+            bind.swapped = false;
+        }
+        bind.prevFrame = frame;
+        if (bind.swapped) {
+            continue;
+        }
+        if (!(frame < 0.2f)) {
+            bind.swapped = true; // missed the fresh window, keep vanilla
+            std::ostringstream m;
+            m << "MOTIONBIND act=3:" << id << " missed fresh window (frame "
+              << frame << ") - keeping vanilla motion";
+            Log(m.str());
+            continue;
+        }
+        const std::uint32_t motionId = (bind.entry & 0x1FF) | 0xC000;
+        *reinterpret_cast<volatile std::uint32_t*>(
+            static_cast<std::uint8_t*>(inst) + 0x30) = motionId;
+        bool restarted = false;
+        auto* playerPtr = bytes - 0x61C8;
+        if (IsReadable(playerPtr, sizeof(void*))) {
+            auto* vtbl = *reinterpret_cast<void**>(playerPtr);
+            auto* slot = reinterpret_cast<std::uint8_t*>(vtbl) + 0x288;
+            if (IsReadable(slot, sizeof(void*))) {
+                void* fn = *reinterpret_cast<void**>(slot);
+                if (fn && IsReadable(fn, 1)) {
+                    reinterpret_cast<void(__fastcall*)(void*, std::uint32_t,
+                                                       std::uint32_t)>(fn)(
+                        playerPtr, motionId, 0);
+                    restarted = true;
+                }
+            }
+        }
+        bind.swapped = true;
+        bind.prevFrame = -1.0f; // the restart below resets the frame
+        std::ostringstream m;
+        m << "MOTIONBIND act=3:" << id << " -> motion " << bind.entry
+          << " (0x" << std::hex << motionId << ")" << std::dec
+          << (restarted ? " restarted" : " <no restart>");
+        Log(m.str());
+    }
+}
+#endif // !VALOR_PROBE
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
     TryFrameSeek(entity);
+#ifndef VALOR_PROBE
+    PollMotionBind(entity);
+    MotionTraceTick(entity);
+#endif
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE
     RecordPropCall(entity, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(id)),
@@ -3480,6 +3720,7 @@ void LoadSheathCounterConfig() {
     g_sheathRules.clear();
     g_sheathMineIds.clear();
     g_sheathBlueIds.clear();
+    g_motionBinds.clear();
     g_sheathMinePrimed = false;
     g_sheathBlueActId = 0;
     g_sheathBlueFx = false;
