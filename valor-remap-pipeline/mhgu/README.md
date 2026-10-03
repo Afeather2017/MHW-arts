@@ -402,3 +402,13 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   (R 差 1296B),规范化布局=原版布局,游戏可读。
 - 若 F 仍卡:退回 bak-010916 作 w03_00.lmt(必能进,= 旧全套自定义 moveset),
   然后再查 vanilla 槽与 divide 期 TIML 的交互。
+- **F 也卡 → 毒在 TIML 编辑链**(用户实测:原版 override 能开,E/F 都卡;
+  E/F 唯一共同的非原版内容 = R 的 TIML)。逐结构 diff:R 的 TIML 与原版 161/164 同构,
+  唯一结构新增 = addcto 链在 339/340/343 共享块追加的占位类型
+  (timelineParam=0x4BD36121 + transform hash=0x1 + **0 keyframe**)。
+  **F2 = `_build_firstaid_f2.py`** = F 剥占位类型(必须同步 TIML_Data.count,否则解析器
+  按旧 count 错位多读一个类型,曾据此误判"剥离没生效") →
+  `_vanilla_firstaid_f2.lmt` (md5 ee6e195c)。F2 保留:原版动作 + 全部关键帧级 TIML 编辑
+  (R vs V 161/161 有差异=编辑都在) + 141-143 自定义。
+  局内验证:**F2 能进 = 占位结构定罪;仍卡 = 毒在关键帧级编辑,按 bak 链二分
+  (201916-attackframes → 212346-ctofix → 234554-valorcfg → 010916)。**
