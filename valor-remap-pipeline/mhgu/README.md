@@ -328,3 +328,54 @@ scale-Y 状态键([0,12]=(2,1) / [13,44]=(1,2) / [45,61]=(2,1))与几何换手�
   306/312 的 LMT,重跑 `python apply_sheathe_iframes.py`**(幂等,已应用则跳过)。
   blend 侧根治(bake 进 TIML fcurve,u32 拆高低 16 位两条,见 timl_importer.py
   TIMLFlagImport)= 待办。
+
+## 原版动作重置 + TIML 回灌(2026-10-03, `_vanilla_reset.py`)
+
+**用途**:混合项目被 MHRS/MHGU 占用的原版槽位一键还原。动作 = 原版 LMT 重导入,
+TIML = 改版 LMT(#1, 部署文件)整体回灌 —— 攻击帧等文件级 TIML 编辑(含 306/312
+无敌帧补丁、140 见切窗口)**从此烤进 blend 树**,坑⑮的"导出后重跑
+apply_sheathe_iframes.py"不再需要。
+
+```
+cp MHW-Valor.blend MHW-Valor.blend.bak-<ts>   # 先备份
+blender -b MHW-Valor.blend --python mhgu/_vanilla_reset.py
+blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验收
+```
+
+- 机制:按 #2 的 `fcurveOffset` 分组 KBRAction 重导入(共享组共享一个动作,与原生
+  导入同构),`LMTEntryNode` 重接;按 #1 的 `timlOffset` 分组 `processTIMLData +
+  TIMLStructure` 重建 TIML 节点;旧动作全部先打 fake_user(含 1358 个旧 TIML 动作),
+  旧同名动作改 `.pre_reset` 后缀,失连节点删除。#2 里不存在的 id(141/142/143
+  divide 系)动画保持不动。
+- 2026-10-03 实跑:164 槽替换/3 槽保留/164 TIML 组重建;占用清单(替换前):
+  140=192_remap(MHGU 刚1)、312=095_remap、307/343=MHRS plw remap、
+  339/340/358-363=divide 系。被替换动作都以 fake_user 留在文件里,重新接线即可恢复。
+- **验收口径**(全部通过,`_vanilla_reset_export.lmt` = 验收导出):
+  - TIML:掩掉块首 u32(块在文件里的偏移,布局不同必然不同)后 md5 与 #1 逐 entry
+    一致,164/164。
+  - 动作:结构逐骨全等(boneId/bufferType/fold/键数/键时间零漂移),数值残差为导出器
+    再量化噪声(max 0.125,中位 0.067)+ loc basis w 1.0→0.0 —— 两者都是工具链既有
+    签名,已部署文件 #1 同样携带(w=0 共 2661 处),游戏实测无影响。
+  - entry 头部(loopFrame/flags)与原版零差异(树里本来就是原版的,未动)。
+- **坑⑯(TIML 字节比对)**:timl 块序列化首 u32 = 块在文件内的偏移,直接对两个文件
+  的 timl 做 md5 永远"不等",先掩掉前 4 字节再比。
+- 验收脚本:`_vanilla_reset_verify_final.py`(树接线 + 容差内容比对,容差 = 0.26 +
+  放行 w 1↔0);调试链:`_inspect_vanilla_reset.py`(状态盘点)、`_verify_debug*.py`。
+
+## 树重排 + 重置前取证(2026-10-03 续)
+
+- **布局**:FreeKinetics 只有"按列堆叠"一种默认排布(importer 的 uiNodeManager:
+  所有 LMT action 一列、TIML data 一列、entry 一列),没有"action 在左、entry 在右、
+  TIML 在下"的配对布局——那是手工摆的。`_relayout_tree.py` 把树重排成配对布局:
+  每 entry 一行(按 entryNum 升序),action 在左、entry 在右、该 entry 的 TIML
+  data+timl action 竖排其正下方,全部节点取消折叠;顺手删死节点。
+  重跑 `_vanilla_reset_verify_final.py` 确认接线无损。
+- **取证(`_backup_forensic*.py`,对重置前备份整体导出比对)**:
+  - 备份树的动作与部署文件 #1 **164/164 完全一致** —— 重置前 blend 里的原版动作
+    就是局内在跑、已验证的那套,没有 MHRS/MHGU 内容渗入原版槽。
+  - 备份与原版 #2 有 151 槽逐键不符,但全部是管线重编码签名:frameCount 全等、
+    81/82 轨(常量轨合并,已知)、键时间网格零差异、数值最大差 0.01;
+    不匹配任何一条原版动作(内容没换过,只是重新编码过)。
+  - "entry 接了别的 id 的 action"(112←105、149/158←101、162←154、
+    309/310/311←308、344/345/346←332/333/334)= **镜像招共享 fcurveOffset 的正常
+    现象**,动作以组内最小 id 命名,不是接错。
