@@ -410,5 +410,7 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   按旧 count 错位多读一个类型,曾据此误判"剥离没生效") →
   `_vanilla_firstaid_f2.lmt` (md5 ee6e195c)。F2 保留:原版动作 + 全部关键帧级 TIML 编辑
   (R vs V 161/161 有差异=编辑都在) + 141-143 自定义。
-  局内验证:**F2 能进 = 占位结构定罪;仍卡 = 毒在关键帧级编辑,按 bak 链二分
-  (201916-attackframes → 212346-ctofix → 234554-valorcfg → 010916)。**
+  局内验证:**✅ F2 能进(2026-10-03 用户确认)= addcto 占位结构定罪**;
+  关键帧级编辑(161/161)全部无罪。F2 非 Blender 导出——是 struct 级拼装
+  (原版动作字节 + R 的 TIML + R 的 141-143),Blender 只当 Python 运行时
+  (struct 库依赖 mathutils)。全树 Blender 导出仍是不可部署路径,待修。
