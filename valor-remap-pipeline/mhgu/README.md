@@ -414,3 +414,10 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   关键帧级编辑(161/161)全部无罪。F2 非 Blender 导出——是 struct 级拼装
   (原版动作字节 + R 的 TIML + R 的 141-143),Blender 只当 Python 运行时
   (struct 库依赖 mathutils)。全树 Blender 导出仍是不可部署路径,待修。
+- **✅ 导出路径平反(2026-10-03 晚)**:E(全树 Blender 导出)卡死同样是 addcto 占位结构
+  所致,与动作编码无关——用户判断正确,原版导入→导出链路本来就能用。
+  `_strip_placeholder_and_export.py` = 树侧删占位 TIMLActionNode(×3, 339/340/343)+
+  正式 exportNodeToFile 导出 = **F3 `_blend_export_f3.lmt`**(md5 8a5e3541,3813556B,
+  与 F2 同尺寸)。验证全绿:无占位、164 原版动作 vs 原版容差等价、TIML==F2、
+  141-143==R。树侧修改已保存进 blend,**以后该工程导出天然无占位**。
+  F2(拼装)与 F3(Blender 导出)等价可互换,均为"原版动作+全套 TIML 编辑+141-143 自定义"。
