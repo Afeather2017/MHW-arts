@@ -447,3 +447,24 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   归组后重导出 **md5 == F4 逐字节一致** = 分组纯外观、不影响部署物。
   至此 vanilla-reset 收尾完毕:原版动作(绑定+归组+可编辑)+ 全套 TIML 编辑 +
   141-143 自定义,Blender 导出可部署。
+
+## 勇气纳刀 valor_sheath (2026-10-04, 根目录 `_valor_sheath_build.py`)
+
+195×196 全帧 2D 姿态扫描实测最佳拼接对 **(tA=46, tB=131)**(手 IK 目标差 2.6/3.4cm;
+指标必须含 247/248 手部目标位置——体骨 FK 差被手 IK 运行时解算部分掩蔽;
+`bone.isdigit()` 对 "MhBone_NNN" 恒 False 曾致整版扫描全错)。
+产物(MASTER, 全部 valid=True, 81 轨+Root 双轨):
+
+- `valor_sheath_start` 84f = 195[0..38]+渐变[38..46]+196[131..169](尾 8 帧回渐变,
+  循环回绕无缝); 位移通道 B 段加 A@46-B@131 偏移(rootY -0.2187 连续);
+  247 符号翻转; loopFrame=46(**导出生效在 entry 节点属性, freehk 里那份仅记录**)。
+- `valor_sheath_done` 97f = 195[46..143] 前移(松手衔接; 首键=A@46 与 start 基线一致)。
+- `TIML::nTimelineParam::PlMotionCommon`(b26 0x04000000@f0 常开 + mTrigger 2048@f0,
+  无关闭键=穿透循环; 用户已验证配方——见切/312 同款)。TIML 编码: action 级
+  `timelineParamRaw="m48D6114F"`, fcurve=`FreeHKTiml.m<hash>`(mFlag=m08FD20A6 /
+  mTrigger=m99897C43), bigFlags 拆 low16/high16 双轨键帧对齐。
+- 树 w03_00 已建 3 个未接线节点; 接线时 entry.loopFrame=46 + "TIML Data"←TIML 节点。
+
+坑(详见 AGENTS.md 2026-10-04 节): 段截取后骨 4 通道必须齐全(缺→导出器 Quaternion
+空序列崩), done 全曲线强制补 0/97 边界键(eval_hold 端点保持); min2 兜底键末帧向前补;
+四元数比较用 2*acos(|dot|)(逐分量差被 q/-q 双覆盖污染)。

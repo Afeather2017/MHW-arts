@@ -1610,3 +1610,57 @@ MHWNoChunk and MHWEditor
   不抗击飞, 与玩家SA同语义)。mTrigger 2048@f0 / PIN f100 接招窗不变。
   部署 md5 见本次部署(312final); blend 备份 *-pre-b24clean。
   不可复现崩溃维持挂起(实验层已停用), 复现路径=enable_mhw_dumps.reg。
+
+### 2026-10-03 ValorLS(勇太4.2)逆向定案: 动作转换=纯数据, 防御=防御帧, DLL 零注入 (工具 _valorls_*.py)
+
+- **DLL(3 钩子旧版/.c; 4.2 交付版 9 钩子, _valorls_42_hooks.py 反汇编枚举)**: 帧tick/
+  动作请求处理器(双版本地址 0x140AE9EA0/0x141265770)/斩味函数(0x142134B70/0x142141A60,
+  detour 只截参数, 绝回触发时重放 +10 斩味)+0x1419C5820(截 [rdx+0x20] 斩味浮点)+
+  0x141CE1670(顺手充能)+0x14119FAA0(动作 98/99/69 事件: 99→转狩技)+**0x14213FA12 直接
+  NOP 8 字节**。**全部游戏内存写入仅 weapon+0x2370/0x2374/0x2388/0x2390/0x239A + 请求槽
+  {3,id}**; 无伤害钩子/无 HP 写/无防御写(吸血=游戏特性, user 确认)。钓鱼四 art 纯
+  强制请求槽 {3,94/111/106/104}; +0x2388=90 需 motion==0xC153(entry339) 才写=回气激活。
+- **保护=防御帧(TIML, 自带 LMT)**: 原版见切/居合家族 i-frame 在 PlMotionInput mFlag1
+  b26(0x04001000→0x0C003000)+PlMotionCommon mTrigger 2048; mod 自定义 entry(339=art106
+  的 motion, 74 帧窗)同配方; 加强签名 0xCFFC10CC/0xCFFC30CC(b26+b24+…)用于 106/107/110/162;
+  entry140(见切槽改 13f GP) PlMotionCommon mFlag f0=0x07000000(b26+b25+b24) 全程覆盖;
+  **140↔170 TIML 整体互换**=槽位复用。FSM 条件全原版属性(含 条件631 見切り回避成功後の攻撃ヒット)。
+- **特殊纳刀保持机制(98/99→LMT306)**: ① entry306 原生 TIML loopStartPoint=129 动画不结束
+  →动作不结束; ② 动作 98 触发的线程 10Hz 轮询, motion==0xC132 期间反复写
+  **mgr+0x858=1(int)+mgr+0x85C=1.0f**(mgr=*(player+0x7D20)=FSM 管理器条件成员存储,
+  指针链 {0x50,0x7D20,0x858}; motion id 链 {0x50,0x468,0xE9C4} 与我们研究一致) 钉死
+  原版衰减; ③ b26 窗 f75 起无关闭键穿透循环; ④ 松键=FSM 条件"押してない"退链接火→动作
+  切换→线程自然退出。DLL 松键分支只清边沿锁存。
+- 工程结论: TIML 属性清单(138 项)无防御角度字段, b26=全向; "前180°"只能靠 FSM/代码侧。
+  勇气条/狩技条是 DLL 自有浮点(getyqadd/getskadd 可查), 每招上限 420/830/580/1250。
+
+### 2026-10-04 勇气纳刀动作构建 (valor_sheath_start/done, _valor_sheath_build.py, ALL GREEN 已存盘)
+
+- **拼接点由 2D 姿态扫描实测**(_valor_sheath_scan2d.py, 195×196 全帧): 最佳对
+  **(tA=46, tB=131)** — 手 IK 目标差 247=2.6cm/248=3.4cm, 头 2.3cm, 重心 3.8cm,
+  体骨平均 ~8°; tA 诊断线 46 处 V 谷(user 目测"50帧后"≈实测 46)。**指标必须含
+  247/248 手部目标位置**(体骨 FK 差被手 IK 运行时解算部分掩蔽); bone.isdigit() 对
+  "MhBone_NNN" 恒 False 是第一版扫描全错的根因。tB 定 131 → 循环段=196[131..169]
+  (38 帧定势); B@0/B@169 自循环有 4 根附属骨(053/056/060/063) 12-20° 不闭合。
+- **产物(MASTER MHW-Valor.blend, 全部过 LMTActionParser valid=True, 81 变换轨+Root 双轨,
+  与已局内验证迁移动作同签名)**:
+  - `valor_sheath_start` **84f** = 195[0..38] + 渐变[38..46] + 196[131..169]
+    (尾 8 帧回渐变到 B@131 → 循环回绕无缝; 接缝复检 head/wrap worst 3.5°/2.3°);
+    位移通道 B 段加 A@46-B@131 偏移(rootY -0.2187 连续, 与 done 首键一致);
+    247 符号翻转对齐; freehk.loopFrame=46(**仅记录, 导出生效在 entry 节点 loopFrame=46,
+    LMTEntryNode.construct 写头部**)。
+  - `valor_sheath_done` **97f** = 195[46..143] 前移(A 自身轨迹, 松手衔接; 供备选完成段)。
+  - `TIML::nTimelineParam::PlMotionCommon`(TIML action): mFlag b26(0x04000000)@f0 常开
+    + mTrigger 2048@f0, 无关闭键=穿透循环 —— 用户已验证配方(见切/312 同款, 312 局内通过);
+    **TIML 无角度字段, b26=全向**, "前180°"归 FSM/代码侧。
+  - 编码: TIML action 级 `freehk.timelineParamRaw="m48D6114F"`(PlMotionCommon);
+    fcurve path=`FreeHKTiml.m<hash>`(mFlag=m08FD20A6, mTrigger=m99897C43), bigFlags 拆
+    low16/high16 两条(array_index 0/1, 键帧必须对齐), 导出侧 ExportTIMLTypesNode 回读已验证。
+  - 树 w03_00 已建 3 个未接线节点(2×LMTActionNode+1×TIMLActionNode), **接线时:
+    entry 的 "LMT Animation"←动作节点, "TIML Data"←TIML 节点, entry.loopFrame=46**。
+- 坑: ①object 层裸路径 "location"/"rotation_quaternion" 不含点, is_loc/is_rot 要单列;
+  ②动作段截取后骨的 4 通道必须齐全(缺通道→导出器 Quaternion 空序列崩, 坑⑭家族),
+  done 全曲线强制补 0/97 边界键(eval_hold 越界取端点保持, bezier 外推会漂);
+  ③min2 兜底键方向: 末帧单键向前补(f0-1), 否则顶爆 frameCount; ④四元数比较必须
+  2*acos(|dot|), 逐分量差值被 q/-q 双覆盖污染(虚报 38°→实为同姿态)。
+  blend 备份 bak-20261004-004945。GUI 开着需 File>Revert 后再接线(坑⑭)。
