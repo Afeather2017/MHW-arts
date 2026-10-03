@@ -429,3 +429,15 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   改动作→导出→部署可直接用。备份链:bak-20261003-124129(reset 前)、
   bak-20261003-154331(树侧摘毒前)。拼装法脚本(_build_firstaid*.py)留作
   应急工具(绕开导出器的 game-safe 构建法)。
+- **✅ 重导入动作补绑骨架(2026-10-03 深夜,`_tether_vanilla_imports.py`)**:用户指出
+  vanilla-reset 的重导入没勾 "Tether to Skeleton" —— 旧动作 fcurve 是 `MhBone_XXX`
+  (可编辑预览),新动作是 `BoneFunction.xxx/Root/reference` 合成路径(导出没问题但
+  编辑器里没法对着骨架改)。修复 = 对 154 个未绑定动作补跑 `transferTether`
+  (= 勾那个选项时导入器做的事):路径重命名、Root(-1) 通道转物体级、记 tetherFrame。
+  **F4 `_blend_export_f4.lmt`** (md5 54eda879) = 绑定后的正式导出:
+  - Root 通道烘焙为逐帧键(entry1: loc buf5×609 + rot buf7×812, 值恒定) —— 与旧管线
+    导出(BK, 局内跑过数周)的 -1 形态**完全同构**;
+  - 零星 basis 差异 = 四元数符号规范化(语义等价);轨道结构 = 原版 82 轨原样;
+  - TIML==F2、141-143==R、无占位,全绿。
+  blend 已保存(绑定态持久化);备份 bak-20261003-160823(绑前)。
+  **注意:E/F3 的"未绑定导出"与 F4 的"绑定导出"是两种合法形态,F4 是项目原生约定。**
