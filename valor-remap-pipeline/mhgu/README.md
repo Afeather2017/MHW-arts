@@ -379,3 +379,26 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   - "entry 接了别的 id 的 action"(112←105、149/158←101、162←154、
     309/310/311←308、344/345/346←332/333/334)= **镜像招共享 fcurveOffset 的正常
     现象**,动作以组内最小 id 命名,不是接错。
+
+## 导出 LMT 进不了存档(卡死)排查 + game-safe 构建法(2026-10-03, `_build_firstaid_lmt.py`)
+
+- **现象**:vanilla-reset 导出(`_vanilla_reset_export.lmt`)部署后进存档卡死;改名停用后
+  能进(= vanilla 兜底,锅在文件内容)。
+- **排查**(`_hang_diagnosis.py`,与最后已知可用备份 bak-20261003-010916-valorcfg 全量对比):
+  entryCount/167 头部/TIML(161 swap+3 双方都无)/自定义 141-143(内容逐字节等价)全部一致;
+  增量扫描排除 4-bit 溢出(零/负增量三文件都有,分布一致);
+  唯一全局差异 = **动作编码层**:E 复用导入时的原版 bufferType(1/2/7, LIMITS min_x),
+  R 是管线重算过的编码(12/13 等)。导出器 `calculateValidateEncoding` 单一编码直接复用,
+  旧树动作被 min2keys/strip 处理过走"重算"路径 —— E 的"复用原版类型再编码"路径
+  从未被游戏吃过,卡死高度疑似在此(未单字节定罪)。
+- **game-safe 构建**(绕开编码器):V(原版)round-trip 字节稳定已证明 →
+  F = V 的动作本体字节 + R 的 TIML + R 的 141-143 完整 ActionHeader →
+  `_vanilla_firstaid.lmt` (md5 0d673ddd, 3813748B)。与 R 的差异只剩:
+  原版槽=真原版字节(替代旧重编码)+ 10 个刻意槽回原版(= reset 诉求)。
+  自校验:164 动作 digest==V、TIML masked-md5==R、customs==R,全绿。
+- **教训**:(1) 全树 standalone 导出 ≠ 游戏可读 —— blend 导出物进游戏前必须先
+  A/B 验证一次;(2) 部署链两次发生"扩展名前多空格"(`.l mt`/`.d ll`),复制后
+  一定 `ls` 核对文件名;(3) parse→serialize 对原版字节稳定,对手术文件会规范化
+  (R 差 1296B),规范化布局=原版布局,游戏可读。
+- 若 F 仍卡:退回 bak-010916 作 w03_00.lmt(必能进,= 旧全套自定义 moveset),
+  然后再查 vanilla 槽与 divide 期 TIML 的交互。
