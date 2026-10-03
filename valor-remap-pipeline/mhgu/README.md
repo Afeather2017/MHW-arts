@@ -441,3 +441,9 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
   - TIML==F2、141-143==R、无占位,全绿。
   blend 已保存(绑定态持久化);备份 bak-20261003-160823(绑前)。
   **注意:E/F3 的"未绑定导出"与 F4 的"绑定导出"是两种合法形态,F4 是项目原生约定。**
+- **✅ 新原版动作骨骼归组(2026-10-03 深夜)**:vanilla-reset 重导入的动作没跑归组
+  (Action Editor 里 fcurve 全平铺)。现成 `9_group_channels.py` 直接对当前 blend 跑:
+  59057 条重新归组 + 177596 条本就合规,全量校验通过(备份 bak-20261003-162355)。
+  归组后重导出 **md5 == F4 逐字节一致** = 分组纯外观、不影响部署物。
+  至此 vanilla-reset 收尾完毕:原版动作(绑定+归组+可编辑)+ 全套 TIML 编辑 +
+  141-143 自定义,Blender 导出可部署。
