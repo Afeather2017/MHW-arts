@@ -1,0 +1,101 @@
+{
+ "backup": "E:\\MHW-arts\\MHW-Valor-new.blend.bak-20261003-110728",
+ "copy_count": 198,
+ "wiring_before": {
+  "140": "LMT::w03_00::140",
+  "141": "LMT::w03_00::141",
+  "142": "LMT::w03_00::142",
+  "143": "LMT::w03_00::143",
+  "307": "LMT::w03_00::307",
+  "312": "LMT::w03_00::312",
+  "339": "LMT::w03_00::339",
+  "340": "LMT::w03_00::340",
+  "343": "LMT::w03_00::343",
+  "358": "LMT::w03_00::358",
+  "359": "LMT::w03_00::359",
+  "360": "LMT::w03_00::360",
+  "361": "LMT::w03_00::361",
+  "362": "LMT::w03_00::362",
+  "363": "LMT::w03_00::363"
+ },
+ "tether_rebound": 196,
+ "rewired": [
+  {
+   "entry": 140,
+   "to": "LMT::w07::192_remap",
+   "was": "LMT::w03_00::140"
+  },
+  {
+   "entry": 141,
+   "to": "divide_short",
+   "was": "LMT::w03_00::141"
+  },
+  {
+   "entry": 142,
+   "to": "divide_long",
+   "was": "LMT::w03_00::142"
+  },
+  {
+   "entry": 143,
+   "to": "plw_LongSword_100_112_Armature_remap",
+   "was": "LMT::w03_00::143"
+  },
+  {
+   "entry": 307,
+   "to": "plw_LongSword_100_112_Armature_remap",
+   "was": "LMT::w03_00::307"
+  },
+  {
+   "entry": 312,
+   "to": "LMT::w07::095_remap",
+   "was": "LMT::w03_00::312"
+  },
+  {
+   "entry": 339,
+   "to": "divide_short",
+   "was": "LMT::w03_00::339"
+  },
+  {
+   "entry": 340,
+   "to": "divide_long",
+   "was": "LMT::w03_00::340"
+  },
+  {
+   "entry": 343,
+   "to": "plw_LongSword_100_112_Armature_remap",
+   "was": "LMT::w03_00::343"
+  },
+  {
+   "entry": 358,
+   "to": "rigit_up_before_divide",
+   "was": "LMT::w03_00::358"
+  },
+  {
+   "entry": 359,
+   "to": "right_down_before_divide",
+   "was": "LMT::w03_00::359"
+  },
+  {
+   "entry": 360,
+   "to": "left_up_before_divide",
+   "was": "LMT::w03_00::360"
+  },
+  {
+   "entry": 361,
+   "to": "right_down_before_divide",
+   "was": "LMT::w03_00::361"
+  },
+  {
+   "entry": 362,
+   "to": "right_down_before_divide",
+   "was": "LMT::w03_00::362"
+  },
+  {
+   "entry": 363,
+   "to": "left_up_before_divide",
+   "was": "LMT::w03_00::363"
+  }
+ ],
+ "problems": [],
+ "saved": "E:\\MHW-arts\\MHW-Valor-new.blend"
+}
