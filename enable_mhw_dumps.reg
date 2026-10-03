@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+; MHW 崩溃转储捕获: 崩溃时在 E:\MHW-arts\crashdumps 留 full dump (最多3份)
+; 用途: 拿异常偏移定位 99->100 崩溃原因。诊断完删除此键即可还原。
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps\MonsterHunterWorld.exe]
+"DumpFolder"="E:\\MHW-arts\\crashdumps"
+"DumpType"=dword:00000002
+"DumpCount"=dword:00000003

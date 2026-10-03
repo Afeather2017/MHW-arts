@@ -1425,3 +1425,174 @@ MHWNoChunk and MHWEditor
   tools/trace_timl.py(TIML 逐结构追踪)、tools/find_bad_overlay.py(逐 entry
   二分)。注意 blender headless 会话的插件加载顺序有随机性,解析测试结果
   偶发不稳定,以两次一致为准。
+
+### 2026-10-03 (2) MHW-Valor.blend 原版动作重置 + TIML 回灌(_vanilla_reset.py, 全部验收通过)
+
+- **背景**:MASTER(MHW-Valor.blend) 里原版槽位被 MHRS/MHGU/自制动作占用
+  (140=192_remap 刚1、312=095_remap、307/343=MHRS plw remap、339/340/358-363=divide 系,
+  其余 152 槽动作正常)。用户指令:动作全部换原版(按 entry id 匹配),TIML 全部换成
+  部署文件 #1 的(nativePC w03_00.lmt, 其 TIML 均正确)。
+- **做法**(mhgu/_vanilla_reset.py, README 有完整章节):按 #2 原版 LMT 的
+  fcurveOffset 分组 KBRAction 重导入(154 组,共享组同构)+ entry 重接;
+  按 #1 的 timlOffset 分组 processTIMLData+TIMLStructure 重建 164 组 TIML 节点;
+  旧动作全部 fake_user 保命、旧同名动作 .pre_reset 后缀、失连节点删除(1716 个);
+  #2 不存在的 141/142/143(divide 系)动画保留。备份
+  MHW-Valor.blend.bak-20261003-124129。
+- **验收**(=_vanilla_reset_verify_final.py + _vanilla_reset_export.lmt):
+  接线 164/164、自定义 3 槽保留、entry 头部与原版零差异;TIML 掩块首 u32 后 md5
+  与 #1 逐 entry 一致 164/164;动作结构逐骨全等(键时间零漂移),数值残差 = 导出器
+  再量化(max 0.125)+ loc basis w 1.0→0.0,均为工具链既有签名(#1 同样携带,游戏实测无影响)。
+- **坑⑯**:TIML 块序列化首 u32 = 块在文件内的偏移,两个文件的 timl 直接 md5 永远
+  不等,先掩前 4 字节再比。
+- **副产品:坑⑮根治**——306/312 无敌帧、140 见切窗口等**文件级 TIML 编辑随 #1 回灌
+  进了 blend 树**(164/164 逐字节一致),以后从 MASTER 导出不再需要
+  apply_sheathe_iframes.py 重打。
+- 部署文件 #1 未动。把 `_vanilla_reset_export.lmt` 部署进 nativePC = 整套退回
+  "原版动作 + 现有 TIML 编辑"(刚1/樱花/divide 在游戏里会消失,动作仍在 blend 里
+  可随时重接);是否部署由用户决定。
+
+- **(续)用户澄清后取证**:刻意替换(remap/divide)不是问题源。对重置前备份整体导出
+  比对:**备份动作与部署 #1 164/164 完全一致**,与原版 #2 的 151 槽差异全部是管线
+  重编码签名(frameCount 全等/81-82 轨/时间网格零差/值差≤0.01),无 MHRS/MHGU 渗入;
+  10 处"接别的 id 的 action"= 镜像招共享 fcurveOffset 的正常命名(以组内最小 id 命名)。
+  布局:FreeKinetics 只有按列堆叠一种默认排布;`_relayout_tree.py` 恢复
+  "action 左 / entry 右 / TIML 正下方"配对布局(167 行,按 entryNum 排序,全部展开),
+  重排后接线复验 164/164 全绿。
+
+### 2026-10-03 (3) 全树导出卡死存档 + game-safe 构建法(待局内验证)
+
+- vanilla-reset 全树导出(_vanilla_reset_export.lmt)部署后进存档卡死;与最后已知可用
+  bak-010916 全量对比:结构/TIML/自定义槽全一致,唯一全局差异 = 动作编码层
+  (E 复用原版 bufferType 1/2/7 再编码,R 是管线重算编码 12/13)。4-bit 溢出已排除。
+  **教训:FreeKinetics 全树 standalone 导出从未整文件进过游戏,必须先 A/B。**
+- **game-safe 构建 = _build_firstaid_lmt.py**:V 原版动作本体字节(round-trip 字节稳定
+  已证明)+ R 的 TIML + R 的 141-143 完整 ActionHeader → _vanilla_firstaid.lmt
+  (md5 0d673ddd)。自校验全绿;与 R 差异仅"原版槽真原版字节 + 10 刻意槽回原版"。
+  若 F 仍卡 → bak-010916 顶回 w03_00.lmt(旧全套,必能进)。
+- 部署链第二次出现"扩展名前多空格"文件名损坏(`.l mt`),复制后必须核对文件名。
+
+- **(续 2)F 也卡 + 定罪**:用户实测原版 override 能开、E/F 都卡 → 毒在 R 的 TIML。
+  结构 diff:R 的 TIML 161/164 与原版同构,唯一新增 = addcto 链在 339/340/343 共享块的
+  占位类型(param=0x4BD36121,transform hash=0x1,0 keyframe);其余 5174 个 transform
+  关键帧全部合法(昨晚编辑干净)。**F2(=F 剥占位类型,须同步 TIML_Data.count——
+  不同步会错位多读一个类型,假象是"剥离没生效") = _vanilla_firstaid_f2.lmt
+  (md5 ee6e195c)**,保留全部关键帧编辑+141-143。**坑⑰:改 PyCStruct 子列表
+  (timl.data[i].types)后必须同步父结构的 count 字段,否则序列化字节少了一截、
+  count 还是旧值,重解析会"看起来没生效"。** **✅ F2 局内验证通过(2026-10-03):进游戏,占位结构定罪,关键帧编辑全无罪。**
+  F2 非 Blender 导出 = struct 级拼装(原版动作字节+R 的 TIML+R 的 141-143),
+  Blender 仅当 Python 运行时。E 路径卡死同样是占位结构所致——导出路径无罪。树侧删占位后正式导出 = F3
+  (_blend_export_f3.lmt, md5 8a5e3541, 验证全绿),工程已保存,以后导出天然干净。
+  **✅ F3 局内验证通过(2026-10-03 深夜):Blender 导入→改→导出→部署链路完全恢复。**
+  当前定态:部署 = F3(md5 8a5e3541);blend = 干净基座(原版动作+全套 TIML 编辑+141-143);
+  备份: bak-20261003-124129(reset 前)/ bak-20261003-154331(摘毒前);
+  拼装脚本留作应急。教训汇总:①全树导出物部署前必须 A/B;②文件名空格损坏已两次;
+  ③改 PyCStruct 子列表必须同步父 count。
+
+- **(续 3)重导入动作补绑 Tether(用户指出漏了导入选项 "Tether to Skeleton")**:
+  vanilla-reset 的 154 个新动作原本是合成路径(BoneFunction.xxx/Root/reference),
+  编辑器无法预览编辑。`_tether_vanilla_imports.py` 补跑 transferTether(路径重命名
+  MhBone_XXX、Root 转物体级、记 tetherFrame)→ F4 `_blend_export_f4.lmt`
+  (md5 54eda879):Root 烘焙逐帧键(值恒定),与旧管线导出 BK 的 -1 形态完全同构,
+  轨道结构=原版 82 轨,TIML/自定义全绿。blend 已保存(bak-20261003-160823=绑前)。
+  F4 待局内终验;E/F3(未绑定导出)与 F4(绑定导出)均为合法形态,F4 是项目原生约定。
+
+- **(收尾)新动作骨骼归组**:9_group_channels.py 对当前 blend 跑完(59057 条重归组),
+  归组后导出 md5 == F4 逐字节一致 = 纯外观。vanilla-reset 全链收尾:原版动作
+  (tether 绑定 + 归组 + 编辑器可预览)+ 全套 TIML 编辑 + 141-143 自定义,
+  Blender 导出可部署(F4 已局内验证... 注: F4 同内容 F3 已验证, F4 待用户部署确认)。
+
+### 2026-10-03 (4) 一文字/无双斩无伤害定案+修复: 树侧 CTO 补齐 (user-verified 有伤害)
+
+- **症状**: 339 一文字短/340 一文字长/343 无双斩 播动作但零伤害; 同文件里 刚1(140) 正常。
+- **根因**: 这三个槽位源自原版**强化射击家族(332-349)**, 原版刀身部分从没有数据伤害窗
+  (伤害走弹体) → 家族 TIML 只有 EC 状态机**没有 CTO**。MHW 出伤害 = EC 窗(请求层,
+  只开门)+**CTO(路由+伤害窗: ノードID→col 名字表 unk4→(bank,ATK行), mFlag=伤害窗)**
+  两者齐备; 缺 CTO = 请求无处落地。刚1 有 CTO(見切 TIML 自带)所以一直正常。
+  "昨天不用 col 也有伤害"与此不矛盾: col 目录坏名只是让 col **编辑**不生效,
+  CTO 路由到的是原版 col 行(63/59/72 原版都在)。
+- **修复(树侧, 随导出自带)**: 镜像 140 的树侧 CTO 写法给三条 entry 各加一个
+  `TIML::nTimelineParam::CollisionTimelineObject` action
+  (starType=TIML_Action, timelineParamRaw=`m38FF82EA`, unkn0=0) + 两条 transform:
+  `FreeHKTiml.mB296CA66`[0]=**ノードID[0]=63**(原版見切り攻撃 ATK 行, 刚1 同款);
+  `FreeHKTiml.m08FD20A6`(mFlag 按 16/16 拆两条) on=a/off=b+1, CONSTANT 键。
+  脚本 `mhgu 根目录 _add_tree_cto_1003.py`(PLAN 在文件头, 新招复用改 PLAN 即可;
+  GUI 路线=复制现有 CTO 三件套节点再改帧)。blend 备份 bak-20261003-190535-pre-tree-cto。
+- **✅ user-verified 2026-10-03: 三招全部出伤害。** 部署=树导出
+  `_blend_export_cto_1003.lmt`(md5 f136fb94), 备份 bak-20261003-1922-precto。
+  审计 464 entry 0 乱序 0 小数帧。**F2 时代卡死的是 addcto 空壳占位
+  (param 0x4BD36121/hash 0x1), 真 CTO 结构树侧无风险** —— 树侧 CTO 正名。
+- **EC 静态轨道名破译**(此前裸哈希): m6C333EBF=ReqNo(On) A(=1), mF53A6F05=
+  ReqNo(On) B(=2), m823D5F93=**ReqNo(On) C(=10, 目前 140 独有)**,
+  mA39EF26C/m4D909340=SkipTime A/C。339/340/343 与 140 现仅差 ReqNo C 一组
+  ——**若未来某招补 CTO 后仍无伤害, 下一杠杆=补 ReqNo(On)C=10+SkipTime C**;
+  再往后= DLL MOTIONTRACE(实播 entry|0xC000)+HITFRAME(命中 entry+帧) 检测。
+- 伤害数值现借見切り攻撃行(与刚1同源); 独立数值待 col 侧加专属行(节点id改指即可)。
+
+### 2026-10-03 (5) entry 312 ← LMT::w07::095_remap 树侧接线 + 60帧无敌 + f100接招窗
+
+- **接线真相**: blend 里 entry 312 一直挂的是旧 `LMT::w03_00::312`(纳刀100时代,90f);
+  `LMT::w07::095_remap`(121f,tether已绑) 和整套 **`.095` 后缀 TIML actions**(10个:
+  PMC/PIN/PV/EC/EG01/02/03/06/GP/EP, 095 自带数据) 都在文件里但**零接线**。
+  本次: 建 LMTActionNode 接 095_remap; 旧 TIML 链接全清, `.095` TIML family
+  经新建 TIMLActionNode 接入 entry 312 的 TIMLDataNode; animLength=121。
+- **坑⑱: 用户手备的 `.095` TIML actions 里 PlMotionCommon/PlMotionInput/
+  EventCollision00/EventGroup01/EventGroup06/GameParameter 的
+  `freehk.timelineParamRaw` 全是空串** → ExportTIMLTypesNode `int(paramCode[1:],16)`
+  直接炸。修复=按类名从树里其他 entry 的同族 action 自动查表回填
+  (PMC=m48D6114F/PIN=m6FCCD10E/EC=m0CFD985C/EG01=m2EC7FA34/EG06=m30A36F97/
+  GP=m01739779)。starType 缺失同理补 "TIML_Action"。**以后 GUI 复制/自制 TIML
+  action 必查这两个属性**。
+- **无敌帧(树侧)**: PMC.095 mFlag = f0=0x06400000|6 (b26=0x04000000 无敌) →
+  f60=0x02400006(基线) = 窗 [0,59]; mTrigger 2048@f0 (用户 TIML 里已埋, 校验保留)。
+  旧 312 TIML 的全程 b24 霸体随旧 TIML 一起断开(按"没提=没有"规则,未迁移)。
+  **⚠ 深夜5 教训待验: b26 在 306 上曾"毒化整段"(按动作锁存非按键窗)——
+  局内须测 f60 后能否被打; 若整段无敌, 312 不可用 TIML b26 布局, 改走 DLL
+  no-hit 注入或短动作拆分**。
+- **接招窗**: PIN.095 三轨 (mFlag/mFlag1/mFlag2 = m08FD20A6/m6E63FBC7/mF76AAA7D)
+  重写为 [(0,0),(100, 原f70档"全开"值)] = f100 起可接下一格, 开放到动作尾
+  (0xC300/0xC003000/0xC003F0, 无高位特殊取消位——原生纳刀家系集合)。
+- **✅ 导出验证**: frameCount=121, mFlag f0=0x6400006/f60=0x2400006, trigger 0x800,
+  PIN 三轨 f100, 全审计 0乱序0小数; 339/340/343/140 CTO 金丝雀全绿。
+  部署 md5 8d0bcea48e8aa72ef57941b2b4ba6b42 (备份 .bak-20261003-1955-pre312);
+  blend 备份 bak-20261003-194224-pre-312-095wire。
+- **⚠ 附带发现: 306/105/141 的二进制侧 TIML 实验(格挡0x12400006/见切形窗/b31窗)
+  已被 10-03 全天的四轮全量 blend 导出冲掉** —— 现部署文件里它们是基线态。
+  要恢复须树侧重做(坑⑮的正解); 实验期结论未定案, 按需再说。
+
+### 2026-10-03 (6) 312/action100 无敌帧崩溃 + 105 A/B (验证中)
+
+- **症状**: 部署 8d0bcea4(312=095_remap+.095 TIML+b26[0,59]+trigger2048) 后, 99→100
+  交接瞬间崩溃(用户观察+日志双证: ValorGauge.log 止于 3:98 IFRMINE, 无 id=100 行;
+  DLL 改名停用仍崩 = 非 DLL)。action 100 = 无 FSM 节点的零入边动作(98/99/100/103 同族)。
+- **数据面已排除**: .095 TIML family 全部键值逐项核对 = MHW 原生同款(1119/115/135/
+  3198/28 均见原版 140/306), 无 MHGU 异物 id。
+- **A/B 部署 md5 83e9ce63**: entry 105(原生突刺,131f,有FSM上下文) 加同款 b26[0,59]
+  +原生trigger2048; entry 312 只摘 b26(其余 095_remap 接线/.095 TIML/f100 接招窗
+  全保留, mTrigger 2048 留守=惰性)。判读: 105崩=配方不可用; 105活+312不崩=
+  b26×action100 组合崩; 312仍崩=.095 TIML/动作换装崩因。
+- **崩溃转储捕获**: 全局 LocalDumps DumpCount=0 吞 dump(C:\CrashDumps 空,20:13 被碰);
+  HKLM 需管理员 → `enable_mhw_dumps.reg`(E:\MHW-arts) 双击一次, 崩后 dump 落
+  E:\MHW-arts\crashdumps。背景: 10-01 二进制侧 b26 在同 action100 上曾"无敌不崩"
+  (旧 312 TIML), 与本次矛盾 → 崩因也可能是 .095 TIML×100 组合, A/B 判读后再定。
+
+- **✅ A/B 裁决 (user 局内)**: 105 同款 b26[0,59]+2048 = 无敌生效且不崩 → **TIML b26
+  无敌配方本身有效**("不能加无敌帧"结论作废); 312 摘掉 b26 后 99→100 仍崩 →
+  **崩因 = 312 新内容(.095 TIML family 或 095_remap 动作), 与无敌帧无关**。
+  注意 095_remap 此前从未局内播过(10-01 接线一直是待办), 无游戏侧前科。
+- **二分部署 md5 f3b47b1d**: 312 = 095_remap 动作 + 旧原生纳刀 TIML(PMC 0x01000000
+  flat/PIN f40-55/EC [35,42][61,68], 无 b26 无 2048)。判读: 不崩=.095 TIML 有毒
+  (目标配置改在旧 TIML 上重建: b26+f100); 仍崩=095_remap 动作本体踩引擎雷
+  (导出警告全是背景噪声族, 数据面无异常)。转储捕获 .reg 已备(E:\MHW-arts\
+  enable_mhw_dumps.reg, 全局 DumpCount=0 曾吞 dump; HKLM 需管理员手动导入)。
+  blend 备份 bak-20261003-204046-pre-312-oldtiml。
+
+- **✅ 二分裁决 (user 局内)**: f3b47b1d(095_remap+旧TIML) 不崩 → **.095 TIML family
+  是崩因**(具体哪个 type 未继续二分, .095 族已断开留在树里无害); 095_remap 动作
+  无辜。同时 105 确认 **b26 窗口边界真实生效**(f60 后被打飞, "毒化整段"不成立,
+  306 教训限其特定布局)。
+- **✅ 终局部署 md5 <见部署日志>**: 目标配置重建在旧 TIML 上 = PMC.413 mFlag
+  f0=0x05000000(b26+b24, 原生霸体保留) → f60=0x01000000(纯霸体) + mTrigger
+  2048@f0(新轨) + PIN.197 全轨 [(0,0),(100,原生终值)] f100 开放接招。
+  动作=095_remap(121f)。待局内终验: 无敌窗边界/接招窗/崩溃消失。
+  blend 备份 bak-20261003-204858-pre-312-goal。`.095` TIML family 崩因追查
+  (哪一步 type 毒) 挂起, 要查就走 dump 路线。
