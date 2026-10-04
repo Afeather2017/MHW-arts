@@ -3731,36 +3731,39 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     }
 }
 
-// Settles the 刚1 gauge scope (see g_gang1GaugeScopeArmed): while the current
-// action is 86 nothing happens; when it leaves 86 (or the 5s deadline passes)
-// the gauge is written back to snapshot - 0.15, clamped. Runs on the game
-// thread (property-getter hook) and is independent of the gauge-rules list.
+// Settles the 刚1 gauge scope (see g_gang1GaugeScopeArmed): waits until the
+// action REQUEST stream leaves 86 (tracker - NOT the controller current
+// action: the rewritten request is buffered while the previous move still
+// plays, so controller+0xB0 reads the old move and an immediate settle fires
+// before 86's own cost - observed as settle 0.418->0.268 right after the
+// rewrite, then the move drained the rest). After the next request lands the
+// settle write happens before that move's begin costs, so chained moves
+// deduct on top of the settled value. 5s deadline as the no-followup
+// fallback. Game thread (property-getter hook).
 void PollGang1GaugeScope() {
     if (!g_gang1GaugeScopeArmed.load(std::memory_order_acquire)) {
         return;
     }
-    void* ctrl = nullptr;
+    std::int32_t lastSet = -1;
+    std::int32_t lastId = -1;
     {
         std::scoped_lock lock(g_actionMutex);
-        ctrl = g_lockedPlayerController;
-    }
-    if (ctrl) {
-        auto* bytes = static_cast<std::uint8_t*>(ctrl);
-        const std::int32_t set =
-            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
-        const std::int32_t id =
-            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
-        if (set == 3 && id == 86 &&
-            static_cast<std::int64_t>(GetTickCount64()) <=
-                g_gang1GaugeDeadlineMs.load(std::memory_order_relaxed)) {
-            return;
+        if (g_lastLongSwordAction) {
+            lastSet = g_lastLongSwordAction->actionSet;
+            lastId = g_lastLongSwordAction->actionId;
         }
     }
-    g_gang1GaugeScopeArmed.store(false, std::memory_order_release);
-    if (!ctrl) {
+    if (lastSet == 3 && lastId == 86 &&
+        static_cast<std::int64_t>(GetTickCount64()) <=
+            g_gang1GaugeDeadlineMs.load(std::memory_order_relaxed)) {
         return;
     }
-    auto* player = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    g_gang1GaugeScopeArmed.store(false, std::memory_order_release);
+    if (!g_lockedPlayerController) {
+        return;
+    }
+    auto* player =
+        static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
     if (!IsReadable(player + 0x76B0, sizeof(void*))) {
         return;
     }
