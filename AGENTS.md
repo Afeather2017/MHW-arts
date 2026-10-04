@@ -1688,3 +1688,18 @@ MHWNoChunk and MHWEditor
   root X/Y/Z @>=46 全键恒定 maxdrift=0.00000; B-seam 残余 9.8°/4帧=渐变斜率非阶跃。
   悬空节点已清(动作重建会使旧 LMT/TIML ActionNode 指针置空, 每轮重建后要清一次)。
   备份 bak-20261004-115624(改前)/004945/002031(pristine)。
+
+- **✅ entry306 防御帧定稿 = bit28 角度格挡 (user 指出此前"TIML 无角度"结论有误, 已更正)**:
+  角度防御就是 **2026-09-13 研究文档的 PlMotionCommon mFlag bit28(0x10000000) 格挡有效**
+  (运行时实锤: 正面=格挡咚声不掉血不硬直、背面=正常受击, 锥体随朝向; 当时的验证值
+  306184198=0x12400006)。本session 早前"138 项属性无角度字段"的结论错误——w03_00 清单
+  只覆盖用到的属性, bit28 语义记在研究文档里。**bit28 与 b26 互斥(b26 赢则格挡不运行)**,
+  要角度格挡就必须去掉 b26+2048。
+  落地(_valor_sheath_guard_patch.py 原位修补, 不重建动作-节点连线不动): 我们做的
+  TIML::nTimelineParam::PlMotionCommon 改为 **mFlag 单键 f0=0x12400006 整段常开,
+  mTrigger 轨删除**; 并入 user 精剪过的 entry306 TIMLDataNode(其保留 PlMotionInput.191/
+  PlMotionVisual.119/EventCollision00/EventGroup01 四条, 原版带特效+自动纳刀的
+  PlMotionCommon 已被 user 删除, 我们这条作为 PlMotionCommon 类目补位, 无冲突)。
+  端到端导出回读: entry306 motion=214f/loopFrame=50/TIML 5 类, PlMotionCommon mFlag
+  f0=306184198 ✓。user 已调好的三行为(不自动收刀/循环/可接招)不动。
+  注: TIMLDataNode 的 TIML Animation 输入 link_limit=0 可挂任意多条 TIML action 并列导出。
