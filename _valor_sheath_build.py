@@ -3,8 +3,9 @@
     最佳对 (tA=46, tB=131): 手 IK 目标差 2.6/3.4cm, 头 2.3cm, 重心 3.8cm,
     体骨平均 ~8°; tA 诊断线 46 处 V 形谷 (_valor_sheath_scan2d.py)。
 
-  valor_sheath_start = 195[0..38] + 渐变[38..46] + 196[131..169](尾部落位回渐变)
-      = 84 帧; 循环段 = 196[131..169] (38 帧定势), loopFrame=46
+  valor_sheath_start = 195[0..38] + 渐变[38..46] + 整个196(从匹配点131顺播:
+      131..169 -> 绕回 1..130; 跳过 B@0 = 源内部 42.9° 复位帧), 循环 169 帧,
+      loopFrame=46, 末帧 213; B@168->B@1 绕回缝用 8 帧渐变抹平
   valor_sheath_done  = 195[46..143] 前移到 0..97 (A 自身轨迹, 供松手衔接;
       首键 = A@46, 与 start 持有基线一致)
   TIML::nTimelineParam::PlMotionCommon = mFlag 0x04000000(b26)@f0 常开
@@ -31,6 +32,8 @@ SRC_A = "LMT::w07::195_remap"
 SRC_B = "LMT::w07::196_remap"
 JOIN = 46                   # A 侧拼接帧 (2D 扫描实测)
 TB = 131                    # B 侧入点帧
+TB2 = 1                     # B 真实动画起点(跳过 B@0: 源在 B0->B1 有 42.9° 内部阶跃,
+                            #   全时间线唯一一根内部缝, 004/006/007/012 族; B@169->B@0 闭合)
 BW = 8                      # 渐变帧数
 NAME_START = "valor_sheath_start"
 NAME_DONE = "valor_sheath_done"
@@ -56,7 +59,7 @@ assert srcA and srcB and arm, "missing source actions or armature"
 for s, want in ((srcA, FC_A), (srcB, FC_B)):
     last = max(k.co[0] for fc in s.fcurves for k in fc.keyframe_points)
     assert int(round(last)) == want == int(s.freehk.frameCount), (s.name, last)
-END = JOIN + (FC_B - TB)     # start 总长 = 46 + 38 = 84
+END = JOIN + FC_B - TB2     # start 总长 = 46 + 169 = 214 (末键帧)
 print("[src] A last=%d B last=%d curves=%d/%d" % (
     FC_A, FC_B, len(srcA.fcurves), len(srcB.fcurves)), flush=True)
 
@@ -150,13 +153,14 @@ def build_tables(sections):
                 bfc = Bmap.get(key)
                 if bfc is None:
                     continue
-                bt = bval(path, idx, eval_hold(bfc, TB))
+                tgt_frame = sec.get("tgt", TB)
+                bt = bval(path, idx, eval_hold(bfc, tgt_frame))
                 for f in range(lo, hi + 1):
                     w = (f - lo) / float(hi - lo)
                     # 两侧各自变换到输出空间后再 lerp; 不得二次 bval
                     # (曾致位移通道偏移双倍: 尾段漂移 -0.219 -> -0.437)
                     v0 = eval_hold(fc, f)
-                    if mode == "fade_to_bt":
+                    if mode.startswith("fade"):
                         v0 = bval(path, idx, v0)
                     v = v0 * (1 - w) + bt * w
                     tbl[round(f + dstoff)] = v
@@ -236,7 +240,8 @@ tables = build_tables([
     dict(src=srcA, lo=0, hi=JOIN - BW, dstoff=0, mode="copy"),
     dict(src=srcA, lo=JOIN - BW, hi=JOIN, dstoff=0, mode="blend_to_bt"),
     dict(src=srcB, lo=TB, hi=FC_B - BW, dstoff=JOIN - TB, mode="copy"),
-    dict(src=srcB, lo=FC_B - BW, hi=FC_B, dstoff=JOIN - TB, mode="fade_to_bt"),
+    dict(src=srcB, lo=FC_B - BW, hi=FC_B, dstoff=JOIN - TB, mode="fade_to_b0", tgt=TB2),
+    dict(src=srcB, lo=TB2, hi=TB - 1, dstoff=JOIN + FC_B - TB, mode="copy"),
 ])
 start = write_action(NAME_START, tables)
 
@@ -252,7 +257,7 @@ for key, fc in Amap.items():
             tbl[round(f - JOIN)] = k.co[1]
 done = write_action(NAME_DONE, tables_d)
 
-assert int(start.freehk.frameCount) == END == 84, start.freehk.frameCount
+assert int(start.freehk.frameCount) == END == 214, start.freehk.frameCount
 assert int(done.freehk.frameCount) == FC_A - JOIN == 97, done.freehk.frameCount
 try:
     start.freehk.loopFrame = JOIN
@@ -282,7 +287,8 @@ def seam_angles(action, fa, fb):
     return rows
 
 
-for tag, fa, fb in (("head-seam 45->47", 45, 47), ("wrap 83->46", 83, 46)):
+for tag, fa, fb in (("head-seam 45->47", 45, 47),
+                    ("B-seam 82->86", 82, 86), ("wrap 213->46", 213, 46)):
     rows = seam_angles(start, fa, fb)
     print("[seam] %s: worst %s" % (tag, [(round(a, 1), b) for a, b in rows[:4]]), flush=True)
 
@@ -371,7 +377,7 @@ for nm in (NAME_START, NAME_DONE):
     ok = ok and bool(p.valid)
     if a.freehk.tetherFrame is not arm or a.freehk.starType != "LMT_Action":
         print("    !!! %s 元数据错误" % nm); ok = False
-    if int(a.freehk.frameCount) not in (84, 97):
+    if int(a.freehk.frameCount) not in (214, 97):
         print("    !!! %s frameCount=%s" % (nm, a.freehk.frameCount)); ok = False
     single = [fc.data_path for fc in a.fcurves if len(fc.keyframe_points) < 2]
     if single:
