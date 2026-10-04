@@ -902,21 +902,22 @@ std::atomic<float> g_sheathRewriteNohitSec{0.2f};
 // fromIds overwrites this global on every load (init + Shift+F6).
 std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
-// 刚1 gauge accounting (2026-10-04): the rewritten 86 is vanilla 见切, whose
-// handlers move weapon+0x2368 through SEVERAL paths - some via FUN_142122410
-// (GAUGEEVT-visible), some as DIRECT writes (the whiff full-clear: user-
-// verified "成功恢复到 x-0.15, 否则清空" - vanilla design is whiff = lose the
-// bar). Event-level patching cannot catch direct writes, so:
-//   phase 1 (waiting): from the rewrite until the request tracker leaves 86
-//     (5s deadline) - vanilla does whatever, no guard.
+// 刚1 gauge accounting (2026-10-04, user-aligned semantics): the cost is
+// 0.15 UNCONDITIONALLY - hit/parry/whiff irrelevant, the only condition is
+// "the user used the move". The rewritten 86 is vanilla 见切 whose handlers
+// move weapon+0x2368 through SEVERAL paths (GAUGEEVT-visible events AND
+// direct writes like the whiff full-clear), so those writers are BYPASSED,
+// not intercepted:
+//   phase 1 (waiting): from the rewrite until the restore moment - the FIRST
+//     of: the 叮 (bit15 rising) / the move reaching frame 56 (TIML) / a
+//     different set-3 action becoming current (ended or canceled) / the 5s
+//     deadline. Vanilla does whatever in the meantime, no guard.
 //   settle: write gauge = clamp(snapshot - 0.15), expected = same.
 //   phase 2 (guard tail, 1s): FUN_142122410 events feed `expected` (negative
-//     only - chain-move costs stack; positive vanilla rewards like the
-//     success refill stay suppressed per the 0.15-net spec). Any drift
-//     between the real gauge and `expected` = a direct write (the whiff
-//     clear) -> reverted. Tail end writes expected once more (absorbs decay
-//     drift) and disarms.
-// Net cost of a sheathed 刚1 press = 0.15 whether it clangs or whiffs.
+//     only - chain-move costs stack; positive vanilla rewards stay
+//     suppressed per the 0.15-net spec). Any drift between the real gauge
+//     and `expected` = a direct write (the whiff clear) -> reverted.
+// Net cost of a sheathed 刚1 press = 0.15, always.
 std::atomic<std::int32_t> g_gang1Phase{0};  // 0 idle / 1 waiting / 2 guard tail
 std::atomic<float> g_gang1Snapshot{0.0f};
 std::atomic<float> g_gang1Expected{0.0f};
@@ -925,6 +926,15 @@ std::atomic<std::int64_t> g_gang1DeadlineMs{0};
 // arm time - success = the bit RISING during the scope, not its stale value.
 std::atomic_bool g_gang1Bit15AtArm{false};
 constexpr float kGang1GaugeCost = 0.15f;
+// Restore timing (user design, 2026-10-04): the cost is 0.15 UNCONDITIONALLY
+// - hit/parry/whiff irrelevant; the only condition is "the user used the
+// move". Mid-move vanilla writers are bypassed, not intercepted: snapshot x
+// at the rewrite, then restore x-0.15 at the FIRST of (1) the 叮 (bit15
+// rising), (2) the move reaching frame 56 (TIML frames, 60/s), (3) a
+// different set-3 action becoming current (ended/canceled - the move came
+// out, the cost is owed), (4) the 5s deadline. The 1s guard tail then
+// reverts any straggler direct writes (the whiff clear).
+constexpr float kGang1RestoreFrame = 56.0f;
 
 void InjectNoHitLocked(float seconds);
 
@@ -3788,44 +3798,55 @@ void PollGang1GaugeScope() {
     }
     const auto now = static_cast<std::int64_t>(GetTickCount64());
     if (phase == 1) {
-        std::int32_t lastSet = -1;
-        std::int32_t lastId = -1;
-        {
-            std::scoped_lock lock(g_actionMutex);
-            if (g_lastLongSwordAction) {
-                lastSet = g_lastLongSwordAction->actionSet;
-                lastId = g_lastLongSwordAction->actionId;
-            }
-        }
-        if (lastSet == 3 && lastId == 86 &&
-            now <= g_gang1DeadlineMs.load(std::memory_order_relaxed)) {
+        void* ctrl = g_lockedPlayerController;
+        if (!ctrl) {
             return;
         }
-        if (!g_lockedPlayerController) {
-            return;
+        auto* bytes = static_cast<std::uint8_t*>(ctrl);
+        const std::int32_t curSet =
+            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+        const std::int32_t curId =
+            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+        auto* player = bytes - 0x61C8;
+        // Restore trigger 1: the 叮 (event bit 15 rising since arm).
+        bool restore = false;
+        const char* why = "";
+        if (IsReadable(player + 0x8938, sizeof(std::uint32_t)) &&
+            (*reinterpret_cast<const volatile std::uint32_t*>(
+                 player + 0x8938) &
+             0x8000) != 0 &&
+            !g_gang1Bit15AtArm.load(std::memory_order_relaxed)) {
+            restore = true;
+            why = "parry(bit15)";
         }
-        auto* player =
-            static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
-        // TRUE vanilla success = the parry latch (event bit 15 RISING), not
-        // the slash physically connecting - HITATT fires either way, and
-        // un-guarding on it let the whiff clear through (user-tested).
-        // Currently inert: the rewrite's 0.2s no-hit injection excludes the
-        // monster attack upstream of defense arbitration, so the parry (叮)
-        // and bit15 can never happen on the sheathed 刚1 until that
-        // experiment is revisited.
-        if (IsReadable(player + 0x8938, sizeof(std::uint32_t))) {
-            const bool bit15 =
-                (*reinterpret_cast<const volatile std::uint32_t*>(
-                     player + 0x8938) &
-                 0x8000) != 0;
-            if (bit15 && !g_gang1Bit15AtArm.load(std::memory_order_relaxed)) {
-                g_gang1Phase.store(0, std::memory_order_release);
-                std::ostringstream m;
-                m << "GAUGERULE gang1 success-confirm (bit15): parry latched"
-                  << " - vanilla refill owns the gauge";
-                Log(m.str());
-                return;
+        // Trigger 2: the move reached frame 56 (TIML frames, 60/s) - use the
+        // 86 instance's own frame counter so a mid-move cancel freezes it.
+        if (!restore && curSet == 3 && curId == 86) {
+            void* inst = ResolveActionInstance(ctrl, 3, 86);
+            if (inst) {
+                const float frame = *reinterpret_cast<volatile float*>(
+                    static_cast<std::uint8_t*>(inst) + 8);
+                if (frame >= kGang1RestoreFrame / 60.0f) {
+                    restore = true;
+                    why = "frame56";
+                }
             }
+        }
+        // Trigger 3: a DIFFERENT set-3 action is current - 86 ended or was
+        // canceled. (During the initial buffer the controller still shows the
+        // pre-rewrite move, set 1 - no fire.) The move came out, cost owed.
+        if (!restore && curSet == 3 && curId != 86) {
+            restore = true;
+            why = "left86";
+        }
+        // Trigger 4: deadline backstop.
+        if (!restore &&
+            now > g_gang1DeadlineMs.load(std::memory_order_relaxed)) {
+            restore = true;
+            why = "deadline";
+        }
+        if (!restore) {
+            return;
         }
         if (!IsReadable(player + 0x76B0, sizeof(void*))) {
             return;
@@ -3843,8 +3864,9 @@ void PollGang1GaugeScope() {
         g_gang1DeadlineMs.store(now + 1000, std::memory_order_relaxed);
         g_gang1Phase.store(2, std::memory_order_release);
         std::ostringstream m;
-        m << "GAUGERULE gang1 settle: gauge " << before << " -> " << target
-          << " (snapshot " << snapshot << " - " << kGang1GaugeCost << ')';
+        m << "GAUGERULE gang1 settle[" << why << "]: gauge " << before << " -> "
+          << target << " (snapshot " << snapshot << " - " << kGang1GaugeCost
+          << ')';
         Log(m.str());
         return;
     }

@@ -1989,3 +1989,20 @@ MHWNoChunk and MHWEditor
   TIML 防御窗打不开) 大概率让纯去掉= 挨打 —— 真解法在状态侧/TIML 侧, 待排期。
 - 部署 md5 82a5db9c。验证: 打空/砍中收刀刚1 都应稳定 x-0.15 (日志 gang1 settle, 无
   hit-confirm); GAUGEWATCH 继续监视条面蒸发。
+
+### 2026-10-04 (12) 刚1 消耗语义对齐 + 恢复时机四触发 (user 定稿设计)
+
+- user 对齐: **消耗恒 0.15, 与打中/弹反/打空无关, 唯一条件 = 用户出招** (入场门 = 红刃 +
+  气刃 ≥0.15, 已有)。中间写入者众多 → 不拦截, **绕开**: 出招前快照 x, 到时机一次性恢复
+  x-0.15。恢复时机 = 四者取先:
+  1. **叮** (bit15 上升沿, player+0x8938 & 0x8000; arm 时存基线);
+  2. **56 帧** (kGang1RestoreFrame, TIML 60fps → 0.933s; 用 86 实例 +8 帧计数, 取消即冻结
+     不误触发);
+  3. **controller 当前变为其它 set-3 动作** (86 结束/被打断 —— 出招即计费; 注意初段缓冲期
+     controller 还是前一招 set1, 不会误触发);
+  4. 5s 兜底。
+- settle 后 1s 守卫尾窗保留 (负事件记账/正奖励压掉/账面外直接写入 revert) —— 兜住 56 帧
+  之后才落地的 vanilla 清空。
+- 日志 `GAUGERULE gang1 settle[parry(bit15)|frame56|left86|deadline]: gauge a -> b`。
+- 部署 md5 3a7a7b79。验证: 打空收刀刚1 → 约 0.93s 时条 = x-0.15 并保持; 接连段照常再扣;
+  HITATT 不再影响任何行为。
