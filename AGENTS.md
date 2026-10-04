@@ -2018,3 +2018,8 @@ MHWNoChunk and MHWEditor
   快照确定性先于起手扣费; phase==1 跳过/phase==2 重武装; LS 硬门控保留; probe 构建需
   #ifndef 包裹 —— gang1 全局在 probe 排除区)。ApplySheathRewrite 侧武装删除。
 - 部署 md5 51cd4c4b。**测试前提: 训练器气刃功能必须关** (只留锁红刃), 否则 -0.15 无法停留。
+
+- **✅ user-verified (2026-10-04)**: 训练器气刃功能关闭后, 收刀/持刀 86 (刚1) 打空/砍中
+  均稳定结算 x-0.15。刚1 气刃链完结 (武装 DoAction 统一入口 + 四触发恢复 + 1s 守卫尾窗,
+  最终形态 md5 51cd4c4b)。遗留备忘: 若未来要收刀刚1 真弹反 (叮+回满), 需解决 nohitSec
+  注入与防御仲裁互斥问题 (09-25 open question, 状态侧/TIML 侧)。
