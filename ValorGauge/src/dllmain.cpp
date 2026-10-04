@@ -1329,6 +1329,8 @@ struct SheathCounterRule {
     bool prev = false;
     bool dispatchBased = false; // drule: fire on rejected type-6 dispatch
     bool armorBased = false;    // arule: fire on connected hit (armor window)
+    bool keyBased = false;      // krel: fire on sheathe-key release (down->up)
+    unsigned vk = 0;            // krel: watch key (VK_XBUTTON2=6 mouse side-up)
     // Per-rule one-shot: re-armed when the watched action id changes. The
     // global g_clangLatch must NOT gate these rules - it only re-arms on
     // 86/101/102, so a single fire would block every later sheathe guard.
@@ -2204,8 +2206,8 @@ void SheathArmorHitCheck(long long attacker, long long defenderCtx) {
         return;
     }
     const std::uint32_t id = cur.actionId;
-    const SheathCounterRule* match = nullptr;
-    for (const auto& rule : g_sheathRules) {
+    SheathCounterRule* match = nullptr;
+    for (auto& rule : g_sheathRules) {
         if (rule.armorBased && SheathIdsContain(rule.duringIds, id)) {
             match = &rule;
             break;
@@ -2240,10 +2242,14 @@ void SheathArmorHitCheck(long long attacker, long long defenderCtx) {
             }
         }
     }
-    if (g_clangLatch) {
+    // One interrupt per hold instance (fired/lastActId, re-armed when the
+    // action id changes). g_clangLatch must NOT gate this: it only re-arms
+    // on 86/101/102, so a second hold after one hit would stay blocked.
+    if (match->fired && id == match->lastActId) {
         return;
     }
-    g_clangLatch = true;
+    match->fired = true;
+    match->lastActId = id;
     g_forceSet = match->toSet;
     g_forceId = match->toId;
     std::ostringstream m;
@@ -2901,7 +2907,9 @@ bool InstallPoolQueryHook() {
         Log("FX notify hook installed (FXNOTIFY logging)");
     }
 #endif
+#ifndef VALOR_PROBE
     ApplySheatheMotionPatch();
+#endif
     ValidateMemoryMap();
     return true;
 }
@@ -3799,6 +3807,28 @@ void LoadSheathCounterConfig() {
             } else {
                 Log("Sheath counter: malformed arule line - skipped");
             }
+        } else if (kind == "krel") {
+            // Key-release rule: while inside a watched action, releasing the
+            // watched key (down->up edge) forces the switch. Fires the plain
+            // armed-force path (no counter window / no no-hit injection -
+            // the sheathing follow-up needs no protection), no latch.
+            std::string ids;
+            unsigned long vk = 0, toSet = 0, toId = 0;
+            if (ss >> ids >> vk >> toSet >> toId) {
+                SheathCounterRule rule;
+                if (ParseIdList(ids, rule.duringIds)) {
+                    rule.keyBased = true;
+                    rule.vk = static_cast<std::uint32_t>(vk);
+                    rule.toSet = static_cast<std::uint32_t>(toSet);
+                    rule.toId = static_cast<std::uint32_t>(toId);
+                    g_sheathRules.push_back(rule);
+                    ++ruleCount;
+                } else {
+                    Log("Sheath counter: bad id list in krel line - skipped");
+                }
+            } else {
+                Log("Sheath counter: malformed krel line - skipped");
+            }
         } else if (kind == "bluesim") {
             std::string ids;
             if (ss >> ids) {
@@ -4315,6 +4345,30 @@ void PollSheatheCounter() {
 
     // 1) Config rules: rising edge on the rule's event bit.
     for (auto& rule : g_sheathRules) {
+        if (rule.keyBased) {
+            // krel: key-release edge while inside the watched action.
+            // The armed force is consumed by TryQueuedForceWrite on the
+            // game thread; deliberately no counter window (the sheathing
+            // follow-up needs no no-hit) and no latch (the edge IS the
+            // one-shot; a rejected force retries on the next press).
+            if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
+                rule.prev = false;
+                continue;
+            }
+            const bool down = rule.vk != 0 &&
+                (GetAsyncKeyState(static_cast<int>(rule.vk)) & 0x8000) != 0;
+            const bool release = rule.prev && !down;
+            rule.prev = down;
+            if (release && !g_forceArmed.exchange(true)) {
+                g_forceSet = rule.toSet;
+                g_forceId = rule.toId;
+                std::ostringstream m;
+                m << "SHEATHKREL: key " << rule.vk << " released during 3:"
+                  << id << " - force " << rule.toSet << ':' << rule.toId;
+                Log(m.str());
+            }
+            continue;
+        }
         if (rule.dispatchBased || rule.armorBased) {
             continue; // not bit rules (drule fires in the dispatch hook,
                       // arule in the damage hook); their eventBit is garbage

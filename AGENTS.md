@@ -1724,3 +1724,25 @@ MHWNoChunk and MHWEditor
   bit28 格挡整段)。后续通路: 正面被格挡 → 反应管理器 +0x769=0x100(研究文档格挡反应
   入口)可作代码侧格挡成功信号; 背面受击 → 正常受击管线 → fsm 100 打断路线可用。
   突刺(105)角度防御 = 同一个 bit28 单字段改动(9-13 已验证过一次), 待接"引到新动作"。
+
+### 2026-10-04 勇气纳刀代码侧: krel 规则(松键收刀) + arule 复用(被打打断) (待局内验证)
+
+- **需求**: 持 3:98 期间 ①被命中 → 强制 fsm 100(受击) ②松开纳刀键(鼠标侧键上) →
+  强制 3:6 收刀; 其余不干预。98 以后可能换节点 → 动作 id 全部走配置。
+- **实现 = sheath-counter 规则系统扩一个模式**, 两条规则纯配置:
+  - `arule 98 3 100` — 现成 arule(DmgCalc 连接命中 + attacker≠player → arm 强制),
+    自带致死锁血(HP 钳 1)。**修了一个真 bug: arule 单发锁原是 g_clangLatch, 而该锁只在
+    86/101/102 复位 → 第一次被打打断后, 之后所有持刀被打永久失效**; 换成按动作实例的
+    fired/lastActId(id 变化即重新武装), 与 bit 规则同模式。
+  - `krel <ids> <vk> <toSet> <toId>`(新) — PollSheatheCounter 里 GetAsyncKeyState
+    down→up 边沿 → 纯 arm(g_forceSet/Id+g_forceArmed), **故意不走 OpenCounterWindow**
+    (纳刀收刀不需要 no-hit 注入), 无 latch(边沿即单发, force 被拒则下次按压重试)。
+    侧键上=XBUTTON2 vk=6, 侧键下=5。
+  - 强制执行走既有 TryQueuedForceWrite(游戏线程 getter hook), 配置追加于
+    ValorGauge.sheath-counter.txt(旧实验规则保持注释)。
+- **部署状态**: DLL 新版本 md5 10ec5fc1 在 ValorGauge/build/Release/ 待拷
+  (游戏运行中 DLL 被锁, 关游戏后拷到 nativePC/plugins/), 配置规则已追加。
+  顺手修了 ValorProbe 目标的既有 ifdef 失衡(ApplySheatheMotionPatch 调用点)。
+- **已知边界**: arule 以 attacker≠player 判"被打", 联机时队友被打会误触发
+  (日志有 SHEADRULE hit a2=... player=... 行, a2==player 确认后可收紧);
+  致死钳 1 与"防秒杀"后续设计共用入口。
