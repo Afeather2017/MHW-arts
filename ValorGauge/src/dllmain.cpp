@@ -3856,6 +3856,57 @@ void PollGang1GaugeScope() {
     }
 }
 
+// GAUGEWATCH (2026-10-04): per-frame direct-write detector for the visible
+// spirit bar (weapon+0x2368). FUN_142122410 events are logged by GAUGEEVT;
+// everything ELSE that moves the bar (见切 whiff clears, hit refills, the
+// stepped decay) is invisible to it - the user's "打着打着空了" drain was
+// exactly such a writer (0.9 -> 0.52 -> 0 with zero event lines). Poll each
+// game frame, log any |delta| >= 0.02 with the current action. Game thread.
+float g_gaugeWatchLast = -1.0f;
+
+void PollGaugeWatch() {
+    if (!g_lockedPlayerController || !ModWeaponActive()) {
+        return;
+    }
+    auto* player =
+        static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x2368, sizeof(float))) {
+        return;
+    }
+    const float cur =
+        *reinterpret_cast<const volatile float*>(weapon + 0x2368);
+    if (g_gaugeWatchLast < 0.0f) {
+        g_gaugeWatchLast = cur;
+        return;
+    }
+    const float delta = cur - g_gaugeWatchLast;
+    g_gaugeWatchLast = cur;
+    if (delta < 0.02f && delta > -0.02f) {
+        return;
+    }
+    static std::atomic_uint32_t watchLogs{0};
+    if (watchLogs.fetch_add(1, std::memory_order_relaxed) >= 200) {
+        return;
+    }
+    std::int32_t actSet = 0;
+    std::int32_t actId = 0;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            actSet = g_lastLongSwordAction->actionSet;
+            actId = g_lastLongSwordAction->actionId;
+        }
+    }
+    std::ostringstream m;
+    m << "GAUGEWATCH d=" << (delta >= 0.0f ? "+" : "") << delta << " g="
+      << (cur - delta) << "->" << cur << " act=" << actSet << ':' << actId;
+    Log(m.str());
+}
+
 void PollGaugeBeginRules(const void* entity) {
     if (g_gaugeRules.empty()) {
         return;
@@ -3907,6 +3958,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     MotionTraceTick(entity);
     PollGaugeBeginRules(entity);
     PollGang1GaugeScope();
+    PollGaugeWatch();
 #endif
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE
