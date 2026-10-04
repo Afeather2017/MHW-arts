@@ -1037,6 +1037,14 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
     // drawn-state locomotion never emits DoAction requests, so a set-1
     // predecessor means sheathed. (weapon+0xC71 read 0 while sheathed in-game
     // - SHEATHPROBE keeps printing it to pin its real semantics.)
+    // ALSO sheathed: the sheathe ANIMATION itself (set-3, tracked as the last
+    // action while it plays). 9 = the common sheathe (log-proven: after 9 ->
+    // 1:15/1:8/1:4 sheathed locomotion x651; R2 during it was blocked and the
+    // vanilla draw popped out mid-sheathe - the user's "1:8 -> 1:4 transition"
+    // feel), 6 = the valor-hold release sheathe. Deliberately NOT 3:0/3:1/3:2
+    // (drawn idle/walk/run: 3:0 -> 3:11 x347 is the drawn R2, correct vanilla)
+    // and not 3:5 (rare, semantics unpinned - SHEATHSEEN watches it).
+    static constexpr std::uint32_t kSheatheActionIds[] = {9, 6};
     std::int32_t lastSet = -1;
     std::int32_t lastId = -1;
     {
@@ -1049,7 +1057,13 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
     const auto c71 = static_cast<int>(*(weapon + 0xC71));
     const auto level = *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
     const auto gauge = *reinterpret_cast<const volatile float*>(weapon + 0x2368);
-    if (lastSet != 1) {
+    const bool sheathed =
+        lastSet == 1 ||
+        (lastSet == 3 &&
+         std::find(std::begin(kSheatheActionIds), std::end(kSheatheActionIds),
+                   static_cast<std::uint32_t>(lastId)) !=
+             std::end(kSheatheActionIds));
+    if (!sheathed) {
         static std::atomic_uint32_t probeLogs{0};
         if (probeLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
             std::ostringstream m;
