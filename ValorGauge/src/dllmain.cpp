@@ -1222,6 +1222,7 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
                     current.actionId == 101 || current.actionId == 102)) {
                     g_clangLatch = false;
                 }
+
                 const bool normalAction = IsNormalModeChargingAction(current) &&
                                           ModWeaponActive();
                 if (g_valorMode.load() && normalAction) {
@@ -4371,6 +4372,27 @@ void PollSheatheCounter() {
             }
             const bool down = rule.vk != 0 &&
                 (GetAsyncKeyState(static_cast<int>(rule.vk)) & 0x8000) != 0;
+            // Diagnosis: the sheathe key vk is a guess (side-up = XBUTTON2?).
+            // While in-hold, scan ALL vks and log whichever are down - the
+            // real key appears by name even if the driver remaps it.
+            static std::atomic_uint32_t krelDbg{0};
+            if (krelDbg.load() < 8 && g_sheathMineLogCount.load() < 400) {
+                krelDbg.fetch_add(1);
+                std::ostringstream m;
+                m << "SHEATHKRELDBG act=3:" << id << " down=[";
+                bool first = true;
+                for (unsigned vkScan = 2; vkScan < 255; ++vkScan) {
+                    if ((GetAsyncKeyState(static_cast<int>(vkScan)) & 0x8000)
+                            != 0) {
+                        if (!first) m << ',';
+                        m << vkScan;
+                        first = false;
+                    }
+                }
+                m << "] rule.vk=" << rule.vk << " down=" << down
+                  << " prev=" << rule.prev;
+                Log(m.str());
+            }
             const bool release = rule.prev && !down;
             rule.prev = down;
             if (release && !g_forceArmed.exchange(true)) {
@@ -4384,6 +4406,15 @@ void PollSheatheCounter() {
             continue;
         }
         if (rule.dispatchBased || rule.armorBased) {
+            // drule/arule fire in their own hooks; re-arm here on leaving
+            // the watched set (sentinel lastActId), so same-id re-entry
+            // (98 -> 100 -> 98) counts as a new instance and fires again.
+            if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
+                rule.lastActId = 0xFFFFFFFFu;
+            } else if (id != rule.lastActId) {
+                rule.fired = false;
+                rule.lastActId = id;
+            }
             continue; // not bit rules (drule fires in the dispatch hook,
                       // arule in the damage hook); their eventBit is garbage
         }
