@@ -1746,3 +1746,12 @@ MHWNoChunk and MHWEditor
 - **已知边界**: arule 以 attacker≠player 判"被打", 联机时队友被打会误触发
   (日志有 SHEADRULE hit a2=... player=... 行, a2==player 确认后可收紧);
   致死钳 1 与"防秒杀"后续设计共用入口。
+
+- **✅ 局内实测反馈 + drule 补全**: 日志证实持刀 id=3:98 正确、规则加载 2 条; 正面被打
+  = dispatch REJECTED(格挡否决,无伤害连接,arule 天然不触发 ✓) **但引擎加载 {3,37}
+  格挡反应把保持态踢出 98**(松键规则因此没机会触发)。补全: 配置加
+  `drule 98 3 100`(rejected dispatch -> 打断进 100; drule 分支本来就在, 纯配置,
+  Shift+F6 热重载即生效); 代码修 drule 的 g_clangLatch 死锁门(同 arule, 换
+  fired/lastActId 按实例复位) + drule 触发时写 reassert(吞 {3,37} 1.2s, 保持态不
+  经过 37 直接落 100)。新 DLL md5 4054ea24。三规则现状: arule(背面真命中)/
+  drule(正面格挡否决)/krel(松键收刀), 全部围绕 3:98。

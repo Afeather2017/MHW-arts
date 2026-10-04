@@ -2342,16 +2342,30 @@ std::int32_t* __fastcall SheathDispatchHook(std::int64_t* a1, std::int64_t* a2) 
     if (!rejected) {
         return result;
     }
-    for (const auto& rule : g_sheathRules) {
+    for (auto& rule : g_sheathRules) {
         if (!rule.dispatchBased || !SheathIdsContain(rule.duringIds, id)) {
             continue;
         }
-        if (g_clangLatch) {
+        // Per-instance latch (g_clangLatch only re-arms on 86/101/102 and
+        // would dead-stop every later frontal hit).
+        if (rule.fired && id == rule.lastActId) {
             break;
         }
-        g_clangLatch = true;
+        rule.fired = true;
+        rule.lastActId = id;
         g_forceSet = rule.toSet;
         g_forceId = rule.toId;
+        // Swallow the engine's {3,37} guard-reaction load briefly so the
+        // hold does not flicker through 37 before the force lands.
+        g_sheathReassertSet.store(
+            static_cast<std::int32_t>(rule.toSet), std::memory_order_relaxed);
+        g_sheathReassertId.store(
+            static_cast<std::int32_t>(rule.toId), std::memory_order_relaxed);
+        g_sheathReassertUntilMs.store(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                    .count() + 1200,
+            std::memory_order_relaxed);
         std::ostringstream m;
         m << "SHEATHDRULE: dispatch-rejected hit during 3:" << id
           << " - force " << rule.toSet << ':' << rule.toId;
