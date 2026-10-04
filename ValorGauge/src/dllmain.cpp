@@ -517,7 +517,7 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch, HkPostEventId,
     HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat,
-    HkGaugeAdd, HkFxNotify, HkCount
+    HkGaugeAdd, HkFxNotify, HkNegrEvent, HkCount
 };
 
 struct HookSig {
@@ -604,12 +604,21 @@ constexpr HookSig kHookSigs[HkCount] = {
       0xFA, 0xE8, 0x00, 0x00, 0x00, 0x00, 0xF3, 0x0F, 0x10, 0x05, 0x00, 0x00, 0x00, 0x00, 0x48,
       0x8D, 0x05},
      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxx????xxx", 0xADD670},
+    // negrEvent = FUN_1421038B0 weapon-side handler of interaction event
+    // type 8: the arbitration-visible negation delivery (叮). Prologue is a
+    // stock spill + two call/jcc rel32 pairs; the "ff 50 08 83 f8 08" mid-run
+    // (virtual GetType + cmp eax,8) is the discriminating run.
+    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B,
+      0xFA, 0x48, 0x8B, 0xD9, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x07,
+      0x48, 0x8B, 0xCF, 0xFF, 0x50, 0x08, 0x83, 0xF8, 0x08, 0x0F, 0x85, 0x00,
+      0x00, 0x00, 0x00, 0x48, 0x8B, 0x7F, 0x18, 0x48, 0x8B, 0xCF, 0xE8, 0x00},
+     "xxxxxxxxxxxxxxxxx????xxxxxxxxxxxxxx????xxxxxxx??", 0x21038B0},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch", "postEventId",
     "soundPost", "postEventName", "propInt", "propBool", "propFloat",
-    "gaugeAdd", "fxNotify",
+    "gaugeAdd", "fxNotify", "negrEvent",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -2247,6 +2256,69 @@ void* __fastcall FxNotifyHook(void* emitter, std::uint32_t id,
     return result;
 }
 
+// FUN_1421038B0: weapon-side handler of interaction event type 8 - the
+// arbitration-visible negation delivery (叮). Only reached when a hit is
+// nullified AS an interaction; query-level exclusions (pool no-hit) never
+// produce it. Inside, byte [weapon+0x3168] routes to the family processors
+// (0 -> FUN_142125060 见切 id==86, 1 -> FUN_142124f70 居合 id 101/102) which
+// write the once-latches +0x2399/+0x2CED + FX 0x7D4. Passive log of every
+// local-player arrival with the selector + post-call latch states answers
+// the generalization question: do arbitrary moves with authored TIML no-hit
+// windows produce event 8 at all (latches stay 0 on non-family ids)?
+void (__fastcall* g_originalNegrEvent)(void*, void*) = nullptr;
+
+void __fastcall NegrEventHook(void* weapon, void* event) {
+    if (g_originalNegrEvent) {
+        g_originalNegrEvent(weapon, event);
+    }
+    // Diagnostic build: log the first 40 arrivals UNFILTERED with the full
+    // pointer identity (handler weapon vs *(player+0x76B0) vs owner) - the
+    // own==weapon filter silently ate every call in the first deployment.
+    static std::atomic_uint32_t logCount{0};
+    if (!weapon ||
+        logCount.load(std::memory_order_relaxed) >= 40) {
+        return;
+    }
+    logCount.fetch_add(1, std::memory_order_relaxed);
+    auto* wp = static_cast<const std::uint8_t*>(weapon);
+    const unsigned sel =
+        IsReadable(wp + 0x3168, 1) ? wp[0x3168] : 0xFF;
+    const unsigned latchEvade =
+        IsReadable(wp + 0x2399, 1) ? wp[0x2399] : 0xFF;
+    const unsigned latchIai =
+        IsReadable(wp + 0x2CED, 1) ? wp[0x2CED] : 0xFF;
+    void* owner = IsReadable(wp + 0xB40, sizeof(void*))
+                      ? *reinterpret_cast<void* const*>(wp + 0xB40)
+                      : nullptr;
+    void* curWeapon = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lockedPlayerController) {
+            auto* player =
+                static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+            if (IsReadable(player + 0x76B0, sizeof(void*))) {
+                curWeapon = *reinterpret_cast<void**>(player + 0x76B0);
+            }
+        }
+    }
+    std::ostringstream m;
+    m << "NEGREVT weapon=0x" << std::hex << reinterpret_cast<std::uintptr_t>(weapon)
+      << " owner=0x" << reinterpret_cast<std::uintptr_t>(owner)
+      << " curWpn=0x" << reinterpret_cast<std::uintptr_t>(curWeapon)
+      << " match=" << (weapon == curWeapon ? 1 : 0) << std::dec
+      << " sel=" << static_cast<unsigned>(sel)
+      << " latch2399=" << static_cast<unsigned>(latchEvade)
+      << " latch2ced=" << static_cast<unsigned>(latchIai);
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            m << " act=" << g_lastLongSwordAction->actionSet << ':'
+              << g_lastLongSwordAction->actionId;
+        }
+    }
+    Log(m.str());
+}
+
 bool LockedPlayerActionChargesValor() {
     std::scoped_lock lock(g_actionMutex);
     if (!g_lastLongSwordAction) {
@@ -3186,6 +3258,14 @@ bool InstallPoolQueryHook() {
         Log("FX notify hook failed");
     } else {
         Log("FX notify hook installed (FXNOTIFY logging)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkNegrEvent]),
+                      reinterpret_cast<void*>(&NegrEventHook),
+                      reinterpret_cast<void**>(&g_originalNegrEvent)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkNegrEvent])) != MH_OK) {
+        Log("Negation event hook failed");
+    } else {
+        Log("Negation event hook installed (NEGREVT logging)");
     }
 #endif
 #ifndef VALOR_PROBE

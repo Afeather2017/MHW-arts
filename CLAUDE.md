@@ -410,11 +410,9 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   re-adding ValorGauge.dll during research builds and the sibling check stood
   the probe down (two wasted rounds). Auto-install removed from both targets;
   deploy explicitly, one DLL at a time.
-- (2026-09-29) 部署文件名损坏事故: plugins 里的 DLL 被改名成 `ValorGauge.d ll`
-  (d 后面带空格, 扩展名不再是 .dll) → Stracker 扫描 *.dll 加载不到 → 全部功能
-  无反应 (F6/叮触发链/overlay 全灭), 症状像"DLL 关了功能"。诊断特征: **所有功能
-  死 + ValorGauge.log 时间戳停在旧会话 = DLL 根本没被加载, 先查文件名/加载状态,
-  再查代码**。已改回 `ValorGauge.dll` (md5 92343850 未变, 无需重部署)。
+- (2026-10-04 更正) **所有带空格的文件名都是用户刻意改的** (如 `w03_00.lm t`、
+  `Monster Hunter World v...+.exe`) — 不是损坏事故, 不要当异常报告, 也不要"修复"。
+  (早前记录的 09-29 "ValorGauge.d ll 改名事故"经用户否认, 原文已删。)
 
 ### 2026-09-19 FSM 驱动链: how zero-inbound nodes (居合 101/102) are entered
 
@@ -1590,9 +1588,554 @@ MHWNoChunk and MHWEditor
   是崩因**(具体哪个 type 未继续二分, .095 族已断开留在树里无害); 095_remap 动作
   无辜。同时 105 确认 **b26 窗口边界真实生效**(f60 后被打飞, "毒化整段"不成立,
   306 教训限其特定布局)。
-- **✅ 终局部署 md5 <见部署日志>**: 目标配置重建在旧 TIML 上 = PMC.413 mFlag
+- **✅ 终局部署 md5 b97d9d953ec6ebd31259dc1049e83b92**: 目标配置重建在旧 TIML 上 = PMC.413 mFlag
   f0=0x05000000(b26+b24, 原生霸体保留) → f60=0x01000000(纯霸体) + mTrigger
   2048@f0(新轨) + PIN.197 全轨 [(0,0),(100,原生终值)] f100 开放接招。
   动作=095_remap(121f)。待局内终验: 无敌窗边界/接招窗/崩溃消失。
   blend 备份 bak-20261003-204858-pre-312-goal。`.095` TIML family 崩因追查
   (哪一步 type 毒) 挂起, 要查就走 dump 路线。
+
+- **✅ 用户终验完成**: 312 终局配置局内通过(无敌窗/接招窗/不崩)。**残留一次不可复现
+  崩溃**, 日志证据指向 10-01 实验态 DLL 干预层: sheath-counter 的 `rule 98,99,100,37
+  250 3 77`(强切77) + `bluesim 98,100`(每帧写 +0x2399/0x2CED/0x23A0/0x23A4+FX, 对旧
+  312 调的实验) —— 最后会话日志正止于 rule 强切 3:77 的 FRAMETICK/CLK。已把两条规则
+  注释停用(mine 被动记录保留), Shift+F6 或重启生效; 恢复=去行首 #。
+  备份 ValorGauge.sheath-counter.txt.bak-20261003。若再崩: 先导
+  enable_mhw_dumps.reg(E:\MHW-arts) 再复现, dump 落 E:\MHW-arts\crashdumps。
+
+- **✅ 312 定稿 (user 选定"维持现状")**: mFlag = f0=0x04000000(b26) → f60=0x00000000,
+  无效的 b24 死位清除(TIML 与实际表现一致: 60帧无敌后正常受击; TIML 霸体本就
+  不抗击飞, 与玩家SA同语义)。mTrigger 2048@f0 / PIN f100 接招窗不变。
+  部署 md5 见本次部署(312final); blend 备份 *-pre-b24clean。
+  不可复现崩溃维持挂起(实验层已停用), 复现路径=enable_mhw_dumps.reg。
+
+### 2026-10-03 ValorLS(勇太4.2)逆向定案: 动作转换=纯数据, 防御=防御帧, DLL 零注入 (工具 _valorls_*.py)
+
+- **DLL(3 钩子旧版/.c; 4.2 交付版 9 钩子, _valorls_42_hooks.py 反汇编枚举)**: 帧tick/
+  动作请求处理器(双版本地址 0x140AE9EA0/0x141265770)/斩味函数(0x142134B70/0x142141A60,
+  detour 只截参数, 绝回触发时重放 +10 斩味)+0x1419C5820(截 [rdx+0x20] 斩味浮点)+
+  0x141CE1670(顺手充能)+0x14119FAA0(动作 98/99/69 事件: 99→转狩技)+**0x14213FA12 直接
+  NOP 8 字节**。**全部游戏内存写入仅 weapon+0x2370/0x2374/0x2388/0x2390/0x239A + 请求槽
+  {3,id}**; 无伤害钩子/无 HP 写/无防御写(吸血=游戏特性, user 确认)。钓鱼四 art 纯
+  强制请求槽 {3,94/111/106/104}; +0x2388=90 需 motion==0xC153(entry339) 才写=回气激活。
+- **保护=防御帧(TIML, 自带 LMT)**: 原版见切/居合家族 i-frame 在 PlMotionInput mFlag1
+  b26(0x04001000→0x0C003000)+PlMotionCommon mTrigger 2048; mod 自定义 entry(339=art106
+  的 motion, 74 帧窗)同配方; 加强签名 0xCFFC10CC/0xCFFC30CC(b26+b24+…)用于 106/107/110/162;
+  entry140(见切槽改 13f GP) PlMotionCommon mFlag f0=0x07000000(b26+b25+b24) 全程覆盖;
+  **140↔170 TIML 整体互换**=槽位复用。FSM 条件全原版属性(含 条件631 見切り回避成功後の攻撃ヒット)。
+- **特殊纳刀保持机制(98/99→LMT306)**: ① entry306 原生 TIML loopStartPoint=129 动画不结束
+  →动作不结束; ② 动作 98 触发的线程 10Hz 轮询, motion==0xC132 期间反复写
+  **mgr+0x858=1(int)+mgr+0x85C=1.0f**(mgr=*(player+0x7D20)=FSM 管理器条件成员存储,
+  指针链 {0x50,0x7D20,0x858}; motion id 链 {0x50,0x468,0xE9C4} 与我们研究一致) 钉死
+  原版衰减; ③ b26 窗 f75 起无关闭键穿透循环; ④ 松键=FSM 条件"押してない"退链接火→动作
+  切换→线程自然退出。DLL 松键分支只清边沿锁存。
+- 工程结论: TIML 属性清单(138 项)无防御角度字段, b26=全向; "前180°"只能靠 FSM/代码侧。
+  勇气条/狩技条是 DLL 自有浮点(getyqadd/getskadd 可查), 每招上限 420/830/580/1250。
+
+### 2026-10-04 勇气纳刀动作构建 (valor_sheath_start/done, _valor_sheath_build.py, ALL GREEN 已存盘)
+
+- **拼接点由 2D 姿态扫描实测**(_valor_sheath_scan2d.py, 195×196 全帧): 最佳对
+  **(tA=46, tB=131)** — 手 IK 目标差 247=2.6cm/248=3.4cm, 头 2.3cm, 重心 3.8cm,
+  体骨平均 ~8°; tA 诊断线 46 处 V 谷(user 目测"50帧后"≈实测 46)。**指标必须含
+  247/248 手部目标位置**(体骨 FK 差被手 IK 运行时解算部分掩蔽); bone.isdigit() 对
+  "MhBone_NNN" 恒 False 是第一版扫描全错的根因。tB 定 131 → 循环段=196[131..169]
+  (38 帧定势); B@0/B@169 自循环有 4 根附属骨(053/056/060/063) 12-20° 不闭合。
+- **产物(MASTER MHW-Valor.blend, 全部过 LMTActionParser valid=True, 81 变换轨+Root 双轨,
+  与已局内验证迁移动作同签名)**:
+  - `valor_sheath_start` **84f** = 195[0..38] + 渐变[38..46] + 196[131..169]
+    (尾 8 帧回渐变到 B@131 → 循环回绕无缝; 接缝复检 head/wrap worst 3.5°/2.3°);
+    位移通道 B 段加 A@46-B@131 偏移(rootY -0.2187 连续, 与 done 首键一致);
+    247 符号翻转对齐; freehk.loopFrame=46(**仅记录, 导出生效在 entry 节点 loopFrame=46,
+    LMTEntryNode.construct 写头部**)。
+  - `valor_sheath_done` **97f** = 195[46..143] 前移(A 自身轨迹, 松手衔接; 供备选完成段)。
+  - `TIML::nTimelineParam::PlMotionCommon`(TIML action): mFlag b26(0x04000000)@f0 常开
+    + mTrigger 2048@f0, 无关闭键=穿透循环 —— 用户已验证配方(见切/312 同款, 312 局内通过);
+    **TIML 无角度字段, b26=全向**, "前180°"归 FSM/代码侧。
+  - 编码: TIML action 级 `freehk.timelineParamRaw="m48D6114F"`(PlMotionCommon);
+    fcurve path=`FreeHKTiml.m<hash>`(mFlag=m08FD20A6, mTrigger=m99897C43), bigFlags 拆
+    low16/high16 两条(array_index 0/1, 键帧必须对齐), 导出侧 ExportTIMLTypesNode 回读已验证。
+  - 树 w03_00 已建 3 个未接线节点(2×LMTActionNode+1×TIMLActionNode), **接线时:
+    entry 的 "LMT Animation"←动作节点, "TIML Data"←TIML 节点, entry.loopFrame=46**。
+- 坑: ①object 层裸路径 "location"/"rotation_quaternion" 不含点, is_loc/is_rot 要单列;
+  ②动作段截取后骨的 4 通道必须齐全(缺通道→导出器 Quaternion 空序列崩, 坑⑭家族),
+  done 全曲线强制补 0/97 边界键(eval_hold 越界取端点保持, bezier 外推会漂);
+  ③min2 兜底键方向: 末帧单键向前补(f0-1), 否则顶爆 frameCount; ④四元数比较必须
+  2*acos(|dot|), 逐分量差值被 q/-q 双覆盖污染(虚报 38°→实为同姿态)。
+  blend 备份 bak-20261004-004945。GUI 开着需 File>Revert 后再接线(坑⑭)。
+
+- **✅ 根位移实测更正 (user 确认设计)**: 195_remap 根位移 0→-0.2185m **43 帧即完成**,
+  之后全程持平(残余 <3mm); 196_remap 三轴恒 0(纯静止)。2026-10-01(2) 记的
+  "195 后撤 -1.44m"是旧量测, 作废。valor_sheath_start 46 帧后根恒定 -0.2187
+  (循环段零位移, 回绕静止→静止), done 残余漂移 2mm 级 —— "50 帧后玩家不移动"
+  由现有产物自然满足, 无需重建。
+
+- **✅ 尾段位移双变换 bug 修复 (user 抓出, 按其公式验证)**: user 给出精确构造式
+  "196 段每个关键帧 = 接点(x,y) + 196 当前帧位移"(196 静止 → 恒等于接点位置)。
+  实查 valor_sheath_start 根 Y 键 [77..84] = -0.246→-0.437: fade_to_bt 把"已变换目标"
+  与"B 原值"直接 lerp 后又叠一次 bval → 位移通道偏移被加两次(每圈尾漂 0.22m + 回绕瞬移)。
+  修复 = 两侧各自 bval 到输出空间后再 lerp, 不再二次叠加。新增公式验证: 接点后
+  root X/Y/Z 全键 maxdrift=0.00000, ALL GREEN 重存。旧节点(动作重建后指针悬空)已清,
+  树里保留 3 个未接线节点(LMT Action Node.003/.004 + TIML Action Node.010)。
+  备份 bak-20261004-004945(修复前 specimen)/002031(pristine)。
+
+- **✅ 循环段扩至整个 196 (user: "动画不够长")**: start = 195[0..38]+渐变[38..46]+
+  196 全程(131..169 -> 绕回 1..130), **214 帧, 循环 169 帧(≈2.8s), loopFrame=46**。
+  新发现: **196 源内部 B0->B1 有 42.9° 复位帧阶跃**(004/006/007/012 族, 全时间线唯一
+  内部缝; B@169->B@0 反而闭合) → 循环窗口跳过 B@0, 回绕渐变目标改 B@1(608 模式带
+  tgt 参数)。回绕 B@130->B@131 为源连续帧天然无缝(worst 1.1°)。接点公式复验:
+  root X/Y/Z @>=46 全键恒定 maxdrift=0.00000; B-seam 残余 9.8°/4帧=渐变斜率非阶跃。
+  悬空节点已清(动作重建会使旧 LMT/TIML ActionNode 指针置空, 每轮重建后要清一次)。
+  备份 bak-20261004-115624(改前)/004945/002031(pristine)。
+
+- **✅ entry306 防御帧定稿 = bit28 角度格挡 (user 指出此前"TIML 无角度"结论有误, 已更正)**:
+  角度防御就是 **2026-09-13 研究文档的 PlMotionCommon mFlag bit28(0x10000000) 格挡有效**
+  (运行时实锤: 正面=格挡咚声不掉血不硬直、背面=正常受击, 锥体随朝向; 当时的验证值
+  306184198=0x12400006)。本session 早前"138 项属性无角度字段"的结论错误——w03_00 清单
+  只覆盖用到的属性, bit28 语义记在研究文档里。**bit28 与 b26 互斥(b26 赢则格挡不运行)**,
+  要角度格挡就必须去掉 b26+2048。
+  落地(_valor_sheath_guard_patch.py 原位修补, 不重建动作-节点连线不动): 我们做的
+  TIML::nTimelineParam::PlMotionCommon 改为 **mFlag 单键 f0=0x12400006 整段常开,
+  mTrigger 轨删除**; 并入 user 精剪过的 entry306 TIMLDataNode(其保留 PlMotionInput.191/
+  PlMotionVisual.119/EventCollision00/EventGroup01 四条, 原版带特效+自动纳刀的
+  PlMotionCommon 已被 user 删除, 我们这条作为 PlMotionCommon 类目补位, 无冲突)。
+  端到端导出回读: entry306 motion=214f/loopFrame=50/TIML 5 类, PlMotionCommon mFlag
+  f0=306184198 ✓。user 已调好的三行为(不自动收刀/循环/可接招)不动。
+  注: TIMLDataNode 的 TIML Animation 输入 link_limit=0 可挂任意多条 TIML action 并列导出。
+
+- **✅ 新导出 LMT 开机崩溃定位 = TIML 类型头 unkn0 (类目分派 id)**: entry306 接上
+  valor_sheath 后游戏无法启动(改名停用即恢复)。字节级对比全文件 249 个 PlMotionCommon
+  类型头: **unkn0 恒为 11**(含全部此前开机过的自定义 entry 141/312/339/340/343/358-363,
+  均继承自导入原版 TIML), PlMotionInput 恒 9, 其余类目恒 0 —— unkn0 = 加载器类目分派 id。
+  我们凭空新建的 TIML action 照 EffectParameter 样例默认写了 unkn0=0 → 全文件唯一的
+  PlMotionCommon=0 → 加载崩溃。修复 = freehk.unkn0=11(原位, 接线不动), 重导出五类目
+  类型头与各常量一致(PlMotionCommon unkn0=11 + mFlag f0=0x12400006), 已部署待开机验证。
+  **教训: 凭空新建 TIML action 时 freehk.unkn0 必须按类目写常量**(PlMotionCommon=11/
+  PlMotionInput=9/多数=0), 不能照别的类目样例抄; build 脚本已同步。ENTRIES 区分:
+  entry.loopFrame(=-1 之外 23 个先例) 与 TIML loopCtrl(全文件 163:1, 唯 306=1, 但 user
+  已在 loopCtrl=1 下进过游戏 → 排除) 均非死因。
+  备份 MHW-Valor.blend.bak-20261004-pre-unkn0fix。
+
+- **✅ user 局内终验 (2026-10-04)**: unkn0=11 修复后正常进游戏; entry306 全动画
+  **真·带角度防御实锤 —— 背后被打直接击飞**(正面=格挡)。至此 valor_sheath 链路定稿:
+  306 = valor_sheath_start(214f, entry.loopFrame=50 循环整段196, 无 b26/无自动收刀/
+  可接招) + 5 类 TIML(user 精剪 4 条 + 我们的 PlMotionCommon mFlag f0=0x12400006
+  bit28 格挡整段)。后续通路: 正面被格挡 → 反应管理器 +0x769=0x100(研究文档格挡反应
+  入口)可作代码侧格挡成功信号; 背面受击 → 正常受击管线 → fsm 100 打断路线可用。
+  突刺(105)角度防御 = 同一个 bit28 单字段改动(9-13 已验证过一次), 待接"引到新动作"。
+
+### 2026-10-04 勇气纳刀代码侧: krel 规则(松键收刀) + arule 复用(被打打断) (待局内验证)
+
+- **需求**: 持 3:98 期间 ①被命中 → 强制 fsm 100(受击) ②松开纳刀键(鼠标侧键上) →
+  强制 3:6 收刀; 其余不干预。98 以后可能换节点 → 动作 id 全部走配置。
+- **实现 = sheath-counter 规则系统扩一个模式**, 两条规则纯配置:
+  - `arule 98 3 100` — 现成 arule(DmgCalc 连接命中 + attacker≠player → arm 强制),
+    自带致死锁血(HP 钳 1)。**修了一个真 bug: arule 单发锁原是 g_clangLatch, 而该锁只在
+    86/101/102 复位 → 第一次被打打断后, 之后所有持刀被打永久失效**; 换成按动作实例的
+    fired/lastActId(id 变化即重新武装), 与 bit 规则同模式。
+  - `krel <ids> <vk> <toSet> <toId>`(新) — PollSheatheCounter 里 GetAsyncKeyState
+    down→up 边沿 → 纯 arm(g_forceSet/Id+g_forceArmed), **故意不走 OpenCounterWindow**
+    (纳刀收刀不需要 no-hit 注入), 无 latch(边沿即单发, force 被拒则下次按压重试)。
+    侧键上=XBUTTON2 vk=6, 侧键下=5。
+  - 强制执行走既有 TryQueuedForceWrite(游戏线程 getter hook), 配置追加于
+    ValorGauge.sheath-counter.txt(旧实验规则保持注释)。
+- **部署状态**: DLL 新版本 md5 10ec5fc1 在 ValorGauge/build/Release/ 待拷
+  (游戏运行中 DLL 被锁, 关游戏后拷到 nativePC/plugins/), 配置规则已追加。
+  顺手修了 ValorProbe 目标的既有 ifdef 失衡(ApplySheatheMotionPatch 调用点)。
+- **已知边界**: arule 以 attacker≠player 判"被打", 联机时队友被打会误触发
+  (日志有 SHEADRULE hit a2=... player=... 行, a2==player 确认后可收紧);
+  致死钳 1 与"防秒杀"后续设计共用入口。
+
+- **✅ 局内实测反馈 + drule 补全**: 日志证实持刀 id=3:98 正确、规则加载 2 条; 正面被打
+  = dispatch REJECTED(格挡否决,无伤害连接,arule 天然不触发 ✓) **但引擎加载 {3,37}
+  格挡反应把保持态踢出 98**(松键规则因此没机会触发)。补全: 配置加
+  `drule 98 3 100`(rejected dispatch -> 打断进 100; drule 分支本来就在, 纯配置,
+  Shift+F6 热重载即生效); 代码修 drule 的 g_clangLatch 死锁门(同 arule, 换
+  fired/lastActId 按实例复位) + drule 触发时写 reassert(吞 {3,37} 1.2s, 保持态不
+  经过 37 直接落 100)。新 DLL md5 4054ea24。三规则现状: arule(背面真命中)/
+  drule(正面格挡否决)/krel(松键收刀), 全部围绕 3:98。
+
+- **✅ krel 验证通过 + drule 撤换**: 日志实锤 krel 全链正常(侧键 vk=6 确认,
+  down=[6] 唯一键; 松开边沿 -> force 3:6 accepted -> action changed forced id=6
+  -> 收刀待机)。drule 对自定义动作 98 失效: 其 dispatch 返回恒非 0xD(环境帧亦然),
+  入场第一帧即触发 = "按下即 100" → 配置撤换为 **bit250 位规则
+  `rule 98 250 3 100`**(正面格挡交互时 250 升起, 无攻击持刀不升; krel 探针
+  SHEATHKRELDBG 留用)。Shift+F6 热重载生效, 待局内确认三路齐全。
+
+- **✅ 局内二轮: 规则全部真实触发, 新漏点 = 格挡反应变体 3:35**: 日志实锤 drule 触发
+  → FORCE accepted → changed (forced) id=100 ✓; krel 全链 ✓(探针 down=[6] 唯一键,
+  松开边沿 → force 3:6 accepted → id=6 ✓)。**"有时候看到 3:35" = 格挡反应家族变体**:
+  引擎按情况在 35/36/37 里选, 我们只吞 37 → 35 漏网顶掉 100。**ValorLS 无此处理**
+  (grep 证实: 请求改写点仅 art 触发; 白名单 0/301-306/501-506 为免重置表) —— 它不需要:
+  其 306 用见切式窗口(b31+b22, 无 bit28), 走否定/叮系统不产生格挡反应; 我们用 bit28
+  真格挡就必须自己吞。修复 = DoActionHook 吞单扩为 **35/36/37 全族, 且当前动作处于
+  任意被监视动作(现在=98, 换节点自动跟随)期间无条件吞**(reassert 窗口之外也吞),
+  SheathWatchedAction() helper + 前置声明。DLL md5 1aa879d9 已部署, 待局内验证。
+  若正面被挡后 100 仍偶发被顶: 下一步查非格挡族反应 id(日志 action changed 序列)。
+
+- **✅ 35 漏吞真因 = DoActionHook 内部顺序**: 追踪器更新(含 "action changed" 日志,
+  行 1256)在吞单(行 ~1280)**之前**执行 → 吞单检查 watchedHold 时 g_lastLongSwordAction
+  已被覆盖成 {3,35} → SheathWatchedAction(3,35)=false → 不吞。修复 = DoActionHook 顶部
+  先快照 prevSheathAction, 吞单用前一个动作(=玩家所在 98)判断。DLL md5
+  e8ed4216 已部署, 待局内验证。判定链备忘: 35 经 DoAction(已证实, "action changed
+  id=35" 唯一输出点在 DoActionHook), 非缓冲直写。
+
+- **✅ 35 仍漏的第二层真因 = 吞单位置在追踪器更新之后**: 上一版吞单虽触发(日志
+  "swallowed 3:35" ×3), 但 DoActionHook 里**追踪器更新先于吞单** → 吞单前追踪器已被
+  改成 {3,35}: ① bit250/arule 规则的 duringIds(98) 对着追踪器里的 35 永久失配 →
+  强制 100 永远不来; ② 引擎重发第二次 DoAction({3,35}) 时 prevSheathAction 已是 35 →
+  二次不吞 → 35 真播。修复 = **吞单整块上移到 DoActionHook 顶部(prevSheathAction
+  快照之后、追踪器更新之前)**: 被吞的反应完全不污染追踪器(保持 98), 规则继续工作。
+  DLL md5 d5eabefd 已部署。验证点: 日志 "swallowed 3:35" 后应紧跟 SHEATHCOUNTER
+  (bit250 触发) + FORCE 3:100, 且不再出现 changed id=35。
+
+- **✅ 被打信号换 bit222 + bit 规则哨兵重武装**: 吞掉反应动作后 bit250 不再升起
+  (旧的 rose=[250] 发生在被吞前的 3:37 反应动作里)。日志实锤**每次格挡命中事件位
+  222 脉冲一拍**(ev6 0x0→0x40000000, 6 打 6 中; 另有 225/147 部分命中伴生) →
+  配置改 `rule 98 222 3 100`。bit 规则同样补哨兵重武装(离开监视集置
+  lastActId=0xFFFFFFFF, 同 id 重入 98 也重新武装; 旧逻辑第二次持刀的第一下会被
+  fired 卡住)。DLL md5 9bee73aa + 配置已部署, 待局内验证。
+
+- **✅ 重击路径补全 = 吞单即信号**: 轻击(bit222 脉冲)走 bit 规则 ✓; **重击(引擎选
+  35/36/37 反应)脉冲的位不同且反应被吞后无事件位** → 吞单本身即每击一次的精确信号。
+  SheathArmHitRule(holdId, reactionId): 吞单时按 holdId 匹配规则 target 直接 arm
+  (SHEATHGUARD 日志行)。**教训: DoActionHook 在 sheath 规则表声明之前, 相关逻辑一律
+  helper + 前置声明**(本轮连续踩了两次声明顺序坑)。DLL md5 01da4c89 已部署。
+  现役信号矩阵: 轻击=bit222 脉冲 / 重击=反应吞单 / 背面真命中=arule / 松键=krel。
+
+- **✅ 刚1 被劫持成 100 的真因 = 强制目标单例被吞单武装覆盖**: g_forceSet/g_forceId
+  既是 force-action.txt 的配置默认值(刚1=3:77)又是"待发目标", 吞单武装把默认值改写成
+  3:100 后, **弹反链的四个武装点(iai bit250/见切 bit15/deflect flash/Ctrl 窗口)只 arm
+  不装填**(依赖启动默认) → 之后所有刚1 都打出 100。修复 = 配置默认值与待发目标分离:
+  新增 g_forceCfgSet/g_forceCfgId(LoadForceActionConfig 与 Shift+F6 重载同步), 弹反链
+  四个武装点 arm 前从配置副本恢复。DLL md5 2bb3063c 已部署。刚1(3:77)与收刀回避
+  (3:100)两条强制链现已互不污染。
+
+- **✅ user 局内终验 (2026-10-04 晚)**: 四路全部通过 —— 持 98 轻击/重击/背面被打均进
+  3:100(收刀回避), 松开侧键上键进 3:6(收刀), 见切弹反恢复刚1(3:77)且与持刀链交叉
+  不串。勇气纳刀代码侧完结。遗留优化(未排期): 98 换专用 fsm 节点(现借 98); arule
+  的 attacker≠player 判据在联机会误触发(a2=defender 字段待钉, SHEADRULE 日志行可证);
+  krel 探针 SHEATHKRELDBG(8 采样/会话)留用可删。
+
+### 2026-10-04 (2) 滑歩気刃 106/107/108: 气刃消耗 + 气刃特效 (id 探测定案, 待局内验证)
+
+- 需求: 3:106(気刃１スリR) / 3:107(気刃２スリF) / 3:108(気刃２スリL) 加气刃特效 + 各消耗 0.25;
+  "气刃不足不出招"的门由用户改好的 FSM 条件承担, DLL 只管扣除与特效。
+  **定案: vanilla 每招特效/扣气刃都走按动作 id 硬编码的每招 handler, 改不了数据 → 只能走 DLL 的 id 探测 (gauge-rules)。**
+- **新规则 `fx <set> <id> <fxId>`**: 动作开始时对 player+0x8808 emitter 经 ADD670
+  (g_fxNotifyA, 与 F7 试枪同一调用通道, 返回句柄无消费方) 发特效; `0x7D2` = 气刃斩系通用红光
+  (user-verified)。fxId 支持 0x 前缀。当前唯一已验证的身体红光 id 就是 0x7D2 —— 按等级变色的
+  刀光走事件上下文另一套, ADD670 打不出来; 想换 id 直接改配置。
+- **cost/fx 触发时机从"DoAction 接受"迁到"动作真正开始" (begin watcher)**:
+  连招派生请求在接受时上一招还在播 (缓冲 +0xBC/+0xC0), 接受点扣气刃会在"被打吞掉缓冲请求"时白扣,
+  特效会闪在上一招上。`PollGaugeBeginRules` (property 钩子每帧, 游戏线程) 监视 controller+0xAC/0xB0:
+  set:id 变化 或 同 id 下实例帧 +8 回落 >0.5s (缓冲重入同招, begin 清零帧计数) = 一次 begin →
+  `ApplyBeginGaugeRules` 发 cost + fx。**gate/regen/timer 仍在接受点, 行为不变**; cost 从
+  ApplyActionGaugeRules 移出 (无既有规则在用, 无回归)。武器 LS 硬门控提取为共用 `GaugeRuleWeapon()`。
+- 配置已部署: gauge-rules.txt 末尾 `cost 3 106/107/108 0.25` + `fx 3 106/107/108 0x7D2`
+  (Shift+F6 可热重载)。DLL md5 ebdfd659 已部署 (mod)。
+- 局内验证点: 滑歩气刃起手瞬间红光 (不早于前一招结束) + 蓝条 -0.25 + 日志
+  `GAUGERULE cost act=3:10x -0.25` / `GAUGERULE fx act=3:10x id=0x7d2`; 被打吞连招时不应扣。
+
+### 2026-10-04 (3) 勇气连段常量 + 刚1 阈值定案 + "刚1 变气刃斩"取证
+
+- 用户定案: 刚1 (sheath-rewrite) 气刃门保持**默认 0.15** (`g_sheathRewriteMinGauge`,
+  dllmain.cpp:896, 无配置文件时代码默认即生效)。勇气连段: **105/106=一文字, 107=无双斩,
+  108=连段第三招**, 四招统一 = cost 0.25 + fx 0x7D2 (begin 红光)。
+- **代码 seed 常量**: `LoadGaugeRulesConfig` 开头注入 105/106/107/108 的 cost+fx;
+  gauge-rules.txt 显式行按 (type,set,id) **替换** seed (配置可覆盖), Shift+F6 重载同路径
+  ——配置文件丢失也不丢行为 (sheath-rewrite.txt 缺失事故的教训)。现有 106/107/108 行降级为
+  覆盖示例。日志标识 `Gauge rules: N loaded (incl. valor-chain seeds 105/106/107/108)`。
+- 局内实测 (上一版部署): fx/cost 实际触发 106×7 / 108×11; 107 当次会话没出招, 105 当时无规则
+  ——本版四招全覆盖待复测。
+- **"待机刚1 按下后变气刃斩"取证 (日志 69.6万行全量 + 代码)**:
+  - 假设 A (刚1 出招后迟到 {3,11} 顶掉): 全日志 124 次 SHEATHREWRITE, 其后**下一个**动作变化
+    是 id=11 的 = **0 次** (紧邻 6 行窗口 0/124, 末会话宽窗口 0/5); `SHEATHPROBE ... last=3:86`
+    全日志 **0 条** → 无证据, 暂按不成立。
+  - 假设 B (**收刀过渡窗漏改写, 证据成立**): 收刀判定 = "上一个动作是 set 1", 但收刀动画本身
+    是 set-3 (3:0/3:6 家族, 3:6=松开侧键收刀)。R2 按在收刀动画期间/刚收完的一瞬 → lastSet=3
+    → 不改写 → 原版气刃斩1(带前摇)直接出来。日志 `SHEATHPROBE blocked last=3:0` ×67 /
+    `last=3:6` ×27 (探针每会话限12条, 实际更多)。
+  - 修复方案 (待确认后实现): ① sheath-rewrite 的收刀判定扩展: last ∈ set1 ∪ 收刀过渡家族
+    (可配置, 初值 3:0/3:6); ② 改写命中后 ~0.8s 内吞掉同 fromId 迟到请求 (复用 35/36/37 吞单
+    机制, 吞单日志兼作假设 A 的探测器)。
+  - 设计问题: 收刀动画**播放中**按 R2 → 改写成刚1, 还是吞掉不出招? (收刀冷播有姿势跳变,
+    09-25 章节老问题)
+
+### 2026-10-04 (4) "走路刚1变气刃斩"破案: 收刀态行走 R2 = 动作 id 12 (user 方向正确, WASD 相关)
+
+- 用户否掉"收刀过渡窗"解释, 提出与行走按 WASD 有关 → **全量日志迁移分析实锤**:
+  `1:4(收刀走) -> 3:12` ×**187**, `1:8(跑) -> 3:12` ×6, `1:585 -> 3:12` ×15, 而
+  `1:0(站) -> 3:11` ×158 —— **收刀态移动中按 R2 的请求是 3:12**(拔刀气刃斩迈步变体,
+  与 09-30 编排器 {3,11}/{3,12} 兄弟对吻合), 不是 11。fromIds 只有 11 → 静默放行原版,
+  且 fromIds 不匹配的分支**一行日志都不打**(探针只覆盖匹配后阶段) → 几周不可见。
+- 修复: ① fromIds 默认 `{11, 12}` (g_sheathRewriteFromIds); ② 新增 `SHEATHSEEN`
+  日志 (限30条/会话): 收刀态(set-1 前置)收到不在 fromIds 的 set-3 请求时打印 id,
+  攀爬/游泳等剩余变体一次会话即可暴露。
+- 迁移表补充 (set1 -> set3): `1:8->3:7` ×447 / `1:4->3:7` ×268 = 拔刀纵斩(△键),
+  不在改写范围(用户只要 R2 系); `1:440/432 -> 3:18` = 翻滚; `3:5` = 普通拔刀(△系)。
+- 收刀过渡窗 (3:0/3:6 期间按 R2) 仍是独立的二类洞 (blocked ×94), 优先级低于本修复,
+  修不修等用户复测后定。
+- **教训: 静默分支必须留探针** —— fromIds 不匹配纯 return, 让 187 次泄漏零痕迹。
+
+### 2026-10-04 (5) fromIds 修复无效复盘: loader 局部默认值覆盖全局 (与 g_forceCfg 分裂同款教训)
+
+- 上一版把 fromIds 默认改成 {11,12} 改在了**全局变量**上, 但 `LoadSheathRewriteConfig`
+  有自己的局部 `fromIds{11}` 且加载时无条件覆盖全局 (init + Shift+F6 都走) → 新 DLL 日志
+  依旧 `requests 3:{11}`, SHEATHSEEN 照抓 `3:12 not in fromIds (last=1:8)` —— 诊断对、修复
+  改错层。修复 = 改 loader 局部默认 `{11,12}` (933 空回退同步), 全局变量注释标注
+  "effective default lives in the loader"。
+- **教训 (第二次): 配置 loader 拥有并覆盖默认值, 改默认必须改 loader** —— 与 1b0b2f2
+  (g_forceCfg* 分裂, 吞单武装覆盖强制默认) 同类: 默认值有两份时, 生效的永远是 loader 那份。
+- SHEATHSEEN 首日战果: `3:5 (last=1:0)` = **纳刀系动作本身** (收刀家族 {5,6,9,10}),
+  不该改写, 行为正确无需处理; `3:12` 多次 (last=1:8/1:4) = 修复目标, 本版已收编。
+- 附带实测: 3:12 原生自带 cost 0.15 (GAUGEEVT val=-0.15) + 原生 0x7D2 红光
+  (FXNOTIFY caller +0x2122559) —— vanilla 迈步拔刀有自己的气刃呈现, 改写成刚1(86)后
+  由 86 的呈现接管。
+- 部署 md5 63a454a8。验证点: 启动行 `Sheath rewrite: ... 3:{11,12} -> 3:86`;
+  收刀态走动按 R2 出刚1 + `SHEATHREWRITE: 3:12 -> 3:86`。
+
+### 2026-10-04 (6) 剩余泄漏定案: 纳刀动作 3:9 播放中按 R2 (用户"1:8→1:4中间态"的实体)
+
+- {11,12} 修复后的测试局: 改写全中 (12×13+11×2, set1→set3 迁移 15/15 → 86),
+  SHEATHSEEN 零条 —— 请求 id 无漏网。仅剩 SHEATHPROBE `blocked: last=3:9` ×4。
+- **3:9 身份 (前驱/后继实锤)**: 后继 = 1:15 ×293 / 1:8 ×258 / 1:4 ×100 (89% 回收刀态
+  locomotion) → **3:9 = 纳刀动作**; 前驱 = 3:1(持刀走) ×464 / 3:65(翻滚恢复?) ×182 /
+  翻滚。历史: 3:9 → 3:12 ×26 / → 3:11 ×22 = 收刀中按 R2, 请求仍是 11/12, 只被
+  "前置必须 set1" 挡住 → 原版气刃斩1 在收刀动画里蹦出来。用户主观感受为"快跑→慢走
+  中间态"(跑动中收刀/刚收完的窗口)。**1:8→1:4 本身无中间动作** (transition 表无其它 id)。
+- 修复: 收刀判定 = last ∈ set1 ∪ {3:9, 3:6} (kSheatheActionIds 常量; 6 = 勇气持刀
+  松开收刀)。**明确排除 3:0/3:1/3:2 = 持刀待机/走/跑** (3:0→3:11 ×347 = 持刀 R2 原版
+  气刃斩, 正确放行; 修正此前"3:0 身份待定"的记录) —— 排除 3:5 (罕见, 语义未钉, SHEATHSEEN
+  继续监视)。部署 md5 e14b8859, 待局内复测: 收刀动画中按 R2 应出刚1
+  (`SHEATHREWRITE ... last=9` 类日志 + 无 blocked last=3:9)。
+
+### 2026-10-04 (7) 刚1 气刃消耗: 快照-结算 (snapshot - 0.15), 放弃逐事件拦截
+
+- 需求: 刚1 借见切(86)槽, 每次按下气刃被清; 目标 = 每次刚1 净消耗 0.15 (clamp ≥0)。
+- **取证推翻单点拦截**: GAUGEEVT 全量直方图 (act=3:86) = -0.1 ×987 / -0.2 ×45 / +1.0 ×6,
+  **全日志零条 -1.0** —— 09-24 "见切 -=1.0 清空"的记录与实测不符; 且实测序列里每招扣完后
+  气刃都回到 1.0 (0.9→1.0 / 0.85→1.0 / 0.75→1.0) 而 GAUGEEVT **无对应事件** = 存在绕过
+  FUN_142122410 的直接写入者 (未钉)。逐事件改值会漏, 放弃。
+- **实现 = 用户方案的轮询版**: `ApplySheathRewrite` 改写命中 (toId==86) 时快照
+  `+0x2368` → `g_gang1GaugeSnapshot`, 武装 scope (5s 兜底 deadline);
+  `PollGang1GaugeScope` (property 钩子每帧): 当前动作离开 86 或超时 → 一次性写回
+  `clamp(snapshot - 0.15, 0, 1)`, 日志 `GAUGERULE gang1 settle: gauge a -> b`。
+  86 播放期间 vanilla 的花费/回填随便走, 结算时一笔归位 —— 净效果恒为 -0.15。
+  只在改写路径武装, **自然见切(持刀 86)行为不变**; 后续连段招 (67/106/108...) 的
+  消耗照常作用在结算后的值上。
+- 待局内验证: 收刀刚1 一次 → 蓝条恰好 -0.15; 连段时后续招正常再扣。
+
+- **(补丁) settle 竞态修复**: 首版 settle 读 controller 当前动作 (+0xAC/0xB0) 判"离开 86",
+  但改写请求是**缓冲**的 (上一招还在播) → 当前动作仍是 {1,0} → 武装后第一帧即误结算
+  (实测 settle 0.418→0.268 紧跟改写行, 之后 86 的 -0.1 和收尾继续扣 → 用户看到清空)。
+  修复 = 改读 **tracker (请求流)**: 改写时 tracker 已是 86, 下一个请求到来才结算 —— 结算
+  落在下招 begin 扣费之前, 连段消耗正确叠加在其上。部署待游戏关闭。
+
+### 2026-10-04 (8) 刚1 气刃最终形态: 结算 + 1s 保护尾窗 (whiff 清空 = vanilla 见切设计)
+
+- user 实测定案: **弹反成功 → x-0.15 ✓; 失败(打空) → 清空** = vanilla 见切的原版设计
+  (打空丢条), 且失败清空是**结算之后**才落地的直接写入 (绕过 FUN_142122410, GAUGEEVT 无痕)。
+- 实现 = 两相状态机 (`g_gang1Phase`):
+  - **phase 1 (waiting)**: 改写武装 → tracker 离开 86 (5s 兜底)。vanilla 随便动, 无守卫。
+  - **settle**: 写 `clamp(x - 0.15)` → `expected` 同值, 进 phase 2 (尾窗 1s)。
+  - **phase 2 (guard tail)**: 账面 `expected` 记账 + 每帧对账 —— GAUGEEVT 可见的**负**事件
+    (连段原生扣费) 叠上 expected (正事件 = 见切成功回条, 压掉, 维持 -0.15 净值);
+    实际值偏离 expected >0.01 = 直接写入 (失败清空) → 打回 + `gang1 guard` 日志 (限10条)。
+    尾窗结束再写一次 expected (吸收衰减漂移), 归 phase 0。
+- **自吞坑**: 106/108 的 cost 规则走 trampoline 绕过 GaugeAddHook, 尾窗守卫会把自己扣的
+  费打回去 → ApplyBeginGaugeRules 的 cost 分支补 expected 记账。
+- 成功路径的净效果不变 (settle 压掉 vanilla 回填); 失败路径的清空在 settle 后 ≤1s 内被
+  revert。部署 md5 7144d7df。验证: 打空刚1 → 蓝条也稳定 x-0.15 + 日志 `gang1 guard:
+  reverted direct write`。
+
+### 2026-10-04 (9) 刚1 气刃终版: 命中确认即撒手 (vanilla 回满设计入章)
+
+- user 确认 vanilla 见切设计: 规避 → 回砍**砍到** → 气刃自己回满 (打空才清条)。守卫尾窗
+  之所以"还是错的": 成功路径的回满是**命中确认时点的滞后直接写入**, 与 1s 尾窗的相对时序
+  不定 —— 落窗内被压、窗外又弹回, 观感忽上忽下。
+- 终版模型 = 顺着 vanilla 分叉: **`NotifyPlayerHitConnected` 里 phase==1 (刚1 窗口内) 的
+  本地命中 → `g_gang1Phase=0` 整体解除** (`gang1 hit-confirm` 日志) —— 砍中 = vanilla
+  自己回满, mod 全程不碰; **打空 = 无命中, scope 走完** settle x-0.15 + 尾窗 revert 清空。
+- 语义: 刚1 砍中 = 免费+回满 (vanilla 奖励), 打空 = 0.15。部署 md5 ae2957a4。
+  验证: 打空 → 稳定 x-0.15 + `gang1 settle`; 砍中 → 回满 + `gang1 hit-confirm`,
+  全程无 settle/guard 行。
+
+### 2026-10-04 (10) "空了"取证: 蒸发在持刀期, 刚1 本身清白 + GAUGEWATCH 每帧对账器
+
+- ae2957a4 测试局账本: 唯一一次收刀刚1 **砍中了** (HITATT +110 → hit-confirm 解除 →
+  气刃回满 1.0, 后两次 86 均从 1.0 起扣) —— 命中路径正确。**0.9 → 0.52 → 0 的蒸发无任何
+  事件行** (无 67/106/108 扣费, GAUGEEVT 静默) = 持刀游玩期间 (自然见切打空/阶梯衰减) 的
+  账面外直接写入; 最后收刀刚1 在 gauge=0 被 reject (minGauge=0.15 门), 出原版气刃斩1 =
+  用户看到的"空了"。
+- 新工具 **GAUGEWATCH** (PollGaugeWatch, property 钩子每帧): 对 weapon+0x2368 逐帧对账,
+  |Δ|≥0.02 记 `GAUGEWATCH d=.. g=a->b act=set:id` (限200条/会话; 每帧衰减 ~0.0008 被阈值
+  滤掉, 阶梯式衰减 -0.05/步会被抓)。一轮即可绘出全部隐形写入者的时刻/动作分布。
+- 部署 md5 a46d04fc。待用户复测一轮 (含打空收刀刚1) 后读 GAUGEWATCH 定位蒸发源,
+  再决定: 衰减要保留 (vanilla 经济) 还是给刚1 连段挂账面保底。
+
+### 2026-10-04 (11) 成功信号纠错: HITATT ≠ 弹反成功, 换 bit15; 帧杀注入与回满互斥定案
+
+- user 接受 vanilla 经济 (打空=清空是设计), 但测试打空刚1 "还是清空" —— 根因 = 上一版用
+  **HITATT (回砍物理砍中) 当成功信号**: 贴着目标测试回砍必砍中 → hit-confirm 解除守卫 →
+  vanilla 判定未弹反 → 清空无拦截。**物理命中 ≠ 弹反成功**。
+- 修复: 解除信号换成 **event bit15 上升沿** (player+0x8938 & 0x8000, 见切成功锁存, 弹反链
+  同款; arm 时快照基线防残留位)。HITATT 解除逻辑删除。
+- **结构性定案 (09-25 老警告坐实)**: 收刀刚1 的 0.2s no-hit 注入把怪攻击排除在仲裁上游 →
+  **叮/bit15/成功回满在收刀刚1 上根本不可能发生** ("帧杀保护与弹反计数互斥") → 当前模型:
+  收刀刚1 恒 = x-0.15 (无论砍没砍中)。要真弹反 (叮+回满) 必须去掉注入试原生窗口
+  (sheath-rewrite.txt nohitSec=0), 而 09-25 的 open question (FSM 停在待機1000 不进节点28,
+  TIML 防御窗打不开) 大概率让纯去掉= 挨打 —— 真解法在状态侧/TIML 侧, 待排期。
+- 部署 md5 82a5db9c。验证: 打空/砍中收刀刚1 都应稳定 x-0.15 (日志 gang1 settle, 无
+  hit-confirm); GAUGEWATCH 继续监视条面蒸发。
+
+### 2026-10-04 (12) 刚1 消耗语义对齐 + 恢复时机四触发 (user 定稿设计)
+
+- user 对齐: **消耗恒 0.15, 与打中/弹反/打空无关, 唯一条件 = 用户出招** (入场门 = 红刃 +
+  气刃 ≥0.15, 已有)。中间写入者众多 → 不拦截, **绕开**: 出招前快照 x, 到时机一次性恢复
+  x-0.15。恢复时机 = 四者取先:
+  1. **叮** (bit15 上升沿, player+0x8938 & 0x8000; arm 时存基线);
+  2. **56 帧** (kGang1RestoreFrame, TIML 60fps → 0.933s; 用 86 实例 +8 帧计数, 取消即冻结
+     不误触发);
+  3. **controller 当前变为其它 set-3 动作** (86 结束/被打断 —— 出招即计费; 注意初段缓冲期
+     controller 还是前一招 set1, 不会误触发);
+  4. 5s 兜底。
+- settle 后 1s 守卫尾窗保留 (负事件记账/正奖励压掉/账面外直接写入 revert) —— 兜住 56 帧
+  之后才落地的 vanilla 清空。
+- 日志 `GAUGERULE gang1 settle[parry(bit15)|frame56|left86|deadline]: gauge a -> b`。
+- 部署 md5 3a7a7b79。验证: 打空收刀刚1 → 约 0.93s 时条 = x-0.15 并保持; 接连段照常再扣;
+  HITATT 不再影响任何行为。
+
+### 2026-10-04 (13) 武装点统一到 DoAction: 自然见切(持刀86)也纳入刚1 计费 + 测试无效局复盘
+
+- 复盘 ae2957a4 测试局: **无任何 SHEATHREWRITE** —— 三次 86 (+68/+152/+234) 全是持刀自然
+  见切, 打空 → vanilla 清空 (+70/+154/+236 GAUGEWATCH d=-1), 机制从未武装 (只覆盖收刀改写)
+  → 用户测的招不在管辖内。且局内有**回满器**活动 (每次扣费后一帧内被补回精确扣减量:
+  cost -0.25 → GAUGEWATCH +0.25 → 1.0) = 训练器气刃功能, 它开着任何 settle 都无法停留。
+- 修复: 武装点从 ApplySheathRewrite 挪到 **DoActionHook post-accept** —— 任何本地玩家
+  set-3 actionId==86 接受即 ArmGang1GaugeScope (收刀改写/持刀自然见切同一招同价 0.15;
+  快照确定性先于起手扣费; phase==1 跳过/phase==2 重武装; LS 硬门控保留; probe 构建需
+  #ifndef 包裹 —— gang1 全局在 probe 排除区)。ApplySheathRewrite 侧武装删除。
+- 部署 md5 51cd4c4b。**测试前提: 训练器气刃功能必须关** (只留锁红刃), 否则 -0.15 无法停留。
+
+- **✅ user-verified (2026-10-04)**: 训练器气刃功能关闭后, 收刀/持刀 86 (刚1) 打空/砍中
+  均稳定结算 x-0.15。刚1 气刃链完结 (武装 DoAction 统一入口 + 四触发恢复 + 1s 守卫尾窗,
+  最终形态 md5 51cd4c4b)。遗留备忘: 若未来要收刀刚1 真弹反 (叮+回满), 需解决 nohitSec
+  注入与防御仲裁互斥问题 (09-25 open question, 状态侧/TIML 侧)。
+
+### 2026-10-04/05 见切防御两层模型定案: L1 沉默无敌(状态侧) / L2 无效化交互(TIML 侧) + bit15 写入链钉死
+
+- **user 判决实验 (10-04/05)**: entry 140 删掉**全部** TIML → 局内无敌帧依然生效, 但**无叮、
+  无 bit15、无动作切换**。复现了 09-07 "I-frames that survive TIML deletion" 旧案并强制修正模型:
+  TIML 防御窗 = 真实但只是**可授权的加法层**; 见切还有一层不经过 TIML 的防御。
+- **两层模型**: **L1 沉默无敌** = FSM/动作状态侧授予 (09-25 收刀重写路径没有它 → 当时的"没无敌帧";
+  查询层排除, 攻击"没发生过", 无叮无 bit15, 删 TIML 不死; 翻滚同族)。**L2 无效化交互** = TIML
+  防御窗 (窗位+mTrigger 2048 结构; 140 原版长窗位实为 0x00400000, 旧文档表里写 "b26 f0-f130"
+  是位编号笔误——结构才是重点) → 命中到达仲裁被判定无效 → 家族演出 (叮/蓝光) → hub 标志 →
+  **bit15 上升沿** → 原生 763/764 派生重映射 + mod auto-force 刚1。pool+0xE4 注入 = L1 的
+  查询层仿制品, **结构上永远产不出 L2** ("纯粹的防御")。
+- **bit15 写入链钉死 (反编译 6430953 行)**: `FUN_141f6bd80` (玩家主更新每帧事件位传播步,
+  调用点 6432955, 门控 player+0x1140 bit8) 每帧拷贝
+  `if ((*(uint*)(*(player+0xe470)+0x170) >> 8 & 1)) { *(uint*)(player+0x8938) |= 0x8000;
+  *(uint*)(player+0x8968) |= 0x8000; }` — **bit15 = [player+0xe470]+0x170 bit8 的逐帧拷贝**
+  (状态阵列 +0x8938 与边沿阵列 +0x8968 同帧写)。同函数还有 bit10 ← hub+0xc bit0。
+  player+0xe470 = 玩家 FSM/输入枢纽 (区域邻接 0xDE 属性链 FUN_141922190)。hub bit8 的置位方
+  未钉 (别名写入静态不可见), watcher 一测即知。
+- **mTrigger 语义破译 (新钉)**: mTrigger 值 = **事件位掩码**, 过帧即向 +0x8938/+0x8968 注入:
+  2048=bit11 (b26 无效化窗的 commit/gate — 解释"窗内必须有 2048"配方), 1024=bit10,
+  65537=bit0|16 (bit0=气刃增减公共门), 306 尾帧 f73=1024。**140 的 TIML 从不触碰 bit15** →
+  bit15 只能来自 hub (状态/仲裁侧)。
+- **特殊纳刀 306 无 TIML 无效化窗 (原版解码)**: mFlag 仅 f0=b25|b22 → f10 +b24 → f15+0x6
+  (霸体 f10 起), mTrigger 仅 f73=1024 — **没有 b26/2048 结构**。用户实测其"防御帧(弹反)"为
+  状态/原生层守卫, 不跟动作数据走。bit15 是**见切专用**锁存 (唯一消费者 = 派生重映射 763/764;
+  居合用 bit250, 各机制各一位) → 特殊纳刀防御帧理论上不置 bit15, 待 VSEEK 微测确认。
+- **FSM 可用属性新钉**: `オーラレベル赤以上` 存在于游戏属性表 (UTF-8 @ 文件偏移 0x30b8cd8,
+  与 オーラレベル白以上 相邻) → 收刀路径 FSM 链接条件可原生表达红刃门。
+- **干净化路线 (待判决实验)**: ① 140 写回标准窗 (105 模板 f0=121634822/f18=33554438/f120=6 +
+  2048@f0), sheath-rewrite nohitSec=0, 测收刀刚1: 叮? bit15? force 刚1? → 成立则删
+  dllmain.cpp InjectNoHitLocked(sheath); ② FSM-Studio 加 98→28 链接 (cond R AND
+  オーラレベル赤以上) = 转向锁 + L1 + 28 出边派生; 进 28 后节点动作进程直发 86 (09-22
+  "节点进入压过 request"), DLL 改写在红刃态变冗余保险; ③ bit250/0x23A0/CondEval631 三个
+  备胎触发器在 bit15 可靠后退役。
+- **部署 entry 140 现状 (10-04 dump)**: 用户已删全部 TIML; mFlag 曾为 f0=f130=0x80000000
+  (无任何防御窗, 09-25 "没无敌帧"的另一半原因); 当前 mTrigger 已随删除消失。
+
+### 2026-10-05 判定链全景钉死 + bit15 降级 (日志实锤, 推翻同日早前"bit15 见切专用"结论)
+
+- **叮的真身 = 武器侧无效化事件处理器链 (反编译全读)**: 命中经仲裁判为无效化后向防守方武器
+  派发**交互事件类型 8** → `FUN_1421038B0` (RVA 0x21038B0): 门控 = 实体标志
+  (bit4→当前动作==0x45 / bit1 / bit10), 反应类型 4/7 直接返回; 路由 = byte
+  `[weapon+0x3168]` (工厂 FUN_1421039F0, 0x3190 对象, 初值 0): 0→`FUN_142125060`
+  (set3 且 id==86: +0x2399 一次性锁存 + FX 0x7D4=叮 + +0x23A0=playerParam+0x8A8),
+  1→`FUN_142124f70` (id∈{101,102}: +0x2CED 掐点 + 0x7D4 + +0x23A4=+0x8B8)。
+  动作结束 FUN_142123510 消费 +0x2399 → 气刃回满+计时延长。**FUN_142125060 只判
+  "规避了"这半, 完全不碰回砍**; 第 2 半 (回砍命中) 在 0xDE 计数器 (idx0/idx2) +
+  条件 631 层, 与动作 id 解耦。事件 8 的发送方 (仲裁上游) 仍未钉。
+- **bit15 降级 (35MB 全历史日志统计)**: `bit15=1` 共 66 次 — 全部在收刀/移动动作
+  (1:8×31, 3:9×16, 1:4×10, 1:55/56/0/15/451), **3:86 期间 0 次**; 全历史 counter
+  window 触发统计: flash(+0x23A0) 275 / bit250 169 / 规则 66 / 旧路径 15 /
+  **bit15 路径 0**。09-17 "bit15=见切成功锁存" 为误判 (被闪探测器抢先掩蔽);
+  DLL 的 bit15 触发器是死代码, 备胎们才是真触发者。
+- **bit15 唯一写入方** = `FUN_141F6BD80` (汇编逐字节核对): 每帧拷
+  `[ *(player+0xE470)+0x170 ]` 的 bit8 → bts 0xF 进 +0x8938(状态)+0x8968(边沿)。
+  全反编译仅此一处 +0x8938 的 0x8000 写点。hub 指针经用户实测**会话内稳定**
+  (收刀/拔刀同值), 但 bit15 历史上在 1:8 升过 → hub bit8 的写入时机/路径未钉;
+  见切叮时 hub+0x170 无写入 (hw 断点验证, DR 未被清, ANIM 时钟断点同法可断)。
+- **新钩子 negrEvent (mod build)**: HkNegrEvent @ FUN_1421038B0, 签名已入
+  sig_check (唯一命中), addresses.txt 键 `negrEvent`。被动日志
+  `NEGREVT sel=<0x3168> latch2399=0x latch2ced=0x act=` (仅本地玩家武器, 上限 120 条,
+  原调用先行)。**判决问题: 非家族动作 (如带 TIML 窗的 105) 被无效化时事件 8 到不到**
+  — 到 (latch=0) → 任意招的叮+判定可在该 detour 泛化; 不到 → 需上挖仲裁。
+- **实验部署 (md5 090914518f99d7acd4b6a18500eb0177)**: entry 140 已写标准窗
+  (mFlag f0=2214592512=0x84000000, 清除键 f130→f45, 触发器 2048@f45 = 308 同构;
+  工具自动 .bak); entry 105 保持验证配方 (b26+b24 f0–60 + 2048@f0);
+  sheath-rewrite.txt = `86 0 3 0.15 0 11` (**nohitSec=0**, 注入关闭)。
+  待测: E2=收刀红刃 R2 路径 TIML 窗是否给无敌 (停泊 FSM 状态下逐帧评估是否成立);
+  E3=105 吃无效化时 NEGREVT 是否出现。
+
+### 2026-10-05 (2) 防御/判定最终模型定案 (E2/E3 判决实验完成, 全链日志实锤)
+
+- **E2 通过**: entry 140 写标准 b26 窗 (f0–45+2048@f45) 后, **收刀重写路径 (FSM 停泊在
+  98/1000) 无敌真实生效** — dispatcher 层逐帧 REJECTED (3:86 期间 396 次, 怪物持续
+  判定框每帧覆盖每帧被拒), 用户体感无伤+动作正常走完。**结论: TIML 窗逐帧评估不依赖
+  FSM 节点进入, DLL 注入 (sheath-rewrite nohitSec) 正式可退役; 部署配置已置
+  `86 0 3 0.15 0 11`**。
+- **E3 定案: 非家族动作的 b26 无效化 = 查询层静默排除**。突刺 105 (同款窗) 在确认被
+  击中的前提下: 零 REJECTED (dispatcher 根本没看到交互)、零 NEGREVT (handler 没被调)、
+  无叮 — 与 09-18 翻滚结论同构。**叮/成功呈现对非家族动作不可泛化 (排除事件在玩家侧
+  不可观测), 复用 86/101/102 家族槽位是唯一正道** — 现有 mod 架构 (刚1 骑 86、居合骑
+  101/102) 即正确做法。
+- **叮链全貌 (日志+caller RVA 实锤)**: 家族动作期间事件 8 每帧 tick 到武器**状态对象**
+  → bVar10 门控过 (该帧确有被无效化交互) → FUN_142125060 (id==86 门) → FX 0x7D4
+  (caller +0x21250c9) + 锁存。本会话 4 次叮全在 3:86; 0x7D4 每窗一次 (一次性锁存)。
+- **双"武器"对象结构修正 (重大)**: 游戏有两个都叫 weapon 的对象 — ①**武器装备块**
+  (*(player+0x76B0)): +0x9F8 类型/+0x2368 气刃/+0x2370 等级/+0x2CED? 所属待重标定;
+  ②**武器状态对象** (0x3190, 工厂 FUN_1421039F0, vtable 0x1434D00C8, owner=玩家
+  @+0xB40): 事件 8 tick 的接收者, FUN_1421038B0/FUN_142125060/FUN_142124f70 的
+  param_1, +0x3168 路由在此。**笔记中 weapon+0x2399/0x23A0/0x2CED/0x3168 实际属
+  状态对象**; 装备块上同偏移是别的数据 (NEGREVT 实测状态对象 +0x2399 恒 56=0x38)。
+  闪探测器读装备块 +0x23A0 — 它被 iai 族动作开始参数拷贝 (FUN_14211E8A0 kind==7)
+  每次起手点亮, **闪触发器 ≈ 每次见切起手误触发一次, 不是叮信号** (本轮 3 次点火
+  ≈ 3 次起手, 钉死)。
+- **bit15 降级补完**: 本会话 3:86 全程 bit15=0 (含真叮帧)。DLL 四个叮触发器的实际
+  状态: 闪=起手误报, bit15=死代码, CondEval631=偶发, bit250=待重标定。
+  **最可靠的真叮信号 = SheathDispatchHook 的 REJECTED 行** (dispatcher 层逐帧拒绝,
+  只在家族动作的无敌窗出现) — 反击链触发器建议全部收敛到它。
+- **工具**: negrEvent 钩子现为诊断版 (无过滤, 前 40 条全记, 带 weapon/owner/curWpn
+  三指针+match), 稳定后应恢复 own 过滤 (own = weapon == *(ownerPlayer+0x76B0) 换成
+  owner==lockedPlayer)。部署 md5 0e68408556a02d912512c11d8e1a9d6f。
+- **用户原始问题最终回答**: ①蓝色无敌帧本体 = TIML b26+2048 窗, 纯数据、逐帧、
+  任意动作可贴 (含停泊路径) — 泛化完成; ②叮/成功呈现 = 家族处理器对"dispatcher 可见
+  无效化交互"的 id 门控反应, 仅 86/101/102 槽可触发 — 泛化即复用槽位。
+
+### 2026-10-05 (3) 方案定案: 防御帧 + 临时防御值提升 (用户裁定)
+
+- 家族叮链不可泛化已定案 → 自定义动作的安全层改用: **TIML 防御帧 (b26 无敌/b24 霸体,
+  已验证任意动作可贴、含停泊路径) + 动作期间临时提升玩家防御值** (减伤续航, 非
+  无敌)。防御帧侧配方/工具全部现成。
+- **下一研究目标: 玩家防御值**。入口 = 伤害公式 FUN_141F66DD0 (RVA 0x1F66DD0,
+  dmgCalc 钩子已在 mod build 常驻, a1=攻击者侧已验证)。要钉: ①防御力数值字段
+  位置 (player 装备聚合值/playerParam); ②公式中防御项的读取点与格式 (减伤曲线);
+  ③临时覆盖的注入位置 — dmgCalc detour 内改参 vs 直写字段 (前者对多人/多目标
+  更稳)。可复用工具: FSDDMG 日志 + F9 struct-diff + F11。
+- negrEvent 钩子保留为观测口 (诊断版无过滤, 稳定后恢复 own 过滤, own 改用
+  owner==lockedPlayer 而非装备块指针)。
