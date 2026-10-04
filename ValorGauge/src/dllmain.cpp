@@ -1077,6 +1077,34 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             prevSheathAction = *g_lastLongSwordAction;
         }
     }
+#ifndef VALOR_PROBE
+    // SHEATHREASSERT: swallow the engine's guard-reaction family (35/36/37)
+    // while inside a sheath-counter watched action - hits there are handled
+    // by the configured rules (bit250/arule force the switch), and letting
+    // the vanilla reaction load would kick the player out of the hold
+    // (observed: unswallowed variant 3:35 replaced the forced 3:100). Also
+    // active during the reassert window for the forced-counter flow.
+    const bool guardReactionFamily = validAction && action->actionSet == 3 &&
+        (action->actionId == 35 || action->actionId == 36 ||
+         action->actionId == 37);
+    const bool reassertActive =
+        g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool watchedHold = prevSheathAction &&
+        prevSheathAction->actionSet == 3 &&
+        SheathWatchedAction(3, static_cast<std::uint32_t>(prevSheathAction->actionId));
+    if (validAction && controller == g_lockedPlayerController &&
+        guardReactionFamily && (reassertActive || watchedHold)) {
+        std::ostringstream m;
+        m << "SHEATHREASSERT: swallowed guard reaction 3:"
+          << action->actionId << " (keeping 3:"
+          << g_sheathReassertId.load(std::memory_order_relaxed) << ")";
+        Log(m.str());
+        g_insideDoAction.store(false, std::memory_order_release);
+        return true;
+    }
+#endif
     if (validAction) {
 #ifdef VALOR_PROBE
         const auto sample = g_actionDiagnosticCount.fetch_add(1);
@@ -1269,34 +1297,6 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             Log(message.str());
         }
     }
-#ifndef VALOR_PROBE
-    // SHEATHREASSERT: swallow the engine's guard-reaction family (35/36/37)
-    // while inside a sheath-counter watched action - hits there are handled
-    // by the configured rules (bit250/arule force the switch), and letting
-    // the vanilla reaction load would kick the player out of the hold
-    // (observed: unswallowed variant 3:35 replaced the forced 3:100). Also
-    // active during the reassert window for the forced-counter flow.
-    const bool guardReactionFamily = validAction && action->actionSet == 3 &&
-        (action->actionId == 35 || action->actionId == 36 ||
-         action->actionId == 37);
-    const bool reassertActive =
-        g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-    const bool watchedHold = prevSheathAction &&
-        prevSheathAction->actionSet == 3 &&
-        SheathWatchedAction(3, static_cast<std::uint32_t>(prevSheathAction->actionId));
-    if (validAction && controller == g_lockedPlayerController &&
-        guardReactionFamily && (reassertActive || watchedHold)) {
-        std::ostringstream m;
-        m << "SHEATHREASSERT: swallowed guard reaction 3:"
-          << action->actionId << " (keeping 3:"
-          << g_sheathReassertId.load(std::memory_order_relaxed) << ")";
-        Log(m.str());
-        g_insideDoAction.store(false, std::memory_order_release);
-        return true;
-    }
-#endif
     const bool result = g_originalDoAction(controller, action) != 0;
 #ifndef VALOR_PROBE
     if (result && validAction && controller == g_lockedPlayerController &&

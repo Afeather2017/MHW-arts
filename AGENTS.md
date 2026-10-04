@@ -1780,3 +1780,12 @@ MHWNoChunk and MHWEditor
   先快照 prevSheathAction, 吞单用前一个动作(=玩家所在 98)判断。DLL md5
   e8ed4216 已部署, 待局内验证。判定链备忘: 35 经 DoAction(已证实, "action changed
   id=35" 唯一输出点在 DoActionHook), 非缓冲直写。
+
+- **✅ 35 仍漏的第二层真因 = 吞单位置在追踪器更新之后**: 上一版吞单虽触发(日志
+  "swallowed 3:35" ×3), 但 DoActionHook 里**追踪器更新先于吞单** → 吞单前追踪器已被
+  改成 {3,35}: ① bit250/arule 规则的 duringIds(98) 对着追踪器里的 35 永久失配 →
+  强制 100 永远不来; ② 引擎重发第二次 DoAction({3,35}) 时 prevSheathAction 已是 35 →
+  二次不吞 → 35 真播。修复 = **吞单整块上移到 DoActionHook 顶部(prevSheathAction
+  快照之后、追踪器更新之前)**: 被吞的反应完全不污染追踪器(保持 98), 规则继续工作。
+  DLL md5 d5eabefd 已部署。验证点: 日志 "swallowed 3:35" 后应紧跟 SHEATHCOUNTER
+  (bit250 触发) + FORCE 3:100, 且不再出现 changed id=35。
