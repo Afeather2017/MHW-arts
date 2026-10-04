@@ -123,7 +123,15 @@ bool g_fxKeyWasDown = false;
 //       occurring while <set:id> is the current action; with origVal only
 //       events matching origVal (+-0.005) are rewritten
 //   cost <set> <id> <amount>              - subtract amount when the action
-//       starts (moves with no native gauge event)
+//       BEGINS (moves with no native gauge event). Begin = the move actually
+//       becomes current, not the DoAction accept: buffered combo follow-ups
+//       accept during the PREVIOUS move, so accept-time firing would deduct
+//       before a hit-cancel can eat the request.
+//   fx <set> <id> <fxId>                  - fire a player-emitter body effect
+//       (FUN_140ADD670 via g_fxNotifyA, same path as the F7 test) when the
+//       action begins. 0x7D2 = the spirit-slash red body glow (user-verified).
+//       Custom/remapped moves have no per-move FX handler - the vanilla ones
+//       are hardcoded per action id - so id detection is the only route.
 //   gate <set> <id> <minGauge> <nohitSec> - action starts with gauge >=
 //       minGauge: inject a no-hit window and clear the gauge (见切 recipe)
 //   regen <set> <id> <seconds> <variant>  - activate the spirit-regeneration
@@ -139,7 +147,7 @@ bool g_fxKeyWasDown = false;
 //       Both convert seconds with the live w03p Gauge_Duration of the current
 //       level - the same primitive as the vanilla 见切-success extension.
 struct GaugeRule {
-    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit };
+    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx };
     Type type = Type::Rewrite;
     std::int32_t set = 3;
     std::int32_t id = 0;
@@ -148,6 +156,7 @@ struct GaugeRule {
     bool hasOrig = false;
     float rate = 0.0f;      // Regen optional 5th token: override the rate param
     bool hasRate = false;   // (lower = faster; huge = glow without filling)
+    std::uint32_t fxId = 0; // Fx: player-emitter effect id (0x prefix accepted)
 };
 std::vector<GaugeRule> g_gaugeRules;
 // option regen-freeze 1: while a regen timer is active the gauge never
@@ -1725,6 +1734,27 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
 
 void LoadGaugeRulesConfig() {
     g_gaugeRules.clear();
+    // Valor-chain constants (2026-10-04, user-defined): the custom spirit
+    // moves share one profile - 0.25 gauge cost + the spirit red body glow
+    // (0x7D2) on begin. 105/106 = 一文字, 107 = 无双斩, 108 = third chain
+    // move. Seeded in code so the behavior survives a missing config file;
+    // explicit lines in ValorGauge.gauge-rules.txt replace these by
+    // (type,set,id). 刚1's own gate is the separate sheath-rewrite default
+    // (0.15) - NOT part of this table.
+    for (const std::uint32_t chainId : {105u, 106u, 107u, 108u}) {
+        GaugeRule cost;
+        cost.type = GaugeRule::Type::Cost;
+        cost.set = 3;
+        cost.id = static_cast<std::int32_t>(chainId);
+        cost.a = 0.25f;
+        g_gaugeRules.push_back(cost);
+        GaugeRule fx;
+        fx.type = GaugeRule::Type::Fx;
+        fx.set = 3;
+        fx.id = static_cast<std::int32_t>(chainId);
+        fx.fxId = 0x7D2;
+        g_gaugeRules.push_back(fx);
+    }
     std::ifstream input("nativePC/plugins/ValorGauge.gauge-rules.txt");
     std::string line;
     while (std::getline(input, line)) {
@@ -1780,6 +1810,17 @@ void LoadGaugeRulesConfig() {
             if (!(ss >> rule.set >> rule.id >> rule.a)) {
                 continue;
             }
+        } else if (kind == "fx") {
+            rule.type = GaugeRule::Type::Fx;
+            if (!(ss >> rule.set >> rule.id)) {
+                continue;
+            }
+            std::string fxToken;
+            if (!(ss >> fxToken)) {
+                continue;
+            }
+            rule.fxId = static_cast<std::uint32_t>(
+                std::strtoul(fxToken.c_str(), nullptr, 0));
         } else if (kind == "option") {
             std::string key;
             float v = 0.0f;
@@ -1791,10 +1832,17 @@ void LoadGaugeRulesConfig() {
         } else {
             continue;
         }
+        // Explicit config lines replace the seeded valor-chain defaults
+        // (FindGaugeRule returns the first match, so replace instead of add).
+        std::erase_if(g_gaugeRules, [&](const GaugeRule& seeded) {
+            return seeded.type == rule.type && seeded.set == rule.set &&
+                   seeded.id == rule.id;
+        });
         g_gaugeRules.push_back(rule);
     }
     std::ostringstream m;
-    m << "Gauge rules: " << g_gaugeRules.size() << " loaded"
+    m << "Gauge rules: " << g_gaugeRules.size() << " loaded (incl. valor-chain"
+      << " seeds 105/106/107/108)"
       << (g_gaugeRules.empty() ? "" : " from ValorGauge.gauge-rules.txt");
     Log(m.str());
 }
@@ -1898,41 +1946,48 @@ void ExtendLevelDropTimer(std::uint8_t* player, float seconds,
     }
 }
 
-// Action-start rules (cost / gate), applied from DoActionHook after the
-// original accepted a locked-player set-3 action.
-void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
+// Shared preamble for both rule paths (accept-time and begin-time): resolve
+// the locked player's weapon and hard-gate on the modded weapon type. Every
+// weapon routes its set-3 actions through the same DoAction path, and rule
+// ids are LS move ids - without this check a colliding action id (or a
+// wildcard rule) would apply an LS rule - and the LS-only gauge natives /
+// weapon offsets - to a foreign weapon struct. Returns nullptr when out of
+// scope; caller re-derives the player from g_lockedPlayerController.
+std::uint8_t* GaugeRuleWeapon() {
     if (g_gaugeRules.empty() || !g_lockedPlayerController || !g_originalGaugeAdd) {
-        return;
+        return nullptr;
     }
     auto* player =
         static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
     if (!IsReadable(player + 0x76B0, sizeof(void*))) {
-        return;
+        return nullptr;
     }
     auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
     if (!weapon || !IsReadable(weapon + 0x2374, sizeof(float))) {
-        return;
+        return nullptr;
     }
-    // Hard LS gate: every weapon routes its set-3 actions through the same
-    // DoAction path, and rule ids are LS move ids. Without this check a
-    // colliding action id (or a wildcard rule) would apply an LS rule - and
-    // the LS-only gauge natives / weapon offsets - to a foreign weapon struct.
     if (!IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) ||
         *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
             g_modWeaponType.load(std::memory_order_relaxed)) {
+        return nullptr;
+    }
+    return weapon;
+}
+
+// Accept-time rules (gate / regen / timer), applied from DoActionHook after
+// the original accepted a locked-player set-3 action. cost + fx live in the
+// begin-time watcher below - buffered combo follow-ups accept while the
+// previous move is still playing.
+void ApplyActionGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
+    auto* weapon = GaugeRuleWeapon();
+    if (!weapon) {
         return;
     }
+    auto* player =
+        static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
     auto readGauge = [&]() {
         return *reinterpret_cast<const volatile float*>(weapon + 0x2368);
     };
-    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Cost, actionSet, actionId)) {
-        const float g0 = readGauge();
-        g_originalGaugeAdd(weapon, -rule->a);
-        std::ostringstream m;
-        m << "GAUGERULE cost act=" << actionSet << ':' << actionId << " -"
-          << rule->a << " gauge=" << g0 << "->" << readGauge();
-        Log(m.str());
-    }
     if (const auto* rule = FindGaugeRule(GaugeRule::Type::Gate, actionSet, actionId)) {
         const float g0 = readGauge();
         if (g0 >= rule->a) {
@@ -3568,6 +3623,95 @@ void PollMotionBind(const void* entity) {
 }
 #endif // !VALOR_PROBE
 
+// --- Begin-time gauge rules (cost / fx) -------------------------------------
+// Fired when a move actually BEGINS, not when its DoAction request is
+// accepted: combo follow-ups buffer during the PREVIOUS move, so accept-time
+// firing would deduct before a hit-cancel can eat the buffered request and
+// would play the glow over the old swing. Detection is per-frame (property
+// getter hook, game thread): watch the controller's current action and treat
+// an id change - or the instance frame restarting under the same id (chained
+// re-cast through the buffer) - as one begin.
+struct GaugeBeginState {
+    std::int32_t set = -1;
+    std::int32_t id = -1;
+    float frame = -1.0f;
+};
+GaugeBeginState g_gaugeBegin;  // game thread only (property-getter hook)
+
+void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
+    auto* weapon = GaugeRuleWeapon();
+    if (!weapon) {
+        return;
+    }
+    auto readGauge = [&]() {
+        return *reinterpret_cast<const volatile float*>(weapon + 0x2368);
+    };
+    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Cost, actionSet, actionId)) {
+        const float g0 = readGauge();
+        g_originalGaugeAdd(weapon, -rule->a);
+        std::ostringstream m;
+        m << "GAUGERULE cost act=" << actionSet << ':' << actionId << " -"
+          << rule->a << " gauge=" << g0 << "->" << readGauge();
+        Log(m.str());
+    }
+    if (const auto* rule = FindGaugeRule(GaugeRule::Type::Fx, actionSet, actionId)) {
+        auto* player =
+            static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+        if (IsReadable(player + 0x8808, sizeof(void*))) {
+            void* emitter = *reinterpret_cast<void**>(player + 0x8808);
+            if (emitter && g_fxNotifyA) {
+                g_fxNotifyA(emitter, rule->fxId, 0);
+                std::ostringstream m;
+                m << "GAUGERULE fx act=" << actionSet << ':' << actionId
+                  << " id=0x" << std::hex << rule->fxId << std::dec;
+                Log(m.str());
+            }
+        }
+    }
+}
+
+void PollGaugeBeginRules(const void* entity) {
+    if (g_gaugeRules.empty()) {
+        return;
+    }
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl) {
+        g_gaugeBegin = {};
+        return;
+    }
+    if (entity != static_cast<const void*>(
+                       static_cast<const std::uint8_t*>(ctrl) - 0x61C8)) {
+        return;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    float frame = -1.0f;
+    if (set == 3) {
+        if (void* inst = ResolveActionInstance(ctrl, set, id)) {
+            frame = *reinterpret_cast<volatile float*>(
+                static_cast<std::uint8_t*>(inst) + 8);
+        }
+    }
+    bool freshBegin = false;
+    if (set != g_gaugeBegin.set || id != g_gaugeBegin.id) {
+        freshBegin = set == 3;
+    } else if (set == 3 && g_gaugeBegin.frame >= 0.0f &&
+               frame + 0.5f < g_gaugeBegin.frame) {
+        freshBegin = true;  // same-id re-cast: begin restarted the frame counter
+    }
+    g_gaugeBegin.set = set;
+    g_gaugeBegin.id = id;
+    g_gaugeBegin.frame = frame;
+    if (freshBegin) {
+        ApplyBeginGaugeRules(set, id);
+    }
+}
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
@@ -3575,6 +3719,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
 #ifndef VALOR_PROBE
     PollMotionBind(entity);
     MotionTraceTick(entity);
+    PollGaugeBeginRules(entity);
 #endif
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE

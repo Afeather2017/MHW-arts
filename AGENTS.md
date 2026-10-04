@@ -1817,3 +1817,48 @@ MHWNoChunk and MHWEditor
   不串。勇气纳刀代码侧完结。遗留优化(未排期): 98 换专用 fsm 节点(现借 98); arule
   的 attacker≠player 判据在联机会误触发(a2=defender 字段待钉, SHEADRULE 日志行可证);
   krel 探针 SHEATHKRELDBG(8 采样/会话)留用可删。
+
+### 2026-10-04 (2) 滑歩気刃 106/107/108: 气刃消耗 + 气刃特效 (id 探测定案, 待局内验证)
+
+- 需求: 3:106(気刃１スリR) / 3:107(気刃２スリF) / 3:108(気刃２スリL) 加气刃特效 + 各消耗 0.25;
+  "气刃不足不出招"的门由用户改好的 FSM 条件承担, DLL 只管扣除与特效。
+  **定案: vanilla 每招特效/扣气刃都走按动作 id 硬编码的每招 handler, 改不了数据 → 只能走 DLL 的 id 探测 (gauge-rules)。**
+- **新规则 `fx <set> <id> <fxId>`**: 动作开始时对 player+0x8808 emitter 经 ADD670
+  (g_fxNotifyA, 与 F7 试枪同一调用通道, 返回句柄无消费方) 发特效; `0x7D2` = 气刃斩系通用红光
+  (user-verified)。fxId 支持 0x 前缀。当前唯一已验证的身体红光 id 就是 0x7D2 —— 按等级变色的
+  刀光走事件上下文另一套, ADD670 打不出来; 想换 id 直接改配置。
+- **cost/fx 触发时机从"DoAction 接受"迁到"动作真正开始" (begin watcher)**:
+  连招派生请求在接受时上一招还在播 (缓冲 +0xBC/+0xC0), 接受点扣气刃会在"被打吞掉缓冲请求"时白扣,
+  特效会闪在上一招上。`PollGaugeBeginRules` (property 钩子每帧, 游戏线程) 监视 controller+0xAC/0xB0:
+  set:id 变化 或 同 id 下实例帧 +8 回落 >0.5s (缓冲重入同招, begin 清零帧计数) = 一次 begin →
+  `ApplyBeginGaugeRules` 发 cost + fx。**gate/regen/timer 仍在接受点, 行为不变**; cost 从
+  ApplyActionGaugeRules 移出 (无既有规则在用, 无回归)。武器 LS 硬门控提取为共用 `GaugeRuleWeapon()`。
+- 配置已部署: gauge-rules.txt 末尾 `cost 3 106/107/108 0.25` + `fx 3 106/107/108 0x7D2`
+  (Shift+F6 可热重载)。DLL md5 ebdfd659 已部署 (mod)。
+- 局内验证点: 滑歩气刃起手瞬间红光 (不早于前一招结束) + 蓝条 -0.25 + 日志
+  `GAUGERULE cost act=3:10x -0.25` / `GAUGERULE fx act=3:10x id=0x7d2`; 被打吞连招时不应扣。
+
+### 2026-10-04 (3) 勇气连段常量 + 刚1 阈值定案 + "刚1 变气刃斩"取证
+
+- 用户定案: 刚1 (sheath-rewrite) 气刃门保持**默认 0.15** (`g_sheathRewriteMinGauge`,
+  dllmain.cpp:896, 无配置文件时代码默认即生效)。勇气连段: **105/106=一文字, 107=无双斩,
+  108=连段第三招**, 四招统一 = cost 0.25 + fx 0x7D2 (begin 红光)。
+- **代码 seed 常量**: `LoadGaugeRulesConfig` 开头注入 105/106/107/108 的 cost+fx;
+  gauge-rules.txt 显式行按 (type,set,id) **替换** seed (配置可覆盖), Shift+F6 重载同路径
+  ——配置文件丢失也不丢行为 (sheath-rewrite.txt 缺失事故的教训)。现有 106/107/108 行降级为
+  覆盖示例。日志标识 `Gauge rules: N loaded (incl. valor-chain seeds 105/106/107/108)`。
+- 局内实测 (上一版部署): fx/cost 实际触发 106×7 / 108×11; 107 当次会话没出招, 105 当时无规则
+  ——本版四招全覆盖待复测。
+- **"待机刚1 按下后变气刃斩"取证 (日志 69.6万行全量 + 代码)**:
+  - 假设 A (刚1 出招后迟到 {3,11} 顶掉): 全日志 124 次 SHEATHREWRITE, 其后**下一个**动作变化
+    是 id=11 的 = **0 次** (紧邻 6 行窗口 0/124, 末会话宽窗口 0/5); `SHEATHPROBE ... last=3:86`
+    全日志 **0 条** → 无证据, 暂按不成立。
+  - 假设 B (**收刀过渡窗漏改写, 证据成立**): 收刀判定 = "上一个动作是 set 1", 但收刀动画本身
+    是 set-3 (3:0/3:6 家族, 3:6=松开侧键收刀)。R2 按在收刀动画期间/刚收完的一瞬 → lastSet=3
+    → 不改写 → 原版气刃斩1(带前摇)直接出来。日志 `SHEATHPROBE blocked last=3:0` ×67 /
+    `last=3:6` ×27 (探针每会话限12条, 实际更多)。
+  - 修复方案 (待确认后实现): ① sheath-rewrite 的收刀判定扩展: last ∈ set1 ∪ 收刀过渡家族
+    (可配置, 初值 3:0/3:6); ② 改写命中后 ~0.8s 内吞掉同 fromId 迟到请求 (复用 35/36/37 吞单
+    机制, 吞单日志兼作假设 A 的探测器)。
+  - 设计问题: 收刀动画**播放中**按 R2 → 改写成刚1, 还是吞掉不出招? (收刀冷播有姿势跳变,
+    09-25 章节老问题)
