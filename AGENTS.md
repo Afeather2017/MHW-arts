@@ -1773,3 +1773,10 @@ MHWNoChunk and MHWEditor
   任意被监视动作(现在=98, 换节点自动跟随)期间无条件吞**(reassert 窗口之外也吞),
   SheathWatchedAction() helper + 前置声明。DLL md5 1aa879d9 已部署, 待局内验证。
   若正面被挡后 100 仍偶发被顶: 下一步查非格挡族反应 id(日志 action changed 序列)。
+
+- **✅ 35 漏吞真因 = DoActionHook 内部顺序**: 追踪器更新(含 "action changed" 日志,
+  行 1256)在吞单(行 ~1280)**之前**执行 → 吞单检查 watchedHold 时 g_lastLongSwordAction
+  已被覆盖成 {3,35} → SheathWatchedAction(3,35)=false → 不吞。修复 = DoActionHook 顶部
+  先快照 prevSheathAction, 吞单用前一个动作(=玩家所在 98)判断。DLL md5
+  e8ed4216 已部署, 待局内验证。判定链备忘: 35 经 DoAction(已证实, "action changed
+  id=35" 唯一输出点在 DoActionHook), 非缓冲直写。

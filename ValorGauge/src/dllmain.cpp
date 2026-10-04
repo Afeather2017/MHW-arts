@@ -1067,6 +1067,16 @@ bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
+    // Snapshot the PREVIOUS action before the tracker update below replaces
+    // it with the incoming id: the guard-reaction swallow further down must
+    // test the action the player was IN (98), not the reaction itself (35).
+    std::optional<ActionInfo> prevSheathAction;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            prevSheathAction = *g_lastLongSwordAction;
+        }
+    }
     if (validAction) {
 #ifdef VALOR_PROBE
         const auto sample = g_actionDiagnosticCount.fetch_add(1);
@@ -1273,14 +1283,9 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
-    bool watchedHold = false;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 3) {
-            watchedHold = SheathWatchedAction(
-                3, static_cast<std::uint32_t>(g_lastLongSwordAction->actionId));
-        }
-    }
+    const bool watchedHold = prevSheathAction &&
+        prevSheathAction->actionSet == 3 &&
+        SheathWatchedAction(3, static_cast<std::uint32_t>(prevSheathAction->actionId));
     if (validAction && controller == g_lockedPlayerController &&
         guardReactionFamily && (reassertActive || watchedHold)) {
         std::ostringstream m;
