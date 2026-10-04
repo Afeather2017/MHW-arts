@@ -1796,3 +1796,10 @@ MHWNoChunk and MHWEditor
   配置改 `rule 98 222 3 100`。bit 规则同样补哨兵重武装(离开监视集置
   lastActId=0xFFFFFFFF, 同 id 重入 98 也重新武装; 旧逻辑第二次持刀的第一下会被
   fired 卡住)。DLL md5 9bee73aa + 配置已部署, 待局内验证。
+
+- **✅ 重击路径补全 = 吞单即信号**: 轻击(bit222 脉冲)走 bit 规则 ✓; **重击(引擎选
+  35/36/37 反应)脉冲的位不同且反应被吞后无事件位** → 吞单本身即每击一次的精确信号。
+  SheathArmHitRule(holdId, reactionId): 吞单时按 holdId 匹配规则 target 直接 arm
+  (SHEATHGUARD 日志行)。**教训: DoActionHook 在 sheath 规则表声明之前, 相关逻辑一律
+  helper + 前置声明**(本轮连续踩了两次声明顺序坑)。DLL md5 01da4c89 已部署。
+  现役信号矩阵: 轻击=bit222 脉冲 / 重击=反应吞单 / 背面真命中=arule / 松键=krel。

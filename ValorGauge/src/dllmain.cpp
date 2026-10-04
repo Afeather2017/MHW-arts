@@ -1063,6 +1063,7 @@ std::atomic_int32_t g_sheathReassertSet{3};
 std::atomic_int32_t g_sheathReassertId{77};
 
 bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
+void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
 
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
@@ -1096,6 +1097,14 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         SheathWatchedAction(3, static_cast<std::uint32_t>(prevSheathAction->actionId));
     if (validAction && controller == g_lockedPlayerController &&
         guardReactionFamily && (reassertActive || watchedHold)) {
+        // A guarded hit loads its reaction exactly once, so the swallow IS
+        // the per-hit signal: arm the matching rule's target (heavy hits
+        // pulse no event bits - bit222 only covers light ones).
+        if (watchedHold && prevSheathAction) {
+            SheathArmHitRule(
+                static_cast<std::uint32_t>(prevSheathAction->actionId),
+                action->actionId);
+        }
         std::ostringstream m;
         m << "SHEATHREASSERT: swallowed guard reaction 3:"
           << action->actionId << " (keeping 3:"
@@ -1363,6 +1372,32 @@ struct SheathCounterRule {
 std::vector<SheathCounterRule> g_sheathRules;
 
 bool SheathIdsContain(const std::vector<std::uint32_t>& ids, std::uint32_t id);
+void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
+// A guarded hit during a watched action loads its reaction exactly once -
+// swallowing it IS the per-hit signal. Arm the matching rule's target
+// (heavy hits pulse no event bits; bit222 only covers light ones).
+void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId) {
+    for (auto& rule : g_sheathRules) {
+        if (rule.keyBased || rule.dispatchBased) {
+            continue;
+        }
+        if (!SheathIdsContain(rule.duringIds, holdId)) {
+            continue;
+        }
+        if (!g_forceArmed.load(std::memory_order_acquire)) {
+            g_forceSet = rule.toSet;
+            g_forceId = rule.toId;
+            g_forceArmed.store(true, std::memory_order_release);
+            std::ostringstream m;
+            m << "SHEATHGUARD: reaction 3:" << reactionId
+              << " swallowed during 3:" << holdId << " - force "
+              << rule.toSet << ':' << rule.toId;
+            Log(m.str());
+        }
+        break;
+    }
+}
+
 bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId) {
     if (actionSet != 3) {
         return false;
