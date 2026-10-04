@@ -2006,3 +2006,15 @@ MHWNoChunk and MHWEditor
 - 日志 `GAUGERULE gang1 settle[parry(bit15)|frame56|left86|deadline]: gauge a -> b`。
 - 部署 md5 3a7a7b79。验证: 打空收刀刚1 → 约 0.93s 时条 = x-0.15 并保持; 接连段照常再扣;
   HITATT 不再影响任何行为。
+
+### 2026-10-04 (13) 武装点统一到 DoAction: 自然见切(持刀86)也纳入刚1 计费 + 测试无效局复盘
+
+- 复盘 ae2957a4 测试局: **无任何 SHEATHREWRITE** —— 三次 86 (+68/+152/+234) 全是持刀自然
+  见切, 打空 → vanilla 清空 (+70/+154/+236 GAUGEWATCH d=-1), 机制从未武装 (只覆盖收刀改写)
+  → 用户测的招不在管辖内。且局内有**回满器**活动 (每次扣费后一帧内被补回精确扣减量:
+  cost -0.25 → GAUGEWATCH +0.25 → 1.0) = 训练器气刃功能, 它开着任何 settle 都无法停留。
+- 修复: 武装点从 ApplySheathRewrite 挪到 **DoActionHook post-accept** —— 任何本地玩家
+  set-3 actionId==86 接受即 ArmGang1GaugeScope (收刀改写/持刀自然见切同一招同价 0.15;
+  快照确定性先于起手扣费; phase==1 跳过/phase==2 重武装; LS 硬门控保留; probe 构建需
+  #ifndef 包裹 —— gang1 全局在 probe 排除区)。ApplySheathRewrite 侧武装删除。
+- 部署 md5 51cd4c4b。**测试前提: 训练器气刃功能必须关** (只留锁红刃), 否则 -0.15 无法停留。

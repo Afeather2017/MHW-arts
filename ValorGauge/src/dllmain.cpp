@@ -1134,24 +1134,6 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         // for this move - inject the clang-trigger no-hit window instead.
         InjectNoHitLocked(nohitSec);
     }
-    if (toId == 86) {
-        // Arm 刚1 gauge accounting: snapshot now, wait for the request
-        // stream to leave 86, then settle + guard tail (see the block
-        // comment at g_gang1Phase).
-        g_gang1Snapshot.store(gauge, std::memory_order_relaxed);
-        g_gang1DeadlineMs.store(
-            static_cast<std::int64_t>(GetTickCount64()) + 5000,
-            std::memory_order_relaxed);
-        {
-            auto* p = static_cast<std::uint8_t*>(controller) - 0x61C8;
-            const bool bit15 =
-                IsReadable(p + 0x8938, sizeof(std::uint32_t)) &&
-                (*reinterpret_cast<const volatile std::uint32_t*>(
-                     p + 0x8938) & 0x8000) != 0;
-            g_gang1Bit15AtArm.store(bit15, std::memory_order_relaxed);
-        }
-        g_gang1Phase.store(1, std::memory_order_release);
-    }
     std::ostringstream m;
     m << "SHEATHREWRITE: 3:" << fromId << " -> 3:" << toId
       << " (level=" << level << " gauge=" << gauge << " nohit=" << nohitSec << "s)";
@@ -1169,6 +1151,47 @@ std::atomic_int32_t g_sheathReassertId{77};
 
 bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
 void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
+
+// Arms the 刚1 gauge scope for ANY local-player 86 accept - the sheath
+// rewrite AND the natural drawn foresight are the same move (86, plays the
+// 刚1 motion) with the same unconditional 0.15 cost per user design.
+// Deterministically pre-cost: DoAction accept happens before the updater's
+// begin runs the start-cost handler. Skips while a scope is already waiting
+// (phase 1); a settled/tail scope (phase 2) is re-armed by the next press.
+// Hard LS gate: 86 collides across weapon move tables (the GS lesson).
+#ifndef VALOR_PROBE
+void ArmGang1GaugeScope(void* controller) {
+    if (g_gang1Phase.load(std::memory_order_acquire) == 1) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x2368, sizeof(float)) ||
+        !IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) ||
+        *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
+            g_modWeaponType.load(std::memory_order_relaxed)) {
+        return;
+    }
+    g_gang1Snapshot.store(
+        *reinterpret_cast<const volatile float*>(weapon + 0x2368),
+        std::memory_order_relaxed);
+    g_gang1DeadlineMs.store(
+        static_cast<std::int64_t>(GetTickCount64()) + 5000,
+        std::memory_order_relaxed);
+    {
+        const bool bit15 =
+            IsReadable(player + 0x8938, sizeof(std::uint32_t)) &&
+            (*reinterpret_cast<const volatile std::uint32_t*>(
+                 player + 0x8938) &
+             0x8000) != 0;
+        g_gang1Bit15AtArm.store(bit15, std::memory_order_relaxed);
+    }
+    g_gang1Phase.store(1, std::memory_order_release);
+}
+#endif // !VALOR_PROBE
 
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
@@ -1416,6 +1439,13 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     if (result && validAction && controller == g_lockedPlayerController &&
         action->actionSet == 3) {
         ApplyActionGaugeRules(action->actionSet, action->actionId);
+        // 刚1 gauge scope: arm for EVERY local-player 86 accept (rewritten
+        // sheathed draws AND the natural drawn foresight - same move, same
+        // unconditional 0.15 net cost). Snapshot is pre-cost: the updater's
+        // begin (start-cost handler) runs after this.
+        if (action->actionId == 86) {
+            ArmGang1GaugeScope(controller);
+        }
     }
 #endif
     g_insideDoAction.store(false, std::memory_order_release);
