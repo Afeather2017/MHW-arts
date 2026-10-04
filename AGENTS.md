@@ -1878,3 +1878,20 @@ MHWNoChunk and MHWEditor
 - 收刀过渡窗 (3:0/3:6 期间按 R2) 仍是独立的二类洞 (blocked ×94), 优先级低于本修复,
   修不修等用户复测后定。
 - **教训: 静默分支必须留探针** —— fromIds 不匹配纯 return, 让 187 次泄漏零痕迹。
+
+### 2026-10-04 (5) fromIds 修复无效复盘: loader 局部默认值覆盖全局 (与 g_forceCfg 分裂同款教训)
+
+- 上一版把 fromIds 默认改成 {11,12} 改在了**全局变量**上, 但 `LoadSheathRewriteConfig`
+  有自己的局部 `fromIds{11}` 且加载时无条件覆盖全局 (init + Shift+F6 都走) → 新 DLL 日志
+  依旧 `requests 3:{11}`, SHEATHSEEN 照抓 `3:12 not in fromIds (last=1:8)` —— 诊断对、修复
+  改错层。修复 = 改 loader 局部默认 `{11,12}` (933 空回退同步), 全局变量注释标注
+  "effective default lives in the loader"。
+- **教训 (第二次): 配置 loader 拥有并覆盖默认值, 改默认必须改 loader** —— 与 1b0b2f2
+  (g_forceCfg* 分裂, 吞单武装覆盖强制默认) 同类: 默认值有两份时, 生效的永远是 loader 那份。
+- SHEATHSEEN 首日战果: `3:5 (last=1:0)` = **纳刀系动作本身** (收刀家族 {5,6,9,10}),
+  不该改写, 行为正确无需处理; `3:12` 多次 (last=1:8/1:4) = 修复目标, 本版已收编。
+- 附带实测: 3:12 原生自带 cost 0.15 (GAUGEEVT val=-0.15) + 原生 0x7D2 红光
+  (FXNOTIFY caller +0x2122559) —— vanilla 迈步拔刀有自己的气刃呈现, 改写成刚1(86)后
+  由 86 的呈现接管。
+- 部署 md5 63a454a8。验证点: 启动行 `Sheath rewrite: ... 3:{11,12} -> 3:86`;
+  收刀态走动按 R2 出刚1 + `SHEATHREWRITE: 3:12 -> 3:86`。

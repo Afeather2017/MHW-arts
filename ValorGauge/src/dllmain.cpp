@@ -898,6 +898,8 @@ std::atomic<float> g_sheathRewriteNohitSec{0.2f};
 // 11 = standing sheathed R2 draw; 12 = WALKING/RUNNING sheathed R2 draw
 // variant (log-confirmed 2026-10-04: 1:4 -> 3:12 x187 vs 1:0 -> 3:11 x158).
 // With 11 alone, R2 while moving silently played the vanilla walking draw.
+// NOTE: the effective default lives in LoadSheathRewriteConfig - its local
+// fromIds overwrites this global on every load (init + Shift+F6).
 std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
 
@@ -909,7 +911,12 @@ void LoadSheathRewriteConfig() {
     int reqLevel = 3;
     float minGauge = 0.15f;
     float nohitSec = 0.2f;
-    std::vector<std::uint32_t> fromIds{11};
+    // THIS local default is the one that ships: it unconditionally overwrites
+    // the g_sheathRewriteFromIds global below (config-file trailing fromIds
+    // APPEND to it). 12 = the walking/running sheathed draw variant
+    // (log-confirmed 2026-10-04: 1:4 -> 3:12 x187 vs 1:0 -> 3:11 x158) -
+    // editing only the global default leaves 12 leaks invisible.
+    std::vector<std::uint32_t> fromIds{11, 12};
     std::ifstream input("nativePC/plugins/ValorGauge.sheath-rewrite.txt");
     int value = 0;
     if (input >> value && value >= 0 && value <= 0xFFFF) {
@@ -932,6 +939,7 @@ void LoadSheathRewriteConfig() {
     }
     if (fromIds.empty()) {
         fromIds.push_back(11);
+        fromIds.push_back(12);
     }
     {
         std::scoped_lock lock(g_sheathRewriteMutex);
