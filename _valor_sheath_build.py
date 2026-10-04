@@ -299,7 +299,8 @@ if old is not None:
 timl = bpy.data.actions.new(TIML_NAME)
 timl.freehk.starType = "TIML_Action"
 timl.freehk.timelineParamRaw = PARAM_RAW
-timl.freehk.unkn0 = 0
+timl.freehk.unkn0 = 11   # PlMotionCommon 类目分派 id: 全文件 249 个 PMC 类型均为 11,
+                         # 0=未定义类目会导致游戏加载崩溃(2026-10-04 实锤)
 timl.use_fake_user = True
 
 

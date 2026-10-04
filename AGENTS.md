@@ -1703,3 +1703,16 @@ MHWNoChunk and MHWEditor
   端到端导出回读: entry306 motion=214f/loopFrame=50/TIML 5 类, PlMotionCommon mFlag
   f0=306184198 ✓。user 已调好的三行为(不自动收刀/循环/可接招)不动。
   注: TIMLDataNode 的 TIML Animation 输入 link_limit=0 可挂任意多条 TIML action 并列导出。
+
+- **✅ 新导出 LMT 开机崩溃定位 = TIML 类型头 unkn0 (类目分派 id)**: entry306 接上
+  valor_sheath 后游戏无法启动(改名停用即恢复)。字节级对比全文件 249 个 PlMotionCommon
+  类型头: **unkn0 恒为 11**(含全部此前开机过的自定义 entry 141/312/339/340/343/358-363,
+  均继承自导入原版 TIML), PlMotionInput 恒 9, 其余类目恒 0 —— unkn0 = 加载器类目分派 id。
+  我们凭空新建的 TIML action 照 EffectParameter 样例默认写了 unkn0=0 → 全文件唯一的
+  PlMotionCommon=0 → 加载崩溃。修复 = freehk.unkn0=11(原位, 接线不动), 重导出五类目
+  类型头与各常量一致(PlMotionCommon unkn0=11 + mFlag f0=0x12400006), 已部署待开机验证。
+  **教训: 凭空新建 TIML action 时 freehk.unkn0 必须按类目写常量**(PlMotionCommon=11/
+  PlMotionInput=9/多数=0), 不能照别的类目样例抄; build 脚本已同步。ENTRIES 区分:
+  entry.loopFrame(=-1 之外 23 个先例) 与 TIML loopCtrl(全文件 163:1, 唯 306=1, 但 user
+  已在 loopCtrl=1 下进过游戏 → 排除) 均非死因。
+  备份 MHW-Valor.blend.bak-20261004-pre-unkn0fix。
