@@ -1670,3 +1670,12 @@ MHWNoChunk and MHWEditor
   "195 后撤 -1.44m"是旧量测, 作废。valor_sheath_start 46 帧后根恒定 -0.2187
   (循环段零位移, 回绕静止→静止), done 残余漂移 2mm 级 —— "50 帧后玩家不移动"
   由现有产物自然满足, 无需重建。
+
+- **✅ 尾段位移双变换 bug 修复 (user 抓出, 按其公式验证)**: user 给出精确构造式
+  "196 段每个关键帧 = 接点(x,y) + 196 当前帧位移"(196 静止 → 恒等于接点位置)。
+  实查 valor_sheath_start 根 Y 键 [77..84] = -0.246→-0.437: fade_to_bt 把"已变换目标"
+  与"B 原值"直接 lerp 后又叠一次 bval → 位移通道偏移被加两次(每圈尾漂 0.22m + 回绕瞬移)。
+  修复 = 两侧各自 bval 到输出空间后再 lerp, 不再二次叠加。新增公式验证: 接点后
+  root X/Y/Z 全键 maxdrift=0.00000, ALL GREEN 重存。旧节点(动作重建后指针悬空)已清,
+  树里保留 3 个未接线节点(LMT Action Node.003/.004 + TIML Action Node.010)。
+  备份 bak-20261004-004945(修复前 specimen)/002031(pristine)。

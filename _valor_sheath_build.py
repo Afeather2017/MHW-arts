@@ -153,9 +153,12 @@ def build_tables(sections):
                 bt = bval(path, idx, eval_hold(bfc, TB))
                 for f in range(lo, hi + 1):
                     w = (f - lo) / float(hi - lo)
-                    v = eval_hold(fc, f) * (1 - w) + bt * w
+                    # 两侧各自变换到输出空间后再 lerp; 不得二次 bval
+                    # (曾致位移通道偏移双倍: 尾段漂移 -0.219 -> -0.437)
+                    v0 = eval_hold(fc, f)
                     if mode == "fade_to_bt":
-                        v = bval(path, idx, v)
+                        v0 = bval(path, idx, v0)
+                    v = v0 * (1 - w) + bt * w
                     tbl[round(f + dstoff)] = v
     return tables
 
@@ -377,6 +380,17 @@ for nm in (NAME_START, NAME_DONE):
            if any(k.co[1] != k.co[1] for k in fc.keyframe_points)]
     if nan:
         print("    !!! %s NaN: %s" % (nm, nan[:4])); ok = False
+
+# 公式验证: valor_sheath_start 接点(JOIN)后根位移恒定 (=(x,y)+B(f), B 静止)
+for idx, ax in enumerate("XYZ"):
+    fc = start.fcurves.find("location", index=idx)
+    ks = [(k.co[0], k.co[1]) for k in fc.keyframe_points if k.co[0] >= JOIN - EPS]
+    ref = ks[0][1]
+    drift = max(abs(v - ref) for _, v in ks)
+    print("[verify] root %s @>=%d: %d keys const=%.4f maxdrift=%.5f" % (
+        ax, JOIN, len(ks), ref, drift), flush=True)
+    if drift > 1e-3:
+        print("    !!! 根位移 %s 接点后漂移 %.4f > 1mm" % (ax, drift)); ok = False
 
 fh = importlib.import_module("MHW-FreeKinetics.blender.nodetree.freeHKActionNodes")
 teh = ec.ErrorHandler(timl, Opt())
