@@ -895,7 +895,10 @@ std::atomic<std::uint32_t> g_sheathRewriteHoldVK{0};
 std::atomic<std::uint32_t> g_sheathRewriteReqLevel{3};
 std::atomic<float> g_sheathRewriteMinGauge{0.15f};
 std::atomic<float> g_sheathRewriteNohitSec{0.2f};
-std::vector<std::uint32_t> g_sheathRewriteFromIds{11};
+// 11 = standing sheathed R2 draw; 12 = WALKING/RUNNING sheathed R2 draw
+// variant (log-confirmed 2026-10-04: 1:4 -> 3:12 x187 vs 1:0 -> 3:11 x158).
+// With 11 alone, R2 while moving silently played the vanilla walking draw.
+std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
 
 void InjectNoHitLocked(float seconds);
@@ -986,6 +989,22 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         std::scoped_lock lock(g_sheathRewriteMutex);
         if (std::find(g_sheathRewriteFromIds.begin(), g_sheathRewriteFromIds.end(), fromId) ==
             g_sheathRewriteFromIds.end()) {
+            // Not a rewrite target. If this arrives while SHEATHED (set-1
+            // predecessor) it silently plays vanilla - the exact leak class
+            // that hid the walking variant 3:12 for weeks (non-matching ids
+            // used to return with zero logging). Rate-limited visibility so
+            // remaining variants (climb/swim draws, ...) surface in one run.
+            std::scoped_lock actionLock(g_actionMutex);
+            if (g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 1) {
+                static std::atomic_uint32_t seenLogs{0};
+                if (seenLogs.fetch_add(1, std::memory_order_relaxed) < 30) {
+                    std::ostringstream m;
+                    m << "SHEATHSEEN: sheathed request 3:" << fromId
+                      << " not in fromIds (last=1:"
+                      << g_lastLongSwordAction->actionId << ") - vanilla plays";
+                    Log(m.str());
+                }
+            }
             return;
         }
     }
