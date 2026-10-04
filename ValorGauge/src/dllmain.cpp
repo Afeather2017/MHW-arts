@@ -902,6 +902,17 @@ std::atomic<float> g_sheathRewriteNohitSec{0.2f};
 // fromIds overwrites this global on every load (init + Shift+F6).
 std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
+// 刚1 gauge accounting (2026-10-04): the rewritten 86 is vanilla 见切, whose
+// handlers move weapon+0x2368 through SEVERAL paths (start cost, success
+// refill, plus direct writes that bypass FUN_142122410 entirely - GAUGEEVT
+// shows the gauge back at full after each cost with no matching event).
+// Patching individual events misses pieces, so: snapshot the gauge when the
+// rewrite fires, and when the action leaves 86 write back snapshot - 0.15
+// (clamped 0..1). Net cost of a sheathed 刚1 press = 0.15, period.
+std::atomic_bool g_gang1GaugeScopeArmed{false};
+std::atomic<float> g_gang1GaugeSnapshot{0.0f};
+std::atomic<std::int64_t> g_gang1GaugeDeadlineMs{0};
+constexpr float kGang1GaugeCost = 0.15f;
 
 void InjectNoHitLocked(float seconds);
 
@@ -1100,6 +1111,15 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         // The FSM never left 待機(1000), so no vanilla defense window opens
         // for this move - inject the clang-trigger no-hit window instead.
         InjectNoHitLocked(nohitSec);
+    }
+    if (toId == 86) {
+        // Arm 刚1 gauge accounting: snapshot now, settle on leave-86 (see the
+        // block comment at g_gang1GaugeScopeArmed).
+        g_gang1GaugeSnapshot.store(gauge, std::memory_order_relaxed);
+        g_gang1GaugeDeadlineMs.store(
+            static_cast<std::int64_t>(GetTickCount64()) + 5000,
+            std::memory_order_relaxed);
+        g_gang1GaugeScopeArmed.store(true, std::memory_order_release);
     }
     std::ostringstream m;
     m << "SHEATHREWRITE: 3:" << fromId << " -> 3:" << toId
@@ -3711,6 +3731,54 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     }
 }
 
+// Settles the 刚1 gauge scope (see g_gang1GaugeScopeArmed): while the current
+// action is 86 nothing happens; when it leaves 86 (or the 5s deadline passes)
+// the gauge is written back to snapshot - 0.15, clamped. Runs on the game
+// thread (property-getter hook) and is independent of the gauge-rules list.
+void PollGang1GaugeScope() {
+    if (!g_gang1GaugeScopeArmed.load(std::memory_order_acquire)) {
+        return;
+    }
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (ctrl) {
+        auto* bytes = static_cast<std::uint8_t*>(ctrl);
+        const std::int32_t set =
+            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+        const std::int32_t id =
+            *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+        if (set == 3 && id == 86 &&
+            static_cast<std::int64_t>(GetTickCount64()) <=
+                g_gang1GaugeDeadlineMs.load(std::memory_order_relaxed)) {
+            return;
+        }
+    }
+    g_gang1GaugeScopeArmed.store(false, std::memory_order_release);
+    if (!ctrl) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsWritable(weapon + 0x2368, sizeof(float))) {
+        return;
+    }
+    const float snapshot = g_gang1GaugeSnapshot.load(std::memory_order_relaxed);
+    const float target = std::clamp(snapshot - kGang1GaugeCost, 0.0f, 1.0f);
+    auto* gauge = reinterpret_cast<volatile float*>(weapon + 0x2368);
+    const float before = *gauge;
+    *gauge = target;
+    std::ostringstream m;
+    m << "GAUGERULE gang1 settle: gauge " << before << " -> " << target
+      << " (snapshot " << snapshot << " - " << kGang1GaugeCost << ')';
+    Log(m.str());
+}
+
 void PollGaugeBeginRules(const void* entity) {
     if (g_gaugeRules.empty()) {
         return;
@@ -3761,6 +3829,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     PollMotionBind(entity);
     MotionTraceTick(entity);
     PollGaugeBeginRules(entity);
+    PollGang1GaugeScope();
 #endif
     const int result = g_originalPropInt(entity, id, index, defaultValue);
 #ifdef VALOR_PROBE
