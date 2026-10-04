@@ -1755,3 +1755,10 @@ MHWNoChunk and MHWEditor
   fired/lastActId 按实例复位) + drule 触发时写 reassert(吞 {3,37} 1.2s, 保持态不
   经过 37 直接落 100)。新 DLL md5 4054ea24。三规则现状: arule(背面真命中)/
   drule(正面格挡否决)/krel(松键收刀), 全部围绕 3:98。
+
+- **✅ krel 验证通过 + drule 撤换**: 日志实锤 krel 全链正常(侧键 vk=6 确认,
+  down=[6] 唯一键; 松开边沿 -> force 3:6 accepted -> action changed forced id=6
+  -> 收刀待机)。drule 对自定义动作 98 失效: 其 dispatch 返回恒非 0xD(环境帧亦然),
+  入场第一帧即触发 = "按下即 100" → 配置撤换为 **bit250 位规则
+  `rule 98 250 3 100`**(正面格挡交互时 250 升起, 无攻击持刀不升; krel 探针
+  SHEATHKRELDBG 留用)。Shift+F6 热重载生效, 待局内确认三路齐全。
