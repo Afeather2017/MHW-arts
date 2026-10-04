@@ -1811,3 +1811,9 @@ MHWNoChunk and MHWEditor
   新增 g_forceCfgSet/g_forceCfgId(LoadForceActionConfig 与 Shift+F6 重载同步), 弹反链
   四个武装点 arm 前从配置副本恢复。DLL md5 2bb3063c 已部署。刚1(3:77)与收刀回避
   (3:100)两条强制链现已互不污染。
+
+- **✅ user 局内终验 (2026-10-04 晚)**: 四路全部通过 —— 持 98 轻击/重击/背面被打均进
+  3:100(收刀回避), 松开侧键上键进 3:6(收刀), 见切弹反恢复刚1(3:77)且与持刀链交叉
+  不串。勇气纳刀代码侧完结。遗留优化(未排期): 98 换专用 fsm 节点(现借 98); arule
+  的 attacker≠player 判据在联机会误触发(a2=defender 字段待钉, SHEADRULE 日志行可证);
+  krel 探针 SHEATHKRELDBG(8 采样/会话)留用可删。
