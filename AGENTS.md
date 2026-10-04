@@ -1949,3 +1949,15 @@ MHWNoChunk and MHWEditor
 - 成功路径的净效果不变 (settle 压掉 vanilla 回填); 失败路径的清空在 settle 后 ≤1s 内被
   revert。部署 md5 7144d7df。验证: 打空刚1 → 蓝条也稳定 x-0.15 + 日志 `gang1 guard:
   reverted direct write`。
+
+### 2026-10-04 (9) 刚1 气刃终版: 命中确认即撒手 (vanilla 回满设计入章)
+
+- user 确认 vanilla 见切设计: 规避 → 回砍**砍到** → 气刃自己回满 (打空才清条)。守卫尾窗
+  之所以"还是错的": 成功路径的回满是**命中确认时点的滞后直接写入**, 与 1s 尾窗的相对时序
+  不定 —— 落窗内被压、窗外又弹回, 观感忽上忽下。
+- 终版模型 = 顺着 vanilla 分叉: **`NotifyPlayerHitConnected` 里 phase==1 (刚1 窗口内) 的
+  本地命中 → `g_gang1Phase=0` 整体解除** (`gang1 hit-confirm` 日志) —— 砍中 = vanilla
+  自己回满, mod 全程不碰; **打空 = 无命中, scope 走完** settle x-0.15 + 尾窗 revert 清空。
+- 语义: 刚1 砍中 = 免费+回满 (vanilla 奖励), 打空 = 0.15。部署 md5 ae2957a4。
+  验证: 打空 → 稳定 x-0.15 + `gang1 settle`; 砍中 → 回满 + `gang1 hit-confirm`,
+  全程无 settle/guard 行。

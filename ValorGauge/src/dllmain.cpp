@@ -2228,6 +2228,19 @@ void NotifyPlayerHitConnected(long long attacker) {
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
         return;
     }
+    // 刚1 hit-confirm (user-confirmed vanilla design): 见切's reward is the
+    // counter slash CONNECTING -> the gauge refills to full on its own, via
+    // direct writes at hit-confirmation time. Once a local-player hit lands
+    // inside the rewrite scope, vanilla owns the reward - disarm the whole
+    // settle/guard machine so it never fights the refill. (Whiff = no hit =
+    // the scope proceeds and guards the bar at snapshot - 0.15.)
+    if (g_gang1Phase.load(std::memory_order_acquire) == 1) {
+        g_gang1Phase.store(0, std::memory_order_release);
+        std::ostringstream m;
+        m << "GAUGERULE gang1 hit-confirm: slash connected - vanilla refill"
+          << " owns the gauge, settle/guard disarmed";
+        Log(m.str());
+    }
     // timerhit rules: connected hits of the current action extend the
     // level-drop countdown. Independent of the valor-charge gates below so
     // it also runs in valor mode / with charging off.
