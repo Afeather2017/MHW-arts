@@ -1062,6 +1062,8 @@ std::atomic_int64_t g_sheathReassertUntilMs{0};
 std::atomic_int32_t g_sheathReassertSet{3};
 std::atomic_int32_t g_sheathReassertId{77};
 
+bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
+
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
@@ -1258,17 +1260,32 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         }
     }
 #ifndef VALOR_PROBE
-    // SHEATHREASSERT: swallow the engine's guard-reaction load during the
-    // reassert window (nothing is written to the action pipeline, so 37 is
-    // simply never queued and the forced counter keeps playing).
-    if (validAction && controller == g_lockedPlayerController &&
-        action->actionSet == 3 && action->actionId == 37 &&
+    // SHEATHREASSERT: swallow the engine's guard-reaction family (35/36/37)
+    // while inside a sheath-counter watched action - hits there are handled
+    // by the configured rules (bit250/arule force the switch), and letting
+    // the vanilla reaction load would kick the player out of the hold
+    // (observed: unswallowed variant 3:35 replaced the forced 3:100). Also
+    // active during the reassert window for the forced-counter flow.
+    const bool guardReactionFamily = validAction && action->actionSet == 3 &&
+        (action->actionId == 35 || action->actionId == 36 ||
+         action->actionId == 37);
+    const bool reassertActive =
         g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                .count()) {
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    bool watchedHold = false;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction && g_lastLongSwordAction->actionSet == 3) {
+            watchedHold = SheathWatchedAction(
+                3, static_cast<std::uint32_t>(g_lastLongSwordAction->actionId));
+        }
+    }
+    if (validAction && controller == g_lockedPlayerController &&
+        guardReactionFamily && (reassertActive || watchedHold)) {
         std::ostringstream m;
-        m << "SHEATHREASSERT: swallowed guard reaction 3:37 (keeping 3:"
+        m << "SHEATHREASSERT: swallowed guard reaction 3:"
+          << action->actionId << " (keeping 3:"
           << g_sheathReassertId.load(std::memory_order_relaxed) << ")";
         Log(m.str());
         g_insideDoAction.store(false, std::memory_order_release);
@@ -1339,6 +1356,20 @@ struct SheathCounterRule {
     std::uint32_t lastActId = 0;
 };
 std::vector<SheathCounterRule> g_sheathRules;
+
+bool SheathIdsContain(const std::vector<std::uint32_t>& ids, std::uint32_t id);
+bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId) {
+    if (actionSet != 3) {
+        return false;
+    }
+    for (const auto& rule : g_sheathRules) {
+        if (SheathIdsContain(rule.duringIds, actionId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<std::uint32_t> g_sheathMineIds;
 std::vector<std::uint32_t> g_sheathBlueIds; // bluesim: mimic the 见切/居合
 // per-move handlers while inside these actions. The vanilla handlers
