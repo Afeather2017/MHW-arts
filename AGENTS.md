@@ -1716,3 +1716,11 @@ MHWNoChunk and MHWEditor
   entry.loopFrame(=-1 之外 23 个先例) 与 TIML loopCtrl(全文件 163:1, 唯 306=1, 但 user
   已在 loopCtrl=1 下进过游戏 → 排除) 均非死因。
   备份 MHW-Valor.blend.bak-20261004-pre-unkn0fix。
+
+- **✅ user 局内终验 (2026-10-04)**: unkn0=11 修复后正常进游戏; entry306 全动画
+  **真·带角度防御实锤 —— 背后被打直接击飞**(正面=格挡)。至此 valor_sheath 链路定稿:
+  306 = valor_sheath_start(214f, entry.loopFrame=50 循环整段196, 无 b26/无自动收刀/
+  可接招) + 5 类 TIML(user 精剪 4 条 + 我们的 PlMotionCommon mFlag f0=0x12400006
+  bit28 格挡整段)。后续通路: 正面被格挡 → 反应管理器 +0x769=0x100(研究文档格挡反应
+  入口)可作代码侧格挡成功信号; 背面受击 → 正常受击管线 → fsm 100 打断路线可用。
+  突刺(105)角度防御 = 同一个 bit28 单字段改动(9-13 已验证过一次), 待接"引到新动作"。
