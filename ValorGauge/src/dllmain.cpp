@@ -921,6 +921,9 @@ std::atomic<std::int32_t> g_gang1Phase{0};  // 0 idle / 1 waiting / 2 guard tail
 std::atomic<float> g_gang1Snapshot{0.0f};
 std::atomic<float> g_gang1Expected{0.0f};
 std::atomic<std::int64_t> g_gang1DeadlineMs{0};
+// Event bit 15 (the vanilla 见切 success latch, player+0x8938 & 0x8000) at
+// arm time - success = the bit RISING during the scope, not its stale value.
+std::atomic_bool g_gang1Bit15AtArm{false};
 constexpr float kGang1GaugeCost = 0.15f;
 
 void InjectNoHitLocked(float seconds);
@@ -1129,6 +1132,14 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         g_gang1DeadlineMs.store(
             static_cast<std::int64_t>(GetTickCount64()) + 5000,
             std::memory_order_relaxed);
+        {
+            auto* p = static_cast<std::uint8_t*>(controller) - 0x61C8;
+            const bool bit15 =
+                IsReadable(p + 0x8938, sizeof(std::uint32_t)) &&
+                (*reinterpret_cast<const volatile std::uint32_t*>(
+                     p + 0x8938) & 0x8000) != 0;
+            g_gang1Bit15AtArm.store(bit15, std::memory_order_relaxed);
+        }
         g_gang1Phase.store(1, std::memory_order_release);
     }
     std::ostringstream m;
@@ -2228,19 +2239,10 @@ void NotifyPlayerHitConnected(long long attacker) {
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    // 刚1 hit-confirm (user-confirmed vanilla design): 见切's reward is the
-    // counter slash CONNECTING -> the gauge refills to full on its own, via
-    // direct writes at hit-confirmation time. Once a local-player hit lands
-    // inside the rewrite scope, vanilla owns the reward - disarm the whole
-    // settle/guard machine so it never fights the refill. (Whiff = no hit =
-    // the scope proceeds and guards the bar at snapshot - 0.15.)
-    if (g_gang1Phase.load(std::memory_order_acquire) == 1) {
-        g_gang1Phase.store(0, std::memory_order_release);
-        std::ostringstream m;
-        m << "GAUGERULE gang1 hit-confirm: slash connected - vanilla refill"
-          << " owns the gauge, settle/guard disarmed";
-        Log(m.str());
-    }
+    // NOTE: HITATT is NOT a 见切 success signal - the counter slash physically
+    // connects whether or not the parry happened, and un-guarding on it let
+    // the vanilla whiff clear through (user-tested: still cleared). The real
+    // success latch is event bit 15, checked in PollGang1GaugeScope.
     // timerhit rules: connected hits of the current action extend the
     // level-drop countdown. Independent of the valor-charge gates below so
     // it also runs in valor mode / with charging off.
@@ -3804,6 +3806,27 @@ void PollGang1GaugeScope() {
         }
         auto* player =
             static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+        // TRUE vanilla success = the parry latch (event bit 15 RISING), not
+        // the slash physically connecting - HITATT fires either way, and
+        // un-guarding on it let the whiff clear through (user-tested).
+        // Currently inert: the rewrite's 0.2s no-hit injection excludes the
+        // monster attack upstream of defense arbitration, so the parry (叮)
+        // and bit15 can never happen on the sheathed 刚1 until that
+        // experiment is revisited.
+        if (IsReadable(player + 0x8938, sizeof(std::uint32_t))) {
+            const bool bit15 =
+                (*reinterpret_cast<const volatile std::uint32_t*>(
+                     player + 0x8938) &
+                 0x8000) != 0;
+            if (bit15 && !g_gang1Bit15AtArm.load(std::memory_order_relaxed)) {
+                g_gang1Phase.store(0, std::memory_order_release);
+                std::ostringstream m;
+                m << "GAUGERULE gang1 success-confirm (bit15): parry latched"
+                  << " - vanilla refill owns the gauge";
+                Log(m.str());
+                return;
+            }
+        }
         if (!IsReadable(player + 0x76B0, sizeof(void*))) {
             return;
         }
