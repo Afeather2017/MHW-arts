@@ -171,6 +171,10 @@ std::atomic_bool g_forceArmed{false};
 std::atomic_bool g_insideDoAction{false};
 std::uint32_t g_forceSet = 3;
 std::uint32_t g_forceId = 104;
+// force-action.txt 的配置默认值(刚1 目标)。g_forceSet/g_forceId 是"待发目标",
+// 会被 sheath 规则/吞单武装覆盖; 弹反链武装前从这里恢复, 两者分离后互不污染。
+std::atomic_uint32_t g_forceCfgSet{3};
+std::atomic_uint32_t g_forceCfgId{104};
 float g_forceInvulnSec = 0.5f;
 // Frame seek: jump the action-instance frame counter (instance+8) to a chosen
 // start frame right after a forced action begins. <0 = off; the 4th token of
@@ -3957,6 +3961,8 @@ void LoadForceActionConfig() {
     if (input >> set >> id && set >= 0 && id >= 0) {
         g_forceSet = static_cast<std::uint32_t>(set);
         g_forceId = static_cast<std::uint32_t>(id);
+        g_forceCfgSet.store(g_forceSet, std::memory_order_relaxed);
+        g_forceCfgId.store(g_forceId, std::memory_order_relaxed);
     }
     if (input >> invulnSec && invulnSec >= 0.0f && invulnSec <= 3.0f) {
         g_forceInvulnSec = invulnSec;
@@ -4302,6 +4308,8 @@ void PollModTriggers() {
             if (negBit && !g_negBitPrev && !g_clangLatch) {
                 g_clangLatch = true;
                 OpenCounterWindow("negation bit 250 set (player+0x8954)");
+                g_forceSet = g_forceCfgSet.load(std::memory_order_relaxed);
+                g_forceId = g_forceCfgId.load(std::memory_order_relaxed);
                 if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
                     Log("CLANG: negation bit set - auto-force armed");
                 }
@@ -4324,6 +4332,8 @@ void PollModTriggers() {
                 if (flash > 0.5f && g_flashPrev <= 0.5f && !g_clangLatch) {
                     g_clangLatch = true;
                     OpenCounterWindow("deflect flash (weapon+0x23A0)");
+                    g_forceSet = g_forceCfgSet.load(std::memory_order_relaxed);
+                    g_forceId = g_forceCfgId.load(std::memory_order_relaxed);
                     if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
                         Log("CLANG: deflect flash detected - auto-force armed");
                     }
@@ -4379,6 +4389,8 @@ void PollModTriggers() {
         if (in86 && bit15 && !g_fsuccBitPrev && !g_clangLatch) {
             g_clangLatch = true;
             OpenCounterWindow("foresight success bit15 (player+0x8938)");
+            g_forceSet = g_forceCfgSet.load(std::memory_order_relaxed);
+            g_forceId = g_forceCfgId.load(std::memory_order_relaxed);
             if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
                 Log("CLANG: vanilla foresight success latch - auto-force armed");
             }
@@ -5934,6 +5946,8 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;
     const bool ctrlDown = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
     if (windowOpen && ctrlDown && !g_counterCtrlWasDown) {
+        g_forceSet = g_forceCfgSet.load(std::memory_order_relaxed);
+        g_forceId = g_forceCfgId.load(std::memory_order_relaxed);
         if (!g_forceArmed.exchange(true)) {
             Log("COUNTER INPUT: spirit press inside the counter window - force armed");
         }

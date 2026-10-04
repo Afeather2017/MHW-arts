@@ -1803,3 +1803,11 @@ MHWNoChunk and MHWEditor
   (SHEATHGUARD 日志行)。**教训: DoActionHook 在 sheath 规则表声明之前, 相关逻辑一律
   helper + 前置声明**(本轮连续踩了两次声明顺序坑)。DLL md5 01da4c89 已部署。
   现役信号矩阵: 轻击=bit222 脉冲 / 重击=反应吞单 / 背面真命中=arule / 松键=krel。
+
+- **✅ 刚1 被劫持成 100 的真因 = 强制目标单例被吞单武装覆盖**: g_forceSet/g_forceId
+  既是 force-action.txt 的配置默认值(刚1=3:77)又是"待发目标", 吞单武装把默认值改写成
+  3:100 后, **弹反链的四个武装点(iai bit250/见切 bit15/deflect flash/Ctrl 窗口)只 arm
+  不装填**(依赖启动默认) → 之后所有刚1 都打出 100。修复 = 配置默认值与待发目标分离:
+  新增 g_forceCfgSet/g_forceCfgId(LoadForceActionConfig 与 Shift+F6 重载同步), 弹反链
+  四个武装点 arm 前从配置副本恢复。DLL md5 2bb3063c 已部署。刚1(3:77)与收刀回避
+  (3:100)两条强制链现已互不污染。
