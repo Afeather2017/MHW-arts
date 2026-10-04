@@ -1932,3 +1932,20 @@ MHWNoChunk and MHWEditor
   (实测 settle 0.418→0.268 紧跟改写行, 之后 86 的 -0.1 和收尾继续扣 → 用户看到清空)。
   修复 = 改读 **tracker (请求流)**: 改写时 tracker 已是 86, 下一个请求到来才结算 —— 结算
   落在下招 begin 扣费之前, 连段消耗正确叠加在其上。部署待游戏关闭。
+
+### 2026-10-04 (8) 刚1 气刃最终形态: 结算 + 1s 保护尾窗 (whiff 清空 = vanilla 见切设计)
+
+- user 实测定案: **弹反成功 → x-0.15 ✓; 失败(打空) → 清空** = vanilla 见切的原版设计
+  (打空丢条), 且失败清空是**结算之后**才落地的直接写入 (绕过 FUN_142122410, GAUGEEVT 无痕)。
+- 实现 = 两相状态机 (`g_gang1Phase`):
+  - **phase 1 (waiting)**: 改写武装 → tracker 离开 86 (5s 兜底)。vanilla 随便动, 无守卫。
+  - **settle**: 写 `clamp(x - 0.15)` → `expected` 同值, 进 phase 2 (尾窗 1s)。
+  - **phase 2 (guard tail)**: 账面 `expected` 记账 + 每帧对账 —— GAUGEEVT 可见的**负**事件
+    (连段原生扣费) 叠上 expected (正事件 = 见切成功回条, 压掉, 维持 -0.15 净值);
+    实际值偏离 expected >0.01 = 直接写入 (失败清空) → 打回 + `gang1 guard` 日志 (限10条)。
+    尾窗结束再写一次 expected (吸收衰减漂移), 归 phase 0。
+- **自吞坑**: 106/108 的 cost 规则走 trampoline 绕过 GaugeAddHook, 尾窗守卫会把自己扣的
+  费打回去 → ApplyBeginGaugeRules 的 cost 分支补 expected 记账。
+- 成功路径的净效果不变 (settle 压掉 vanilla 回填); 失败路径的清空在 settle 后 ≤1s 内被
+  revert。部署 md5 7144d7df。验证: 打空刚1 → 蓝条也稳定 x-0.15 + 日志 `gang1 guard:
+  reverted direct write`。

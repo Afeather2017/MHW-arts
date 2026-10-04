@@ -903,15 +903,24 @@ std::atomic<float> g_sheathRewriteNohitSec{0.2f};
 std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
 // 刚1 gauge accounting (2026-10-04): the rewritten 86 is vanilla 见切, whose
-// handlers move weapon+0x2368 through SEVERAL paths (start cost, success
-// refill, plus direct writes that bypass FUN_142122410 entirely - GAUGEEVT
-// shows the gauge back at full after each cost with no matching event).
-// Patching individual events misses pieces, so: snapshot the gauge when the
-// rewrite fires, and when the action leaves 86 write back snapshot - 0.15
-// (clamped 0..1). Net cost of a sheathed 刚1 press = 0.15, period.
-std::atomic_bool g_gang1GaugeScopeArmed{false};
-std::atomic<float> g_gang1GaugeSnapshot{0.0f};
-std::atomic<std::int64_t> g_gang1GaugeDeadlineMs{0};
+// handlers move weapon+0x2368 through SEVERAL paths - some via FUN_142122410
+// (GAUGEEVT-visible), some as DIRECT writes (the whiff full-clear: user-
+// verified "成功恢复到 x-0.15, 否则清空" - vanilla design is whiff = lose the
+// bar). Event-level patching cannot catch direct writes, so:
+//   phase 1 (waiting): from the rewrite until the request tracker leaves 86
+//     (5s deadline) - vanilla does whatever, no guard.
+//   settle: write gauge = clamp(snapshot - 0.15), expected = same.
+//   phase 2 (guard tail, 1s): FUN_142122410 events feed `expected` (negative
+//     only - chain-move costs stack; positive vanilla rewards like the
+//     success refill stay suppressed per the 0.15-net spec). Any drift
+//     between the real gauge and `expected` = a direct write (the whiff
+//     clear) -> reverted. Tail end writes expected once more (absorbs decay
+//     drift) and disarms.
+// Net cost of a sheathed 刚1 press = 0.15 whether it clangs or whiffs.
+std::atomic<std::int32_t> g_gang1Phase{0};  // 0 idle / 1 waiting / 2 guard tail
+std::atomic<float> g_gang1Snapshot{0.0f};
+std::atomic<float> g_gang1Expected{0.0f};
+std::atomic<std::int64_t> g_gang1DeadlineMs{0};
 constexpr float kGang1GaugeCost = 0.15f;
 
 void InjectNoHitLocked(float seconds);
@@ -1113,13 +1122,14 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         InjectNoHitLocked(nohitSec);
     }
     if (toId == 86) {
-        // Arm 刚1 gauge accounting: snapshot now, settle on leave-86 (see the
-        // block comment at g_gang1GaugeScopeArmed).
-        g_gang1GaugeSnapshot.store(gauge, std::memory_order_relaxed);
-        g_gang1GaugeDeadlineMs.store(
+        // Arm 刚1 gauge accounting: snapshot now, wait for the request
+        // stream to leave 86, then settle + guard tail (see the block
+        // comment at g_gang1Phase).
+        g_gang1Snapshot.store(gauge, std::memory_order_relaxed);
+        g_gang1DeadlineMs.store(
             static_cast<std::int64_t>(GetTickCount64()) + 5000,
             std::memory_order_relaxed);
-        g_gang1GaugeScopeArmed.store(true, std::memory_order_release);
+        g_gang1Phase.store(1, std::memory_order_release);
     }
     std::ostringstream m;
     m << "SHEATHREWRITE: 3:" << fromId << " -> 3:" << toId
@@ -1724,6 +1734,16 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
                 value = rule->a;
             }
         }
+    }
+    // 刚1 guard-tail bookkeeping: legit costs reaching the accumulator (the
+    // chain moves' native handlers) shift `expected` so the drift guard does
+    // not revert them. Negative only - positive vanilla rewards (the 见切
+    // success refill) stay suppressed per the 0.15-net spec.
+    if (own && g_gang1Phase.load(std::memory_order_acquire) == 2 &&
+        value < 0.0f) {
+        const float e = g_gang1Expected.load(std::memory_order_relaxed);
+        g_gang1Expected.store(std::clamp(e + value, 0.0f, 1.0f),
+                              std::memory_order_relaxed);
     }
     // regen-freeze: while a regeneration timer is running the gauge must not
     // drop - zero out negative deltas (the original still runs for its
@@ -3710,6 +3730,14 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     if (const auto* rule = FindGaugeRule(GaugeRule::Type::Cost, actionSet, actionId)) {
         const float g0 = readGauge();
         g_originalGaugeAdd(weapon, -rule->a);
+        // Keep the 刚1 guard tail honest: cost rules call the TRAMPOLINE,
+        // which bypasses GaugeAddHook, so without this feed the tail's drift
+        // guard would revert our own deduction.
+        if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
+            const float e = g_gang1Expected.load(std::memory_order_relaxed);
+            g_gang1Expected.store(std::clamp(e - rule->a, 0.0f, 1.0f),
+                                  std::memory_order_relaxed);
+        }
         std::ostringstream m;
         m << "GAUGERULE cost act=" << actionSet << ':' << actionId << " -"
           << rule->a << " gauge=" << g0 << "->" << readGauge();
@@ -3731,55 +3759,88 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     }
 }
 
-// Settles the 刚1 gauge scope (see g_gang1GaugeScopeArmed): waits until the
-// action REQUEST stream leaves 86 (tracker - NOT the controller current
-// action: the rewritten request is buffered while the previous move still
-// plays, so controller+0xB0 reads the old move and an immediate settle fires
-// before 86's own cost - observed as settle 0.418->0.268 right after the
-// rewrite, then the move drained the rest). After the next request lands the
-// settle write happens before that move's begin costs, so chained moves
-// deduct on top of the settled value. 5s deadline as the no-followup
-// fallback. Game thread (property-getter hook).
+// 刚1 gauge accounting state machine (see the block comment at g_gang1Phase).
+// Runs on the game thread (property-getter hook). Phase 1 waits for the
+// request tracker to leave 86 (the rewritten request is BUFFERED while the
+// previous move plays, so the controller current-action reads the old move -
+// an immediate settle fired before 86's own cost in the first version).
+// Phase 2 guards the settle against the vanilla whiff full-clear, which is a
+// direct +0x2368 write that lands AFTER the settle and bypasses every hook.
 void PollGang1GaugeScope() {
-    if (!g_gang1GaugeScopeArmed.load(std::memory_order_acquire)) {
+    const std::int32_t phase = g_gang1Phase.load(std::memory_order_acquire);
+    if (phase == 0) {
         return;
     }
-    std::int32_t lastSet = -1;
-    std::int32_t lastId = -1;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            lastSet = g_lastLongSwordAction->actionSet;
-            lastId = g_lastLongSwordAction->actionId;
+    const auto now = static_cast<std::int64_t>(GetTickCount64());
+    if (phase == 1) {
+        std::int32_t lastSet = -1;
+        std::int32_t lastId = -1;
+        {
+            std::scoped_lock lock(g_actionMutex);
+            if (g_lastLongSwordAction) {
+                lastSet = g_lastLongSwordAction->actionSet;
+                lastId = g_lastLongSwordAction->actionId;
+            }
         }
-    }
-    if (lastSet == 3 && lastId == 86 &&
-        static_cast<std::int64_t>(GetTickCount64()) <=
-            g_gang1GaugeDeadlineMs.load(std::memory_order_relaxed)) {
+        if (lastSet == 3 && lastId == 86 &&
+            now <= g_gang1DeadlineMs.load(std::memory_order_relaxed)) {
+            return;
+        }
+        if (!g_lockedPlayerController) {
+            return;
+        }
+        auto* player =
+            static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+        if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+            return;
+        }
+        auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+        if (!weapon || !IsWritable(weapon + 0x2368, sizeof(float))) {
+            return;
+        }
+        const float snapshot = g_gang1Snapshot.load(std::memory_order_relaxed);
+        const float target = std::clamp(snapshot - kGang1GaugeCost, 0.0f, 1.0f);
+        auto* gauge = reinterpret_cast<volatile float*>(weapon + 0x2368);
+        const float before = *gauge;
+        *gauge = target;
+        g_gang1Expected.store(target, std::memory_order_relaxed);
+        g_gang1DeadlineMs.store(now + 1000, std::memory_order_relaxed);
+        g_gang1Phase.store(2, std::memory_order_release);
+        std::ostringstream m;
+        m << "GAUGERULE gang1 settle: gauge " << before << " -> " << target
+          << " (snapshot " << snapshot << " - " << kGang1GaugeCost << ')';
+        Log(m.str());
         return;
     }
-    g_gang1GaugeScopeArmed.store(false, std::memory_order_release);
-    if (!g_lockedPlayerController) {
-        return;
-    }
-    auto* player =
-        static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
-    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+    // Phase 2: guard tail - revert direct writes that bypass FUN_142122410.
+    auto* player = static_cast<std::uint8_t*>(g_lockedPlayerController) -
+                   0x61C8;
+    if (!g_lockedPlayerController ||
+        !IsReadable(player + 0x76B0, sizeof(void*))) {
+        g_gang1Phase.store(0, std::memory_order_release);
         return;
     }
     auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
     if (!weapon || !IsWritable(weapon + 0x2368, sizeof(float))) {
+        g_gang1Phase.store(0, std::memory_order_release);
         return;
     }
-    const float snapshot = g_gang1GaugeSnapshot.load(std::memory_order_relaxed);
-    const float target = std::clamp(snapshot - kGang1GaugeCost, 0.0f, 1.0f);
+    const float expected = g_gang1Expected.load(std::memory_order_relaxed);
     auto* gauge = reinterpret_cast<volatile float*>(weapon + 0x2368);
-    const float before = *gauge;
-    *gauge = target;
-    std::ostringstream m;
-    m << "GAUGERULE gang1 settle: gauge " << before << " -> " << target
-      << " (snapshot " << snapshot << " - " << kGang1GaugeCost << ')';
-    Log(m.str());
+    const float actual = *gauge;
+    if (actual < expected - 0.01f || actual > expected + 0.01f) {
+        *gauge = expected;
+        static std::atomic_uint32_t guardLogs{0};
+        if (guardLogs.fetch_add(1, std::memory_order_relaxed) < 10) {
+            std::ostringstream m;
+            m << "GAUGERULE gang1 guard: reverted direct write " << actual
+              << " -> " << expected;
+            Log(m.str());
+        }
+    }
+    if (now > g_gang1DeadlineMs.load(std::memory_order_relaxed)) {
+        g_gang1Phase.store(0, std::memory_order_release);
+    }
 }
 
 void PollGaugeBeginRules(const void* entity) {
