@@ -1273,6 +1273,8 @@ void GuardOnActionAccepted(void* controller, std::uint32_t actionId);
 void PollGuardWindow();
 void PollHpLock();
 void PollHpWatch();
+void StaminaOnActionAccepted(std::uint32_t actionId);
+void PollStaminaControl();
 #endif
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
@@ -1534,6 +1536,9 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         // sheath rewrite above, so rewritten ids arm the window too).
         GuardOnActionAccepted(controller,
                               static_cast<std::uint32_t>(action->actionId));
+        // Stamina control: one-shot cost (见切) + reset the empty-exit latch.
+        StaminaOnActionAccepted(
+            static_cast<std::uint32_t>(action->actionId));
         ApplyActionGaugeRules(action->actionSet, action->actionId);
         // 刚1 gauge scope: arm for EVERY local-player 86 accept (rewritten
         // sheathed draws AND the natural drawn foresight - same move, same
@@ -5402,6 +5407,224 @@ void PollHpWatch() {
     Log(m.str());
 }
 
+// --- Stamina control (drain / cost / emptyExit) ------------------------------
+// Real stamina = hpBox+0x12C (cur) / +0x130 (max) - HPWATCH-proven to track
+// the HUD bar (drains on sprint, refills on idle). The engine's per-frame
+// updater (FUN_141C4A260) reaches it through vtable+0xC68/+0xC70 virtuals, so
+// we do not hook the writer; we read/write the field directly (gauge-lock
+// pattern). Fatigue anchors for later: player+0x208EC (threshold float),
+// +0x20914 (exhaustion flag byte).
+// Config nativePC/plugins/ValorGauge.stamina.txt:
+//   drain <ids> <perSec>            continuous drain while the action runs
+//   cost <ids> <amount>             one-time cost on action accept (见切)
+//   emptyExit <ids> <toSet> <toId>  force a buffered {set,id} switch once the
+//                                   bar empties during those actions
+std::vector<std::uint32_t> g_stamDrainIds;
+float g_stamDrainPerSec = 0.0f;
+std::vector<std::uint32_t> g_stamCostIds;
+float g_stamCostAmount = 0.0f;
+std::vector<std::uint32_t> g_stamExitIds;
+std::uint32_t g_stamExitSet = 0;
+std::uint32_t g_stamExitId = 0;
+bool g_stamExitFired = false;
+std::chrono::steady_clock::time_point g_stamLastPoll{};
+std::atomic<std::uint32_t> g_stamLogCount{0};
+
+float* StaminaCurPtr(std::uint8_t* player) {
+    auto* box = GuardVitalsBox(player, g_vitalsHpSlot.load());
+    if (!box || !IsWritable(box + 0x12C, 4) || !IsReadable(box + 0x130, 4)) {
+        return nullptr;
+    }
+    return reinterpret_cast<float*>(box + 0x12C);
+}
+
+void StaminaOnActionAccepted(std::uint32_t actionId) {
+    g_stamExitFired = false;
+    if (g_stamCostIds.empty() || g_stamCostAmount <= 0.0f) {
+        return;
+    }
+    if (std::find(g_stamCostIds.begin(), g_stamCostIds.end(), actionId) ==
+        g_stamCostIds.end()) {
+        return;
+    }
+    void* controller = g_lockedPlayerController;
+    if (!controller) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (float* cur = StaminaCurPtr(player)) {
+        const float before = *cur;
+        *cur = std::max(0.0f, before - g_stamCostAmount);
+        const auto n = g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
+        if (n < 60) {
+            std::ostringstream m;
+            m << "STAMCOST act=3:" << actionId << " " << before << " -> "
+              << *cur << " (-" << g_stamCostAmount << ")";
+            Log(m.str());
+        }
+    }
+}
+
+void PollStaminaControl() {
+    if ((g_stamDrainIds.empty() && g_stamExitIds.empty())) {
+        return;
+    }
+    void* controller = g_lockedPlayerController;
+    if (!controller || !ModWeaponActive()) {
+        return;
+    }
+    ActionInfo cur;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (!g_lastLongSwordAction) {
+            return;
+        }
+        cur = *g_lastLongSwordAction;
+    }
+    if (cur.actionSet != 3) {
+        return;
+    }
+    const std::uint32_t id = static_cast<std::uint32_t>(cur.actionId);
+    const bool draining =
+        !g_stamDrainIds.empty() &&
+        std::find(g_stamDrainIds.begin(), g_stamDrainIds.end(), id) !=
+            g_stamDrainIds.end();
+    const bool exitWatched =
+        !g_stamExitIds.empty() &&
+        std::find(g_stamExitIds.begin(), g_stamExitIds.end(), id) !=
+            g_stamExitIds.end();
+    if (!draining && !exitWatched) {
+        g_stamExitFired = false;
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    float* curPtr = StaminaCurPtr(player);
+    if (!curPtr) {
+        return;
+    }
+    const auto nowClock = std::chrono::steady_clock::now();
+    float dt = std::chrono::duration<float>(nowClock - g_stamLastPoll).count();
+    g_stamLastPoll = nowClock;
+    dt = std::min(dt, 0.1f);
+    if (draining && *curPtr > 0.0f && g_stamDrainPerSec > 0.0f) {
+        const float before = *curPtr;
+        *curPtr = std::max(0.0f, before - g_stamDrainPerSec * dt);
+        static std::int32_t lastLoggedFloor = -999;
+        const std::int32_t floored = static_cast<std::int32_t>(*curPtr);
+        if (floored != lastLoggedFloor &&
+            g_stamLogCount.load(std::memory_order_relaxed) < 60) {
+            lastLoggedFloor = floored;
+            g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
+            std::ostringstream m;
+            m << "STAMDRAIN act=3:" << id << " " << before << " -> " << *curPtr
+              << " (" << g_stamDrainPerSec << "/s)";
+            Log(m.str());
+        }
+    }
+    if (*curPtr <= 0.0f && exitWatched && !g_stamExitFired) {
+        g_stamExitFired = true;
+        // Buffered-request slot (controller+0xBC/+0xC0): the same primitive
+        // DoAction uses for busy-queued actions - the updater consumes it
+        // when the current action can derive.
+        auto* ctrl = static_cast<std::uint8_t*>(controller);
+        if (IsWritable(ctrl + 0xC0, 4) && IsWritable(ctrl + 0xBC, 4)) {
+            *reinterpret_cast<std::int32_t*>(ctrl + 0xBC) =
+                static_cast<std::int32_t>(g_stamExitSet);
+            *reinterpret_cast<std::int32_t*>(ctrl + 0xC0) =
+                static_cast<std::int32_t>(g_stamExitId);
+            Log("STAMEXIT stamina empty during watched action - queued "
+                "switch");
+        }
+    }
+}
+
+void LoadStaminaConfig() {
+    g_stamDrainIds.clear();
+    g_stamDrainPerSec = 0.0f;
+    g_stamCostIds.clear();
+    g_stamCostAmount = 0.0f;
+    g_stamExitIds.clear();
+    g_stamExitSet = 0;
+    g_stamExitId = 0;
+    g_stamExitFired = false;
+    std::ifstream input("nativePC/plugins/ValorGauge.stamina.txt");
+    if (!input) {
+        Log("Stamina: no ValorGauge.stamina.txt - stamina control OFF");
+        return;
+    }
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        std::string kind;
+        if (!(ss >> kind)) {
+            continue;
+        }
+        if (kind == "drain") {
+            std::string ids;
+            float perSec = 0.0f;
+            if (ss >> ids >> perSec && ParseIdList(ids, g_stamDrainIds)) {
+                g_stamDrainPerSec = std::max(0.0f, std::min(200.0f, perSec));
+            } else {
+                Log("Stamina: malformed drain line - skipped");
+            }
+        } else if (kind == "cost") {
+            std::string ids;
+            float amount = 0.0f;
+            if (ss >> ids >> amount && ParseIdList(ids, g_stamCostIds)) {
+                g_stamCostAmount = std::max(0.0f, std::min(500.0f, amount));
+            } else {
+                Log("Stamina: malformed cost line - skipped");
+            }
+        } else if (kind == "emptyExit") {
+            std::string ids;
+            unsigned long toSet = 0;
+            unsigned long toId = 0;
+            if (ss >> ids >> toSet >> toId && ParseIdList(ids, g_stamExitIds)) {
+                g_stamExitSet = static_cast<std::uint32_t>(toSet);
+                g_stamExitId = static_cast<std::uint32_t>(toId);
+            } else {
+                Log("Stamina: malformed emptyExit line - skipped");
+            }
+        }
+    }
+    std::ostringstream m;
+    m << "Stamina control: drain=";
+    if (g_stamDrainIds.empty()) {
+        m << "(none)";
+    } else {
+        for (std::size_t i = 0; i < g_stamDrainIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_stamDrainIds[i];
+        }
+        m << '@' << g_stamDrainPerSec << "/s";
+    }
+    m << " cost=";
+    if (g_stamCostIds.empty()) {
+        m << "(none)";
+    } else {
+        for (std::size_t i = 0; i < g_stamCostIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_stamCostIds[i];
+        }
+        m << '-' << g_stamCostAmount;
+    }
+    m << " emptyExit=";
+    if (g_stamExitIds.empty()) {
+        m << "(none)";
+    } else {
+        for (std::size_t i = 0; i < g_stamExitIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_stamExitIds[i];
+        }
+        m << "->" << g_stamExitSet << ':' << g_stamExitId;
+    }
+    Log(m.str());
+}
+
 void PollGuardWindow() {
     if (!g_guardActive.load(std::memory_order_relaxed)) {
         return;
@@ -5558,6 +5781,7 @@ void LoadForceActionConfig() {
     LoadVitalsConfig();
     LoadGuardConfig();
     LoadHpLockConfig();
+    LoadStaminaConfig();
     std::ostringstream wt;
     wt << "Mod weapon gate: only weapon type "
        << g_modWeaponType.load(std::memory_order_relaxed)
@@ -7508,6 +7732,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollGuardWindow();
     PollHpLock();
     PollHpWatch();
+    PollStaminaControl();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;

@@ -2383,3 +2383,22 @@ MHWNoChunk and MHWEditor
 - 98 防住一击的完整事件链 (全可检测): 削伤 VITSET 落地 → 引擎排队 35/36/37 →
   DoActionHook: GUARDREACT latch+回滚 (GUARDBLOCK restore) + sheath 流程吞反应 + force
   3:100 → 玩家进入 100 (窗口关闭, 100 内正常受击)。
+
+### 2026-10-06 (14) 耐力控制模块: drain/cost/emptyExit (md5 33a384f2)
+
+- **user 设计要求**: 一般防御掉体力但我们的防御不掉(现状, 暂留); 勇气太刀招式**应该**
+  耗体力 — 见切(86)=耗体招(一次性), 特殊纳刀(98)过程**持续耗**, 耗尽强制进收刀态+
+  疲劳(机制后做, 先验证可控性)。
+- **真耐力定案**: hp box+0x12C(cur)/+0x130(max) — HPWATCH 实测跟踪 HUD (跑步 175↔200)。
+  引擎每帧更新器 FUN_141C4A260 经 vtable+0xC68(耗)/0xC70(回) 虚调用到写入点(静态止步,
+  控制不需要钩它 — 直读写字段, gauge-lock 同款)。疲劳锚点备用: player+0x208EC(阈值),
+  +0x20914(力竭 flag)。+0x7670 box 恒 [0,0] 非耐力。
+- **实装 (ValorGauge.stamina.txt, 缺文件=关, Shift+F6 热重载)**:
+  `drain <ids> <perSec>` 持续扣(实时 dt) / `cost <ids> <amount>` 接受一次性扣
+  (DoActionHook post-accept) / `emptyExit <ids> <toSet> <toId>` 归零时写缓冲请求槽
+  (controller+0xBC/0xC0, spiritreckoning 同款原语) 强制切招(一次性 latch, 动作变更重置)。
+  部署默认: drain 98@10/s, cost 86-20, emptyExit 98→1:0(收刀 locomotion, 待 user 调)。
+  日志 STAMCOST/STAMDRAIN(整数变化跳变记)/STAMEXIT, HPWATCH hudStam 字段可对照 HUD。
+- **待验证**: ①86 出招 → STAMCOST 掉体力; ②98 架势 → STAMDRAIN 持续掉(注意引擎自然
+  回复与之对抗, 速率可调); ③耗尽 → STAMEXIT 是否真把玩家切到收刀态(缓冲槽在架势动作
+  可派生帧被消费?) — 若槽不被消费, 换 force-DoAction 路径; ④疲劳状态(+0x20914)后接。
