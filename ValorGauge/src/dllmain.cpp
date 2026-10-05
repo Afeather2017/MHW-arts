@@ -5427,7 +5427,10 @@ std::vector<std::uint32_t> g_stamExitIds;
 std::uint32_t g_stamExitSet = 0;
 std::uint32_t g_stamExitId = 0;
 bool g_stamExitFired = false;
-std::chrono::steady_clock::time_point g_stamLastPoll{};
+std::uint32_t g_stamDrainActId = 0;
+bool g_stamDrainArmed = false;
+float g_stamDrainBase = 0.0f;
+std::chrono::steady_clock::time_point g_stamDrainStart{};
 std::atomic<std::uint32_t> g_stamLogCount{0};
 
 float* StaminaCurPtr(std::uint8_t* player) {
@@ -5503,23 +5506,40 @@ void PollStaminaControl() {
         return;
     }
     const auto nowClock = std::chrono::steady_clock::now();
-    float dt = std::chrono::duration<float>(nowClock - g_stamLastPoll).count();
-    g_stamLastPoll = nowClock;
-    dt = std::min(dt, 0.1f);
-    if (draining && *curPtr > 0.0f && g_stamDrainPerSec > 0.0f) {
-        const float before = *curPtr;
-        *curPtr = std::max(0.0f, before - g_stamDrainPerSec * dt);
-        static std::int32_t lastLoggedFloor = -999;
-        const std::int32_t floored = static_cast<std::int32_t>(*curPtr);
-        if (floored != lastLoggedFloor &&
-            g_stamLogCount.load(std::memory_order_relaxed) < 60) {
-            lastLoggedFloor = floored;
-            g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
-            std::ostringstream m;
-            m << "STAMDRAIN act=3:" << id << " " << before << " -> " << *curPtr
-              << " (" << g_stamDrainPerSec << "/s)";
-            Log(m.str());
+    // Absolute-set drain: the engine refills the bar every frame, so an
+    // incremental -= loses the race. Snapshot on entry, then pull the bar
+    // DOWN to (snapshot - rate*elapsed) each poll - never raises, wins
+    // regardless of engine write order (only sawtooths within one frame).
+    if (draining) {
+        if (!g_stamDrainArmed || g_stamDrainActId != id) {
+            g_stamDrainArmed = true;
+            g_stamDrainActId = id;
+            g_stamDrainBase = *curPtr;
+            g_stamDrainStart = nowClock;
         }
+        if (g_stamDrainPerSec > 0.0f && *curPtr > 0.0f) {
+            const float before = *curPtr;
+            const float elapsed = std::chrono::duration<float>(
+                                      nowClock - g_stamDrainStart).count();
+            const float target =
+                std::max(0.0f, g_stamDrainBase - g_stamDrainPerSec * elapsed);
+            if (*curPtr > target) {
+                *curPtr = target;
+            }
+            static std::int32_t lastLoggedFloor = -999;
+            const std::int32_t floored = static_cast<std::int32_t>(*curPtr);
+            if (floored != lastLoggedFloor &&
+                g_stamLogCount.load(std::memory_order_relaxed) < 60) {
+                lastLoggedFloor = floored;
+                g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
+                std::ostringstream m;
+                m << "STAMDRAIN act=3:" << id << " " << before << " -> "
+                  << *curPtr << " (" << g_stamDrainPerSec << "/s, abs)";
+                Log(m.str());
+            }
+        }
+    } else {
+        g_stamDrainArmed = false;
     }
     if (*curPtr <= 0.0f && exitWatched && !g_stamExitFired) {
         g_stamExitFired = true;
