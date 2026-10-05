@@ -2337,3 +2337,21 @@ MHWNoChunk and MHWEditor
   (lethal 行); ②背身照常掉血 (restore 只在 react 后触发, 无 react 的背身伤不会回滚 —
   这是判定"防没防住"的引擎裁决, 不是我们自己的角度); ③连续多击看回滚值是否合理
   (snapshot 只记最近一次 prev, 多击间隔内第二击会覆盖)。
+
+### 2026-10-05 (11) 防御可用定版 + 误免伤收紧 (commit 8f4cfb0 + md5 f764da17)
+
+- **user 定性: 防御路线可行**, 大多数情况无伤; 先提交 (8f4cfb0) 后继续调。
+- **bug: 不在使用勇气纳刀时被打飞却保持血量** — 两个误免伤通道:
+  ①**react latch 预否决**: 引擎先扣血后发反应, latch(1.2s) 永远罩不住自己那一击, 只会
+  把"挡住之后 1.2s 内的后续挨打"全部白免 → **撤销 react 预否决** (回滚机制已覆盖防住
+  那一击, latch 只保留给耐力返还/reactId 记录);
+  ②**armFallback 窗口内误罩**: 98 窗口 6s, 窗口内任何正面伤 (含非防御点帧) 走
+  DmgCalc→arm→免伤 → **arm+致死保护限定 armIds** (新配置 `armIds <ids>`, 空=全部;
+  部署默认 `armIds 86` — 86 无原生防御点, 方向免疫是设计; 98/99 只靠原生 GP+回滚,
+  非防御点帧伤害照常成立)。GuardCurrentActionInArmIds() 以 DoAction 跟踪的当前动作
+  实时判定, setter (arm/lethal 两分支) 与 NotifyGuardDamageHit (武装时) 双重门控。
+- 部署 guard.txt 重写 (含 armIds 86 + 注释), md5 f764da17。
+- **已知残留**: ①回滚快照单槽 (多击间隔内后击覆盖前击 prev, 极速连击第二击可能只回滚
+  到第一击后值); ②GUARDREACT 吞反应在非 sheath-watch 的招 (86) 上默认开启 — 若想看
+  原生防御表现可 swallowReaction 0; ③GP 防御 crush (大伤害破防) 若引擎仍排 35-38 会
+  回滚 — 观察后再定。

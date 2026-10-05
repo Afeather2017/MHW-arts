@@ -1250,6 +1250,11 @@ void ArmGang1GaugeScope(void* controller) {
 // of the guard system lives below LoadSheathCounterConfig).
 struct GuardConfig {
     std::vector<std::uint32_t> ids;
+    // Subset of ids where the mod-side directional arm fallback (and the
+    // window-wide lethal override) may negate: 86 has no native guard point,
+    // so direction gating is ours; 98/99 rely on the native guard points and
+    // the reaction rollback only. Empty = all ids (legacy behavior).
+    std::vector<std::uint32_t> armIds;
     float arcHalfDeg = 90.0f;
     float maxTurnDeg = 30.0f;
     int guardLevel = 2;
@@ -2514,6 +2519,7 @@ extern std::atomic<bool> g_vitalsHpSlotCustom;
 std::uint8_t* GuardVitalsBox(std::uint8_t* player, std::size_t slot);
 void GuardClearHealingQuota(std::uint8_t* box);
 void GuardApplyBlockBenefits(std::uint8_t* player, std::uint8_t* box);
+bool GuardCurrentActionInArmIds();
 #endif
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
@@ -4866,7 +4872,7 @@ void NotifyGuardDamageHit(long long attacker, long long defenderCtx) {
         angDiff = GuardWrap180(angleTo - GuardYawDeg(player));
     }
     const bool frontal = std::fabs(angDiff) <= g_guardCfg.arcHalfDeg;
-    if (frontal) {
+    if (frontal && GuardCurrentActionInArmIds()) {
         g_guardArmUntilMs = GuardNowMs() + kGuardArmLatchMs;
     }
     const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
@@ -4884,15 +4890,14 @@ void __fastcall GuardHpDeltaHook(void* player, float delta) {
         controller &&
         player == static_cast<std::uint8_t*>(controller) - 0x61C8) {
         const std::int64_t now = GuardNowMs();
-        const bool react =
-            now < g_guardReactUntilMs.load(std::memory_order_relaxed);
-        const bool arm = g_guardCfg.armFallback &&
+        const bool arm = g_guardCfg.armFallback && GuardCurrentActionInArmIds() &&
                          now < g_guardArmUntilMs.load(std::memory_order_relaxed);
-        if (react || arm) {
+        const bool lethal =
+            delta < 1.0f && GuardCurrentActionInArmIds();
+        if (arm || lethal) {
             // Secondary negation point (primary = GuardVitSetHook, where the
             // observed damage actually converges). Skip the call and clear
-            // the pending-heal quota array (box+0x30 -> +0xEBB0, user/HPWATCH
-            // confirmed 2026-10-05).
+            // the pending-heal quota array (box+0x30 -> +0xEBB0).
             auto* p = static_cast<std::uint8_t*>(player);
             float hpBefore = -1.0f;
             if (auto* box = GuardVitalsBox(p, g_vitalsHpSlot.load())) {
@@ -4916,8 +4921,7 @@ void __fastcall GuardHpDeltaHook(void* player, float delta) {
             if (n < 48) {
                 std::ostringstream m;
                 m << "GUARDBLOCK negated " << delta << " hp=" << hpBefore
-                  << " path=" << (react ? "react" : "arm")
-                  << " reactId=" << g_guardReactId.load();
+                  << " path=" << (arm ? "arm" : "lethal");
                 Log(m.str());
             }
             return;
@@ -5155,6 +5159,27 @@ void GuardApplyBlockBenefits(std::uint8_t* player, std::uint8_t* box) {
     }
 }
 
+// True when the tracked current action is one of cfg.armIds (empty = all).
+bool GuardCurrentActionInArmIds() {
+    if (g_guardCfg.armIds.empty()) {
+        return true;
+    }
+    ActionInfo cur;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (!g_lastLongSwordAction) {
+            return false;
+        }
+        cur = *g_lastLongSwordAction;
+    }
+    if (cur.actionSet != 3) {
+        return false;
+    }
+    return std::find(g_guardCfg.armIds.begin(), g_guardCfg.armIds.end(),
+                     static_cast<std::uint32_t>(cur.actionId)) !=
+           g_guardCfg.armIds.end();
+}
+
 void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) {
     auto* b = static_cast<const std::uint8_t*>(box);
     const std::uintptr_t caller =
@@ -5164,13 +5189,17 @@ void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) 
     if (IsReadable(b + 0x64, sizeof(float))) {
         prev = *reinterpret_cast<const float*>(b + 0x64);
     }
-    // GUARD negation point: every HP write converges on this setter. Two
-    // mechanisms, because the engine applies the guard chip damage BEFORE it
-    // queues the guard reaction (live trace: VITSET damage, then GUARDREACT):
-    //   1. react/arm latch already set -> drop the write entirely.
-    //   2. no latch: lethal writes (would leave <1 HP) are dropped outright;
-    //      non-lethal chips pass through but remember the pre-hit HP so
-    //      GuardOnReactionAction restores it the moment the reaction lands.
+    // GUARD negation point: every HP write converges on this setter. The
+    // engine applies guard chip damage BEFORE queueing the reaction (live
+    // trace), so the react latch can never legitimately cover its own hit -
+    // pre-negating on it only granted blanket immunity to FOLLOW-UP hits for
+    // 1.2s (the "knocked back outside the move but HP preserved" bug).
+    // Negation now requires the current action to be arm-armed (86 by
+    // default; 98/99 rely on native guard points + reaction rollback):
+    //   - arm latch (directional, from DmgCalcHook) -> drop the write;
+    //   - lethal override (would leave <1 HP) -> drop unconditionally.
+    //   - everything else passes; GuardOnReactionAction rolls it back when
+    //     the engine confirms the block with a guard reaction.
     void* controller = g_lockedPlayerController;
     if (value < prev && prev > 0.0f && g_guardActive.load(std::memory_order_acquire) &&
         controller &&
@@ -5178,19 +5207,18 @@ void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) 
                    static_cast<std::uint8_t*>(controller) - 0x61C8 +
                    g_vitalsHpSlot.load(std::memory_order_relaxed))) {
         const std::int64_t now = GuardNowMs();
-        const bool react =
-            now < g_guardReactUntilMs.load(std::memory_order_relaxed);
-        const bool arm = g_guardCfg.armFallback &&
+        const bool arm = g_guardCfg.armFallback && GuardCurrentActionInArmIds() &&
                          now < g_guardArmUntilMs.load(std::memory_order_relaxed);
+        const bool lethal =
+            value < 1.0f && GuardCurrentActionInArmIds();
         auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-        if (react || arm || value < 1.0f) {
+        if (arm || lethal) {
             GuardApplyBlockBenefits(player, static_cast<std::uint8_t*>(box));
             const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
             if (n < 48) {
                 std::ostringstream m;
                 m << "GUARDBLOCK vitset negated " << prev << " -> " << value
-                  << " path=" << (react ? "react" : arm ? "arm" : "lethal")
-                  << " reactId=" << g_guardReactId.load()
+                  << " path=" << (arm ? "arm" : "lethal")
                   << " caller=+0x" << std::hex << caller;
                 Log(m.str());
             }
@@ -5427,6 +5455,11 @@ void LoadGuardConfig() {
             } else {
                 Log("Guard: malformed guard line - skipped");
             }
+        } else if (kind == "armIds") {
+            std::string ids;
+            if (ss >> ids) {
+                ParseIdList(ids, g_guardCfg.armIds);
+            }
         } else if (kind == "option") {
             std::string key;
             float val = 0.0f;
@@ -5463,6 +5496,15 @@ void LoadGuardConfig() {
       << " swallow=" << g_guardCfg.swallowReaction
       << " counterOnBlock=" << g_guardCfg.counterOnBlock
       << " maxWindow=" << g_guardCfg.maxWindowSec << "s";
+    m << " armIds=";
+    if (g_guardCfg.armIds.empty()) {
+        m << "(all)";
+    } else {
+        for (std::size_t i = 0; i < g_guardCfg.armIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_guardCfg.armIds[i];
+        }
+    }
     Log(m.str());
 }
 
