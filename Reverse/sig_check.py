@@ -30,6 +30,11 @@ TARGETS = {
     "gaugeAdd": 0x2122410,
     "fxNotify": 0xADD670,
     "negrEvent": 0x21038B0,
+    "turnSet": 0x1F755C0,
+    "hpDelta": 0x1F518E0,
+    "stamDelta": 0x1C49F10,
+    "vitSet": 0x1216940,
+    "vitAdd": 0x1216880,
 }
 JSON_PATH = "signatures.json"
 

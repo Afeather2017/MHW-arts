@@ -2155,3 +2155,185 @@ MHWNoChunk and MHWEditor
   只对家族动作发, 谁投递/判定条件未钉 (深挖方向: 状态对象事件流的上游 dispatch)。
 - 101/102 实验改动已全部回滚 (expect-value 三连 setval, LMT 恢复原状)。
 - 方案不变: 防御帧 (b26/b24, 已泛化) + 临时防御值 (FUN_141F66DD0 入口, 下阶段)。
+
+### 2026-10-05 (5) 防御系统落地: 原生防御借用 + 血量/耐力/转身三钩子 (部署 md5 4c3c5c41)
+
+- **用户定案**: 见切/特殊纳刀的"全角度无敌+自由转身"太强, 换成**带角度限制的防御**;
+  防御的削伤缺点用"钩血量写入"抹平 (只要防御的被打中检测, 不要削伤); 玩家血量三值
+  (动态上限 100/150/200 / 当前红条 / 可恢复黄条), 拦写必须三者自洽; FSM 侧后续把
+  见切/特殊纳刀换回普通节点 (mod 按 id 挂窗, 不依赖特殊节点)。
+- **逆向新钉 (三个研究面全清)**:
+  - **血量**: vitals box `*(player+0x7630)`: **+0x60=maxHP(动态), +0x64=curHP(红条)**
+    (微型 getter 族 0x141216780-0x141216A30: get cur 0x141216910 / get max 0x141216920 /
+    比率 0x141216930 / set cur clamp 0x141216940 / set max 压 cur 0x141216980; ctor=100/100)。
+    maxHP 重算 FUN_141f79cd0 (技能/吃饭/多人缩放 mgr+0x608>0 ×表)。
+    **伤害唯一写入口 = FUN_141f518e0(player, delta)** (负扣正回; (0,1]→1.0 保底; 尾部
+    `add rsp,0x40;pop rbx;ret` 无 rax): 内部读 cur→加 delta→0x141216940 写回。
+    **黄条不在 box 里** = player+0xEBA8+slot*0x40 (登记: +0x30 量/+0x34 active) +
+    player+0x1D78+slot*0x40 (每帧插值状态 [0]value/[1]base/[3]acc/[7]state), 由
+    FUN_141f637a0 每帧把增量回灌红条 (经 FUN_141f628c0)。**消费顺序: 受伤红条全额
+    先扣, 黄条只是待回填额度** → 拦掉 FUN_141f518e0 负 delta + 清两侧槽 = 完全免伤
+    无幻影回血。免死 setter 0x141f72ab0/0x141f72ac0 (置 1 HP)。
+  - **耐力**: box `*(player+0x7670)` 同款布局 (+0x60 max/+0x64 cur); 统一消耗/回复入口
+    **FUN_141c49f10(player, delta)** (负=翻滚/常跑/防御消耗, 发 0x7de UI 事件; 尾部
+    `add rsp,0x150;pop rdi;ret` 无 rax)。max-stamina 持久控制器 player+0x7638 (推测级)。
+  - **朝向/坐标**: 权威朝向 = **em+0x170..17C 四元数** (Y-up Z-forward; yaw=atan2(fwd.x,
+    fwd.z) 现算); 位置 = em+0x160/164/168 (怪物同布局); 修正: player+0x1510 是锁定目标
+    方向向量**不是四元数**。转身系统唯一咽喉 = **FUN_141F755C0(em, yaw度, 时长, mode,
+    turnKind)** (mode 0=空闲时/1=相对/2=绝对; 度; 第 5 参栈上 rsp+0x28; 尾部无 rax=void),
+    每帧消费端 FUN_141f637a0 自带限速, 写 em+0xB220(请求)/0xB224(已应用)/0xB228(转身中)。
+  - **原生防御 (可借用, 无需防御动作)**: 防住判定链 = 武器非远程 (9F8∉{11,12,13}) +
+    **weapon+0x20F8** 防御等级经 FUN_142117110 (查表默认 2) + FUN_141e1feb0 守门 (>1) +
+    FSM 条件求值器 FUN_140f0f830: 夹角 vs **武器参数块 `*(player+0x7810)` +0x940(下限)/
+    +0x944(上限) 度** — **防御角度是每武器数据字段, 可直接写**。防住下游: 削伤
+    (×_DAT_145012058+0x294/298, 运行时表), 后仰档 record+0x25C (0/1/3, 按 record+0x248/
+    24C 阈值), 受击路由 FUN_142042140 case 0x16 → 每武器命令表 **{3,36/37/38}=
+    DAMAGE_GUARD_S/M/L (14 武器全有, WP_00 表 0x142EEEF98)** — 太刀收刀被路由到 3:37
+    的历史实测由此解释。攻击侧 mGuardType@攻击数据+0xD0 = ガード不能标记。
+- **mod 实装 (16 钩子; 新增 turnSet/hpDelta/stamDelta, 签名全库唯一, sig_check.py
+  TARGETS 已补)**:
+  - 开窗 (DoActionHook 后置挂点, 改写后的 id 也认): GUARDOPEN = 锁起始 yaw (四元数现算)
+    + 保存并写 weapon+0x20F8=guardLevel + 参数块 +0x940=-arcHalf/+0x944=+arcHalf;
+    关窗 (动作变化/deadline 6s/武器丢失): GUARDCLOSE 全部恢复。
+  - **"防住了"双信号**: ①GUARDREACT = 引擎排防御反应 {3,35..38} 被 DoActionHook 捕获
+    (默认吞掉保持招式继续, swallowReaction 可关); ②GUARDARM = DmgCalcHook 里按
+    attacker→player 位置角自查 (±arcHalf, 贴脸<1m 视为正面)。
+  - **免伤**: GuardHpDeltaHook (FUN_141f518e0 detour): 窗口内本地玩家负 delta 且
+    (react 1.2s latch ∨ armFallback 0.8s latch) → 整条跳过 + 清 4 槽黄条额度 +
+    gaugeRefill 写 weapon+0x2399=1 (vanilla 见切成功锁存, 动作结束处理器自动回满气刃)
+    + GUARDBLOCK 日志 (path/delta/hp)。无 latch 的窗口内扣血 = GUARDPASS 放行 (角度外
+    该掉血就掉血)。
+  - **耐力返还**: GuardStamDeltaHook (FUN_141c49f10 detour), 仅 react latch 门控。
+  - **转身钳制**: GuardTurnSetHook (FUN_141F755C0 detour): 起始 yaw ±maxTurn 度
+    (mode 2/0 绝对钳; mode 1 相对先算绝对目标再反解输入), TURNCLAMP 日志。
+  - 配置 `nativePC/plugins/ValorGauge.guard.txt` (缺文件=功能关; Shift+F6 热重载):
+    `guard 86,99 90 30 2 1 1` (arcHalf/maxTurn/level/stamRefund/gaugeRefill) +
+    option maxWindowSec/armFallback/swallowReaction/counterOnBlock(默认 0)。
+- **设计取舍**: GUARDBLOCK 默认**不**开反击窗 (counterOnBlock=0) — 86 槽位现在就是
+  刚1 本体; TIML 旧 no-hit 窗 (entry140 f0-f12) 本轮未动, 与防御共存, FSM 换普通节点
+  时再决定去留; armFallback 默认开 (引擎路由万一在 LS 上死掉也能保命), 局内 A/B 看
+  GUARDBLOCK path=react/arm 分布后再定是否关。
+- **局内验证清单 (待 user)**: ①GUARDOPEN/TURNCLAMP: 86/99 期间转身是否被限 ±30°;
+  ②正面挨打: GUARDREACT(吞)+GUARDBLOCK path=react, 血条不动; ③背后挨打: GUARDPASS,
+  正常掉血; ④超伤招正面: 不死; ⑤黄条: 防住后无幻影回血 (黄条额度被清); ⑥关窗恢复:
+  GUARDCLOSE 后其它武器/正常防御行为无残留 (weapon+0x20F8/参数块弧已还原)。
+
+### 2026-10-05 (6) 防御轮 2: 根因=架势持续动作 3:98 不在窗口 id 里 + VIT 追踪器 + HP 锁 (md5 d5daf4d2)
+
+- **第一轮局内实测复盘**: 有防御音效但照样掉血, 日志零 GUARDOPEN/GUARDBLOCK — **窗口从未开过**。
+  用户在特殊纳刀**架势持续动作 3:98** 里挨打 (12×`SHEATHGUARD: reaction 3:37 swallowed during
+  3:98`), 而窗口 id 只有 99/86: 99 是进入动作, 进架势即变 98 → 立刻关窗。**叮 = 架势原生防御点**
+  (引擎在 3:98 本来就路由 {3,35/36/37}, 不需要我们的 0x20F8 写入), 削伤照扣。
+  (颜色更正 user: **绿条=当前血量, 红条=可恢复血量**; box+0x64=绿条=致死血量, 红条=待回填额度。)
+- **修复**: ①窗口 id 默认 `86,98,99` (98=架势持续); ②GUARDREACT 吞让位: 先算 reassertActive/
+  watchedHold, **架势里 (watchedHold/reassert) 不吞**, 反应走原 SHEATHREASSERT→SheathArmHitRule
+  流程 (force 3:100 保持), 我们的 latch 仍记 → HP 免伤照常; 非 watch 的招 (86) 才吞反应保招式;
+  family 扩到 {35..38}; GuardOnReactionAction 改 void (latch+log only); GuardConfig/g_guardCfg/
+  g_guardActive 定义上移到 DoActionHook 前 (hook 体直接读)。
+- **VITSET/VITADD 追踪器 (HkVitSet=0x1216940 / HkVitAdd=0x1216880, 签名唯一)**: 两个底层 box
+  setter 全钩 (set cur min(v,max) / cur+=delta), 按 box==本地玩家 HP box(+0x7630)/耐力 box
+  (+0x7670) 分类, 记 `VITSET HP prev->v caller=+0xRVA GW=?` — **谁扣血/扣多少/哪个函数扣, 一局
+  定案**, 顺带验证 FUN_141f518e0 是不是唯一伤害入口 (若 chip 走别的 caller 立刻现形)。
+- **HP 锁验证工具**: `ValorGauge.hp-lock.txt` = "<值>" (0=关; 已建文件=0), >0 每帧写 box
+  max+cur=值。**验地址**: 填 200 → HUD 显示/保持 200 = 地址对; 锁定期挨打, VITSET/VITADD 行
+  可见游戏写入与我们覆写的搏斗。Shift+F6 热重载。
+- **待 user 验证**: ①hp-lock 200 → HUD 200? (地址定案) ②特殊纳刀架势挨打 → GUARDOPEN(98)+
+  GUARDREACT+GUARDBLOCK path=react, 血条不动, SHEATHGUARD 流程照旧 (force 3:100 仍触发);
+  ③86 正面/背面 A/B; ④VIT 追踪行里伤害的真实 caller RVA (若非 FUN_141f518e0 链, 免伤钩子
+  换靶)。
+
+### 2026-10-05 (7) 重大翻案: +0x7630 box = 锋利度, 整个"vitals"簇是磨刀系统 (md5 6bd2a516)
+
+- **user 实测定案**: hp-lock 写 `*(player+0x7630)` box → **改到的是武器锋利度**。之前
+  agent 报告的"血量 getter 链" (FUN_141f62320/141f62730/141f62330 → 0x7630 box, maxHP 重算
+  FUN_141f79cd0, 喝药 FUN_141f628c0, 伤害 FUN_14121ea10, 黄条槽 +0x1D78/+0xEBA8, "cur≤max
+  clamp" setter 族) **全部重新归类为锋利度系统** — 砥石="回复 case"、磨刀技能="max 重算"、
+  攻击磨刀="伤害扣减"。MinerReadHealth(0x7630) 同错 (Lua 引擎布局假设, 从未局内验证)。
+  旧 SheathArmorHitCheck 的"钳 1 HP 免死"实为钳锋利度。
+- **动作 id 更正 (user)**: 98=纳刀起手/保持, 99=正式进入纳刀态; 当前 TIML 改造让动作停在
+  98 不进 99 → 防御窗口挂 **98 才有效** (99 留在 id 表无害)。
+- **mod 侧地址可插拔 (本轮)**: `ValorGauge.vitals.txt` = "hp <槽>" / "stam <槽>" (hex, 缺省
+  7630/7670, Shift+F6 热重载)。**真槽位未配置前: 依赖血量地址的写路径 (黄条额度清理/
+  SHEADRULE 免死钳制) 自动禁用**; 血量拦截钩子本身不受影响 (跳过整个写调用, 与地址无关)。
+- **VITSET/VITADD 追踪器升级 (HkVitSet=0x1216940/HkVitAdd=0x1216880, 两个底层 box setter)**:
+  分类器先按配置槽匹配 HP/STAM, 否则**自动扫 player+0x7400..0x77F0 指针槽** (步长 8) 找
+  box 归属 → 日志 `VITADD ent -23.5 (100 -> 76.5) slot=+0x76XX caller=+0x...`。挨一刀即
+  现形: 真血量 box 若在 1 级指针槽上, slot= 字段直接给出槽位; 不在则给 box 绝对地址
+  (x64dbg 对照)。ent 配额 64 条。
+- **x64dbg 找血量槽位手册 (user 执行)**: ①进游戏拔刀 (控制器锁定), ValorGauge.log 抄
+  `ADDR player=0x...`; ②x64dbg attach MonsterHunterWorld.exe; ③Ctrl+G 跳 player 地址,
+  在 +0x7400..+0x7800 找槽位; 或直接按值搜: 当前 HP 整数 (如 100) 以 float 在
+  [player, player+0x22000] 搜 → 挨一刀变 87 → 再搜 87.0 交集 → 定位槽位/box;
+  ④把槽位填进 vitals.txt (`hp 0x7XXX`) Shift+F6。
+- 下一步 (user 验证链): vitals.txt 填真槽位 → hp-lock 200 验证 HUD → 复测 86/98 防御
+  (GUARDREACT+GUARDBLOCK path=react, 血不动) → 看 VITADD 里真伤害 caller (确认是否
+  FUN_141f518e0 链; 若 chip 走别的 caller, 免伤钩子换靶)。
+
+### 2026-10-05 (8) HunterPie 破案轮: +0x20F8=锋利度铁证 + HPWATCH 周期日志 (md5 271c2c99)
+
+- **用户提供 research/HunterPie 源码** (`HunterPie.Integrations/Datasources/MonsterHunterWorld/`),
+  三记连环翻案:
+  1. **MHWSharpnessStructure: weapon+0x20F8 = 锋利度(打击数 int), +0x20FC = 锋利度颜色** —
+     上一轮 agent 的"防御性能指数"判定错误; GuardOpenWindow 已**移除 +0x20F8 写入** (那是在
+     开窗期间把刀打成红锋利度!)。原生防御借用的"等级"前提作废: 3:98 的防御反应是架势原生
+     防御点, 与 0x20F8 无关。
+  2. **MHWHudStructure** (从 EQUIPMENT_ADDRESS=base+0x50139A0 链读, PLAYER_BASIC_INFORMATION_
+     OFFSETS=[0x50,0x7630,0x0]): **MaxHealth@+0x60 / Health@+0x64 / Stamina@+0x12C /
+     MaxStamina@+0x130 / RecoverableHealth@+0x2DD4 / HealingArrayPtr@+0x30** — 即 HunterPie
+     认为 *(player+0x7630) 容器本身就是 HUD 结构; 但 user hp-lock 实测同 box 改的是锋利度,
+     两说矛盾 → **不猜, HPWATCH 一锤定音**。Healing 数组 = *(c+0x30)+0xEBB0, 4 项 ×0x40
+     (项内 +0x10 Heal/+0x18 MaxHeal/+0x2C Stage; 0=不在恢复/1/2 两段恢复) — 上轮 agent 的
+     "player+0xEBA8 黄条槽"实为该数组 (基址差一个解引用)。
+  3. **链语义校准** (ReadPtrAsync: 加偏移→解引用, 末级只加): ABNORMALITY_OFFSETS=[0x50,
+     0x7D20,0x0] → *(player+0x7D20)=mgr 与我们已钉事实吻合 ✓; 玩家链根 = base+0x50139A0
+     (421810 build; 旧 build 0x5011760), [root+0x50]=player — 与 spiritreckoning/ValorLS
+     的 +0x50 根吻合。
+- **实装 (md5 271c2c99)**: ①PollHpWatch: 每 90 帧打 `HPWATCH hpBox=[max,cur] hudStam=[..]
+  rec=.. heal=h/ms+.. box7670=[..] sharp=int/color cfgHp=[..]`, 上限 400 行 — **挨一刀看哪个
+  数字跟着 HUD 掉 = 真血量字段**; ②GuardOpenWindow 不再写 0x20F8; ③vitals.txt 槽位机制不变
+  (真槽位确认后仍用它接管)。
+- **悬案**: +0x7630 box 的 HP(HunterPie) vs 锋利度(user hp-lock 实测) 二选一待 HPWATCH
+  定案; player+0x7670 box (FUN_141c49f10"耐力"钩) 语义同待验 (HunterPie 耐力在 hud+0x12C,
+  不是 box) — 若 7670 也不是耐力, GuardStamDeltaHook 换靶。
+
+### 2026-10-05 (9) 血量定案 + 免伤重构到 setter (md5 120eba28)
+
+- **HPWATCH+VIT 局内铁证**: `VITSET HP 200 -> 199 slot=+0x7630 caller=+0x1218E18` —
+  **血量 = *(player+0x7630) box 定案** (+0x60=max(=200 吃满), +0x64=cur), HPWATCH 的
+  hpBox 值逐 tick 跟随 HUD 掉血 (200→199→198→197 1 点/跳 = 持续伤害类)。HunterPie 的
+  HUD 结构判定**正确**; user 之前"hp-lock 改到锋利度"实为**旧版开窗 +0x20F8=2 写入**的
+  锋利度掉落 (时间线吻合: 不在挨打时, 在做招开窗时)。
+- **真伤害写入链**: 未知函数(返回地址 RVA +0x1218E18) → **底层 setter 0x141216940** —
+  **不经过 FUN_141f518e0** (旧免伤钩子拦不到的根因)。fun_141f518e0/14121ea10 链要么是
+  别的伤害类要么是反编译误读, 弃用为免伤依据。
+- **免伤重构**: 否决点移到 **GuardVitSetHook (HkVitSet=0x141216940)**: box==本地玩家
+  hp box + value<cur + 窗口内 + (GUARDREACT latch ∨ GUARDARM latch) → **跳过原写** +
+  清黄条真数组 `*(box+0x30)+0xEBB0`×4 (Heal@+0x10/Stage@+0x2C 清零, 替代错误的
+  player+0x1D78/0xEBA8) + **耐力回满** (box+0x12C←box+0x130; +0x7670 box 实测恒 [0,0]
+  不是耐力, HunterPie 耐力=hud+0x12C/0x130 ✓ hpwatch 实测 175↔200) + gaugeRefill
+  (+0x2399) + GUARDBLOCK vitset 日志。GuardHpDeltaHook (FUN_141f518e0) 保留为次级
+  (清额同真数组)。
+- **开窗写入全部退役**: param 块 +0x940/+0x944 原值实测 [1200,0] — 非角度, agent 的
+  "防御弧字段"也错; GUARDOPEN/GUARDCLOSE 现在零游戏内存写入, 窗口只做: 起始 yaw 锁 +
+  转身钳制 (FUN_141F755C0 detour) + react/arm latch + setter 免伤。原生防御路由本来
+  就不依赖我们的写入 (3:98 实证)。
+- **验收 (user)**: ①纳刀架势(98)/见切(86) 正面挨打 → `GUARDOPEN` + `GUARDREACT`(架势)
+  + `GUARDBLOCK vitset negated` 血条不动; ②背身挨打 → GUARDPASS/VITSET 正常掉血;
+  ③锋利度不再异常掉; ④大伤害招防住 → 无红条残留 (heal 数组同步清)。
+
+### 2026-10-05 (10) 时序翻案: 引擎先扣削伤后发反应 → 回滚式免伤 + 致死击穿保护 (md5 e5d9affd)
+
+- **局内实测**: 正面防住仍掉血。日志时序: `VITSET HP 200->179 (GW=1)` 在前,
+  `GUARDREACT 3:37` 在后 — **引擎的削伤扣减先于防御反应动作入队**, react latch 追不上
+  同一击; 第二组 `44.7 -> -76.3` 直接致死 (死亡置 0 由 caller=+0x121EDFD 写)。
+  另: GUARDED 命中**不走 FUN_141f66dd0** (整场零 GUARDARM), arm 兜底在防住路径无信号源。
+- **修复 (回滚式免伤)**: GuardVitSetHook 三分支 — ①react/arm latch 已置 → 直接否决;
+  ②无 latch 但 value<1.0 (致死击穿) → 直接否决 (path=lethal, "超高伤害不能死"的硬保证,
+  不依赖时序); ③其余削伤放行但记 `g_guardRestoreHp=prev` (600ms 窗) →
+  **GuardOnReactionAction 收到反应动作瞬间把 cur 回滚到挨打前值** + 清黄条数组 +
+  耐力回满 + gaugeRefill, 日志 `GUARDBLOCK restore a -> b`。视觉 = 血条闪一帧回满。
+- GuardApplyBlockBenefits 提取共用 (否决/回滚两路同享: 黄条清+耐力满+气刃锁存+可选反击窗)。
+- **待 user 验收**: ①架势/86 正面防住 → 血条闪一下即回 (restore 行), 大伤害致死击穿
+  (lethal 行); ②背身照常掉血 (restore 只在 react 后触发, 无 react 的背身伤不会回滚 —
+  这是判定"防没防住"的引擎裁决, 不是我们自己的角度); ③连续多击看回滚值是否合理
+  (snapshot 只记最近一次 prev, 多击间隔内第二击会覆盖)。
