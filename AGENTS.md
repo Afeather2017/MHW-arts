@@ -2414,3 +2414,16 @@ MHWNoChunk and MHWEditor
 - **力竭 vs 疲劳 (user)**: 两个不同状态 — 力竭疑似"力尽倒下"(类死亡), 疲劳 = 停下喘气。
   机制阶段分开处理, 锚点 +0x208EC/+0x20914 归属待定。
 - 部署 stamina.txt: drain 98@10/s(绝对压制) + emptyExit 98→1:0 + cost 86 注释掉。
+
+### 2026-10-06 (16) 再纳刀直接空 bug + 两段退出 (md5 ff49abb7)
+
+- **bug 修复 (user: "后续我再按纳刀,体力条直接空了")**: 切到收刀态 (set 1) 后轮询在
+  set!=3 提前 return, 绝对压制快照永不重置 — 再进 98 时 elapsed=巨值 → target=0 →
+  秒空。修复: **StaminaOnActionAccepted 在任意动作接受时无条件 disarm 快照**, 重进招
+  从当前体力重新起算。
+- **两段退出 (user 设计)**: **1:324 = 喘粗气态**(user 提供); 耐力耗尽 → 先排收刀
+  (phase1) → 轮询看到 phase1 动作成为当前 → 马上排 1:324 (phase2) → 到达后 stage 清零。
+  `emptyExit <ids> <toSet> <toId> [thenSet thenId]` (后两参可选); 部署
+  `emptyExit 98 1 0 1 324`。stage 机跨动作接受存活, 3s 超时兜底, phase2 未配置则
+  单段结束。PollStaminaControl 去掉 set!=3 提前 return (exit stage 机要跟踪 set 1)。
+- **user 语义记录**: 力竭(力尽倒下, 类死亡) ≠ 疲劳(1:324 喘粗气) — 两个状态。

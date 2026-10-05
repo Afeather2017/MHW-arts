@@ -5426,6 +5426,13 @@ float g_stamCostAmount = 0.0f;
 std::vector<std::uint32_t> g_stamExitIds;
 std::uint32_t g_stamExitSet = 0;
 std::uint32_t g_stamExitId = 0;
+// Two-phase exit: phase 1 = sheathe switch, phase 2 = the panting state
+// (user-provided 1:324). Stage machine survives action accepts until done
+// or a 3s timeout fires.
+std::uint32_t g_stamExitThenSet = 0;
+std::uint32_t g_stamExitThenId = 0;
+int g_stamExitStage = 0;
+std::chrono::steady_clock::time_point g_stamExitStageTime{};
 bool g_stamExitFired = false;
 std::uint32_t g_stamDrainActId = 0;
 bool g_stamDrainArmed = false;
@@ -5443,6 +5450,10 @@ float* StaminaCurPtr(std::uint8_t* player) {
 
 void StaminaOnActionAccepted(std::uint32_t actionId) {
     g_stamExitFired = false;
+    // Any accepted action change disarms the absolute-drain snapshot so
+    // re-entering the move re-snapshots from the CURRENT bar (stale
+    // snapshots emptied the bar instantly on re-entry).
+    g_stamDrainArmed = false;
     if (g_stamCostIds.empty() || g_stamCostAmount <= 0.0f) {
         return;
     }
@@ -5484,77 +5495,132 @@ void PollStaminaControl() {
         }
         cur = *g_lastLongSwordAction;
     }
-    if (cur.actionSet != 3) {
-        return;
-    }
-    const std::uint32_t id = static_cast<std::uint32_t>(cur.actionId);
-    const bool draining =
-        !g_stamDrainIds.empty() &&
-        std::find(g_stamDrainIds.begin(), g_stamDrainIds.end(), id) !=
-            g_stamDrainIds.end();
-    const bool exitWatched =
-        !g_stamExitIds.empty() &&
-        std::find(g_stamExitIds.begin(), g_stamExitIds.end(), id) !=
-            g_stamExitIds.end();
-    if (!draining && !exitWatched) {
-        g_stamExitFired = false;
-        return;
-    }
+    const std::uint32_t curSet = static_cast<std::uint32_t>(cur.actionSet);
+    const std::uint32_t curId = static_cast<std::uint32_t>(cur.actionId);
     auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
     float* curPtr = StaminaCurPtr(player);
     if (!curPtr) {
         return;
     }
     const auto nowClock = std::chrono::steady_clock::now();
-    // Absolute-set drain: the engine refills the bar every frame, so an
-    // incremental -= loses the race. Snapshot on entry, then pull the bar
-    // DOWN to (snapshot - rate*elapsed) each poll - never raises, wins
-    // regardless of engine write order (only sawtooths within one frame).
-    if (draining) {
-        if (!g_stamDrainArmed || g_stamDrainActId != id) {
-            g_stamDrainArmed = true;
-            g_stamDrainActId = id;
-            g_stamDrainBase = *curPtr;
-            g_stamDrainStart = nowClock;
-        }
-        if (g_stamDrainPerSec > 0.0f && *curPtr > 0.0f) {
-            const float before = *curPtr;
-            const float elapsed = std::chrono::duration<float>(
-                                      nowClock - g_stamDrainStart).count();
-            const float target =
-                std::max(0.0f, g_stamDrainBase - g_stamDrainPerSec * elapsed);
-            if (*curPtr > target) {
-                *curPtr = target;
+
+    // --- drain (set-3 watched actions): absolute-set suppression ----------
+    if (curSet == 3) {
+        const bool draining =
+            !g_stamDrainIds.empty() &&
+            std::find(g_stamDrainIds.begin(), g_stamDrainIds.end(),
+                      curId) != g_stamDrainIds.end();
+        if (draining) {
+            // Snapshot on entry, then pull the bar DOWN to
+            // (snapshot - rate*elapsed) each poll - never raises, wins
+            // regardless of engine write order (only sawtooths within a
+            // frame). The snapshot disarms on every accepted action change
+            // (StaminaOnActionAccepted), so re-entering the move always
+            // starts from the CURRENT bar - the old version kept the stale
+            // snapshot and instantly emptied the bar on re-entry.
+            if (!g_stamDrainArmed || g_stamDrainActId != curId) {
+                g_stamDrainArmed = true;
+                g_stamDrainActId = curId;
+                g_stamDrainBase = *curPtr;
+                g_stamDrainStart = nowClock;
             }
-            static std::int32_t lastLoggedFloor = -999;
-            const std::int32_t floored = static_cast<std::int32_t>(*curPtr);
-            if (floored != lastLoggedFloor &&
-                g_stamLogCount.load(std::memory_order_relaxed) < 60) {
-                lastLoggedFloor = floored;
-                g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
-                std::ostringstream m;
-                m << "STAMDRAIN act=3:" << id << " " << before << " -> "
-                  << *curPtr << " (" << g_stamDrainPerSec << "/s, abs)";
-                Log(m.str());
+            if (g_stamDrainPerSec > 0.0f && *curPtr > 0.0f) {
+                const float before = *curPtr;
+                const float elapsed = std::chrono::duration<float>(
+                                          nowClock - g_stamDrainStart).count();
+                const float target = std::max(
+                    0.0f, g_stamDrainBase - g_stamDrainPerSec * elapsed);
+                if (*curPtr > target) {
+                    *curPtr = target;
+                }
+                static std::int32_t lastLoggedFloor = -999;
+                const std::int32_t floored =
+                    static_cast<std::int32_t>(*curPtr);
+                if (floored != lastLoggedFloor &&
+                    g_stamLogCount.load(std::memory_order_relaxed) < 60) {
+                    lastLoggedFloor = floored;
+                    g_stamLogCount.fetch_add(1, std::memory_order_relaxed);
+                    std::ostringstream m;
+                    m << "STAMDRAIN act=3:" << curId << " " << before
+                      << " -> " << *curPtr << " (" << g_stamDrainPerSec
+                      << "/s, abs)";
+                    Log(m.str());
+                }
             }
+        } else {
+            g_stamDrainArmed = false;
         }
     } else {
         g_stamDrainArmed = false;
     }
-    if (*curPtr <= 0.0f && exitWatched && !g_stamExitFired) {
-        g_stamExitFired = true;
-        // Buffered-request slot (controller+0xBC/+0xC0): the same primitive
-        // DoAction uses for busy-queued actions - the updater consumes it
-        // when the current action can derive.
+
+    // --- empty exit, two-phase: sheathe first, then the panting state -----
+    // User design: 1:324 = the panting (fatigue) idle; emptying during the
+    // stance plays the sheathe, then immediately drops into 1:324.
+    const bool exitWatched =
+        !g_stamExitIds.empty() &&
+        std::find(g_stamExitIds.begin(), g_stamExitIds.end(), curId) !=
+            g_stamExitIds.end() &&
+        curSet == 3;
+    const auto matches = [&](std::uint32_t set, std::uint32_t id) {
+        return curSet == set && curId == id;
+    };
+    auto queueSwitch = [&](std::uint32_t set, std::uint32_t id) {
         auto* ctrl = static_cast<std::uint8_t*>(controller);
         if (IsWritable(ctrl + 0xC0, 4) && IsWritable(ctrl + 0xBC, 4)) {
             *reinterpret_cast<std::int32_t*>(ctrl + 0xBC) =
-                static_cast<std::int32_t>(g_stamExitSet);
+                static_cast<std::int32_t>(set);
             *reinterpret_cast<std::int32_t*>(ctrl + 0xC0) =
-                static_cast<std::int32_t>(g_stamExitId);
-            Log("STAMEXIT stamina empty during watched action - queued "
-                "switch");
+                static_cast<std::int32_t>(id);
+            return true;
         }
+        return false;
+    };
+    const bool phase2Configured = g_stamExitThenSet != 0 || g_stamExitThenId != 0;
+    // Stage timeouts guard against a queued slot that never consumes.
+    if (g_stamExitStage > 0 &&
+        std::chrono::duration<float>(nowClock - g_stamExitStageTime).count() >
+            3.0f) {
+        Log("STAMEXIT stage timeout - reset");
+        g_stamExitStage = 0;
+        g_stamExitFired = false;
+    }
+    switch (g_stamExitStage) {
+        case 1:
+            if (matches(g_stamExitSet, g_stamExitId)) {
+                if (phase2Configured) {
+                    if (queueSwitch(g_stamExitThenSet, g_stamExitThenId)) {
+                        Log("STAMEXIT phase2 queued: panting state");
+                        g_stamExitStage = 2;
+                        g_stamExitStageTime = nowClock;
+                    }
+                } else {
+                    g_stamExitStage = 0;
+                    g_stamExitFired = false;
+                }
+            } else if (!exitWatched && *curPtr > 0.0f) {
+                // Player left the watched action some other way.
+                g_stamExitStage = 0;
+                g_stamExitFired = false;
+            }
+            break;
+        case 2:
+            if (matches(g_stamExitThenSet, g_stamExitThenId)) {
+                Log("STAMEXIT panting state reached");
+                g_stamExitStage = 0;
+                g_stamExitFired = false;
+            }
+            break;
+        default:
+            if (*curPtr <= 0.0f && exitWatched && !g_stamExitFired) {
+                g_stamExitFired = true;
+                if (queueSwitch(g_stamExitSet, g_stamExitId)) {
+                    Log("STAMEXIT stamina empty - queued sheathe switch");
+                    g_stamExitStage = 1;
+                    g_stamExitStageTime = nowClock;
+                }
+            }
+            break;
     }
 }
 
@@ -5566,6 +5632,9 @@ void LoadStaminaConfig() {
     g_stamExitIds.clear();
     g_stamExitSet = 0;
     g_stamExitId = 0;
+    g_stamExitThenSet = 0;
+    g_stamExitThenId = 0;
+    g_stamExitStage = 0;
     g_stamExitFired = false;
     std::ifstream input("nativePC/plugins/ValorGauge.stamina.txt");
     if (!input) {
@@ -5603,9 +5672,14 @@ void LoadStaminaConfig() {
             std::string ids;
             unsigned long toSet = 0;
             unsigned long toId = 0;
+            unsigned long thenSet = 0;
+            unsigned long thenId = 0;
             if (ss >> ids >> toSet >> toId && ParseIdList(ids, g_stamExitIds)) {
                 g_stamExitSet = static_cast<std::uint32_t>(toSet);
                 g_stamExitId = static_cast<std::uint32_t>(toId);
+                ss >> thenSet >> thenId;  // optional phase 2
+                g_stamExitThenSet = static_cast<std::uint32_t>(thenSet);
+                g_stamExitThenId = static_cast<std::uint32_t>(thenId);
             } else {
                 Log("Stamina: malformed emptyExit line - skipped");
             }
