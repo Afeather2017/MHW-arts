@@ -4700,8 +4700,11 @@ HpDeltaFn g_originalStamDelta = nullptr;
 GuardVitSetFn g_originalVitSet = nullptr;
 GuardDeltaFn g_originalVitAdd = nullptr;
 
-constexpr std::int64_t kGuardReactLatchMs = 1200;
-constexpr std::int64_t kGuardArmLatchMs = 800;
+// Block-event windows. USER-VALIDATED 2026-10-06: the guard chip damage
+// write and the guard-reaction action land within ~1 frame of each other
+// ("时间间隔不久,绝对达不到1.2s") - the old 1200/600ms margins only caused
+// false immunity for follow-up hits. Both windows = one configurable value.
+std::atomic<std::int64_t> g_blockWindowMs{150};
 constexpr float kGuardRad2Deg = 57.29577951308232f;
 
 std::int64_t GuardNowMs() {
@@ -4802,7 +4805,7 @@ void GuardOnReactionAction(std::uint32_t actionSet, std::uint32_t actionId) {
         return;
     }
     g_guardReactId = actionId;
-    g_guardReactUntilMs = GuardNowMs() + kGuardReactLatchMs;
+    g_guardReactUntilMs = GuardNowMs() + g_blockWindowMs.load(std::memory_order_relaxed);
     // Roll back the chip damage that the engine applied before routing this
     // reaction (restore snapshot armed by GuardVitSetHook ~same frame).
     const std::int64_t now = GuardNowMs();
@@ -4873,7 +4876,7 @@ void NotifyGuardDamageHit(long long attacker, long long defenderCtx) {
     }
     const bool frontal = std::fabs(angDiff) <= g_guardCfg.arcHalfDeg;
     if (frontal && GuardCurrentActionInArmIds()) {
-        g_guardArmUntilMs = GuardNowMs() + kGuardArmLatchMs;
+        g_guardArmUntilMs = GuardNowMs() + g_blockWindowMs.load(std::memory_order_relaxed);
     }
     const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
     if (n < 40) {
@@ -5226,7 +5229,7 @@ void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) 
         }
         // Chip passed through: stash the pre-hit HP for the reaction restore.
         g_guardRestoreHp = prev;
-        g_guardRestoreUntilMs = now + 600;
+        g_guardRestoreUntilMs = now + g_blockWindowMs.load(std::memory_order_relaxed);
     }
     g_originalVitSet(box, value, floorFlag);
     std::atomic<std::uint32_t>* cap = nullptr;
@@ -5473,6 +5476,9 @@ void LoadGuardConfig() {
                     g_guardCfg.swallowReaction = val != 0;
                 } else if (key == "counterOnBlock") {
                     g_guardCfg.counterOnBlock = val != 0;
+                } else if (key == "blockWindowMs") {
+                    g_blockWindowMs = static_cast<std::int64_t>(
+                        std::max(30.0f, std::min(1000.0f, val)));
                 }
             }
         }
