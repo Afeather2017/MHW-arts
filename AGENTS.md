@@ -2598,3 +2598,47 @@ MHWNoChunk and MHWEditor
   (接缝测量); 备份 `MHW-Valor.blend.bak-20261007-020924`。
   **splice_actions.py 惯例更正**: 其 docstring "B 物体位移按 A 末端偏移"的焊接种
   只适用于循环类衔接 (A 末姿态 ≈ B 首姿态); 跨动作拼接一律纯复制。
+
+### 2026-10-07 (2) 伤害路由全面审计: CTO→col ATK 表 dump 工具 + 当前部署态 + 突刺 MV 实测 (user-verified)
+
+- **背景**: 用户交换强化射击↔气刃斩2 的 TIML 后伤害跟着换 = 10-02/03 "CTO=伤害窗"
+  定案的预测行为 —— 伤害**数值**在 col ATK 行, TIML 只带伤害窗 (CTO mFlag) +
+  路由指针 (ノードID→col 名字表 unk4→(bank, ATK行)); 换 TIML 换的是引用不是数值。
+- **新工具 `_cto_report.py`** (repo 根, 裸二进制解析无需 Blender): 部署 vs 原版
+  LMT 逐 entry 对比 CTO 的 ノードID[0] + mFlag 窗。哈希事实: CTO type hash=
+  956269290 (`nTimelineParam::CollisionTimelineObject`), 变换 ノードID[0]=
+  2996226662 / mFlag=150806694 (FHK TIMLDatatypes.txt 存十进制无符号)。
+  **坑**: `nWwiseTimeline::EventCollision00` 名字同样含 "Collision", 过滤必须
+  按类型全名精确匹配, 否则全表误报。
+- **部署态审计 (2026-10-07, 游戏 w03_00.lmt)**: entry **106 = 整套刚1 TIML**
+  (CTO node 63 窗 [43,58], EC ReqNo C=10 全套, 142f); entry **140 = 强化射击族
+  TIML** (点火对 mTrigger f34=1024+f36=1 / mSlingerShellAttach / claw /
+  EventGroup09, **无 CTO**, 187f); entry **346 = 原版106 的 CTO 原样** (node 54
+  気刃斬り２, [33,41], 121f, 还残留射击族 mTrigger f0=2048 无敌门键);
+  141/142 = CTO node 56 (気刃斬り１行) [47,57]; 143 = 双节点 CTO (84@f0→101@f32)
+  窗 [13,19]+[33,37]; 339/340/343 = node 63, 窗 [17,23]/[29,35]/[31,40]+[58,71]
+  (10-03 树侧配方, 各比当日记录长 1 帧)。**若刚1 仍走 entry 140, 它当前无数据侧
+  伤害窗** (140 装的是射击 TIML); 刚1 配方现居 106。
+- **当前伤害表** (`col_research/_atk_table.py` = CTO 路由→ATK 数值一键出表):
+  突き row10 MV12 / 気刃斬り１ row15 MV14·CondMV26 / 気刃斬り２ row17 MV30 /
+  気刃3 三段 14/19/34 / 大回旋 row19 MV38 / 見切り攻撃 row25 MV12·CondMV26
+  (106刚1 + 339/340/343 全借此行) / divide141/142 借気刃斬り１行 / divide143
+  两窗借居合斬り1/2 行 / 居合斬り1/2 rows43/44 MV18/13 / 居合気刃1
+  無/白/黄/赤 rows46-49 MV17/19/31/39。强化射击族本体 (338/341/344/347)
+  **无刀身伤害行** (投射物伤害走弹药数据不在 wp03.col)。
+- **公式定位定案**: ATK 行 `Motion_Value` = 伤害公式的**动作值乘区**
+  (MV/100 × 总攻击力 × 斬味倍率 × 会心 × 部位吸收(怪侧) × 愤怒/任务补正),
+  非固定伤害也非最终值。同行其余字段: Fixed_Damage 全 0 未用; Part_Modifier
+  恒 1.0 (部位吸收实际在怪侧数据; **大居合四行 = 0 例外, 语义未钉**);
+  Elem/Status_Modifier 恒 1.0 (属伤不在此行); Stun/Exhaust/Mount/Soften 全 0;
+  HitLag(秒, 已实测) / Energy_Gen(命中炼气增量) = 附带字段非伤害乘区。
+  **Cond_MV = 条件动作值替换** (気刃斬り1 14→26 / 見切り攻撃 12→26 /
+  気刃踏み込み 18→28), 大概率气刃等级加成 (居合系白/黄/赤直接分行同机制),
+  触发条件位未钉 —— **気刃斬り1 实际最高 MV=26, 不是 14**。
+- **MV 实测闭环 (user-verified 2026-10-07)**: 突刺 row10 MV 12→100 →
+  局内伤害 ~8.3 倍正确。**col 覆盖首例部署**:
+  `nativePC/hm/wp/wp03/collision/wp03.col` (此前游戏目录无 col 覆盖, 读包内
+  原版)。**用户指令: chunk-extracted = readonly 基线永不改, col 编辑一律放
+  游戏目录副本** (基线 md5 d8cb2d4f)。col 编辑流程: 只做等长数值编辑 (长度
+  20408 不变) + 改后结构校验 (61 names/13 banks/59 ATK 全解析 —— 3 字节插入
+  崩游戏前科, 每次改完必验)。
