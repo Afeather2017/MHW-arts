@@ -34,6 +34,19 @@
                               ×5/82 变换轨/2 Root 轨,警告签名与局内验证过的 151/192_remap 同族。
                               **复用**:`RULE_ACTIONS="动作名1,动作名2" blender -b MHW-Valor.blend
                               --python mhgu/10_apply_rules_divide.py`(缺省=divide 批次 5 个)。
+11_sync_grip_preview.py       武器握持预览自动同步 v2:逐帧读玩家动作 030/047 的 scale[1] 原始键
+                              (047=2 优先右手,否则 030=2 左手,都为 1 保持原状——键只编到前
+                              几帧的动作即全程保持最后的握持),重写 swo022 MhBone_000 的
+                              GRIP_L_030/GRIP_R_047 influence 阶梯(CONSTANT 瞬切,与 LMT 键同帧)。
+                              **v2 关键:挂 frame_change_post 帧回调,指纹(动作名+scale[1] 键)
+                              一变就整份重算** —— 预览动作一切换、握持键一改自动跟上。v1 只算
+                              一次,切动作后 swo022 继续播过期键(典型症状:预览 divide_valor_sheath
+                              却在 f12/13 跳换手,那是残留的 FK_grip_preview_104 预览键);v2 启动时
+                              还会清掉所有动作里的 GRIP influence 旧键。GUI 每次开会话跑一次
+                              (回调不随 blend 保存);无头:`blender -b MHW-Valor.blend --python
+                              mhgu/11_sync_grip_preview.py -- "LMT::w03_00::109"`(一次性,不保存);
+                              `-- --remove` 卸载回调。读键走 keyframe co 不走 evaluate()(LIMITS
+                              bufType 会钳位);写键 clear()+add() 不用循环 remove。
 _new_actions 工具链            新动作接入槽位的四步(全部无头、只写 LMT 不动 blend):
   _verify_exporter_divide.py  ① parser 预检(-- 传动作名),valid=True 才可接线;
   _repro_wiring.py            ② 无头接线+正式导出(ENTRY/ACTION/OUT 环境变量,=GUI 按钮代码路径);
@@ -284,6 +297,13 @@ w07::192(刚1)有左手→右手→左手的换手段。已写入 MASTER 的 `LM
 influence 阶梯动画在 `FK_grip_preview_104` 动作(swo022 上)。Dopesheet 切到
 `LMT::w03_00::104` 拉时间线即可预览换手;调换手帧时,**LMT 侧改 030/047 的
 scl[1] 键 + 预览侧改 FK_grip_preview_104 的 influence 键,两处同帧**。
+**(2026-10-07 起手动同步已废弃,同日晚 v2 取代 v1)**:预览 rig 的病根是
+swo022 上只挂一份 influence 动作 —— 手搓的 `FK_grip_preview_104`(12/13、44/45
+台阶)在预览其他动作时照播,武器就在别人的切换帧上改握持(预览
+divide_valor_sheath 在 f12/13 跳手 = 此坑)。现跑 `11_sync_grip_preview.py`
+(索引见上):清光所有 GRIP influence 旧键 + 按当前预览动作的 030/047
+scale[1] 逐帧重生成 influence 到 `FK_grip_preview_auto` + 帧回调自动跟随
+(换动作/改键即重算,047=2 优先右手/030=2 左手/双 1 保持原状)。
 
 ## 刚1 几何换手实现(2026-09-27,已导出待局内验证)
 
