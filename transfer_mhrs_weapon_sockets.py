@@ -17,6 +17,18 @@ PARENT_MAP = {
     "R_Weapon_00": ("R_Arm_03", "MhBone_012"),
 }
 
+
+def set_grip_y_scale_linear(action):
+    """Keep discrete 030/047 Y-scale grip switches on straight lines."""
+    for fcurve in action.fcurves:
+        if (fcurve.data_path in {
+                'pose.bones["MhBone_030"].scale',
+                'pose.bones["MhBone_047"].scale',
+            } and fcurve.array_index == 1):
+            for key in fcurve.keyframe_points:
+                key.interpolation = 'LINEAR'
+
+
 src = bpy.data.objects[SOURCE_OBJECT]
 dst = bpy.data.objects[TARGET_OBJECT]
 if not src.animation_data or not src.animation_data.action:
@@ -65,6 +77,8 @@ for frame in sorted(frames):
         db.keyframe_insert("location", frame=frame)
         db.keyframe_insert("rotation_quaternion", frame=frame)
         db.keyframe_insert("scale", frame=frame)
+
+set_grip_y_scale_linear(dst_action)
 
 scene.frame_set(old_frame)
 bpy.context.view_layer.update()

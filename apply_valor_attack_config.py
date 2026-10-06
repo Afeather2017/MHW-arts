@@ -13,8 +13,8 @@ Run after every re-export. Chain per entry (2026-10-02 verified recipe):
   4. entry 140 (刚1): EC v2 window -> [45,55], CTO -> [43,58], other donor
      windows zeroed, PlMotionCommon b26 (inherited foresight iframes) cleared
 
-Window assignment (user-corrected 2026-10-02): action 105 = entry 340 (126f)
-= 一文字长 [29,34]; action 106 = entry 339 (114f) = 一文字短 [17,22];
+Window assignment (user-corrected 2026-10-02; 339 re-planned 2026-10-06):
+action/entry 339 = divide_slash (100f) attack [1,5]; 340 (126f) = 一文字长 [29,34];
 343 = 无双斩 [31,39]+[58,70].
 """
 import os
@@ -31,7 +31,8 @@ REF = r"E:\SteamLibrary\steamapps\common\Monster Hunter World\nativePC -xfsm+rs\
 
 # entry -> (closed-interval attack windows, donor EC mFlag on-key frame to repurpose)
 PLAN = {
-    339: ([(17, 23)], 5),                 # 一文字短
+    # divide_slash 100f, body x2 (2026-10-06): 设计帧 1-5 → 时间轴 2-10
+    339: ([(2, 11)], 5),
     340: ([(29, 35)], 9),                 # 一文字长
     343: ([(31, 40), (58, 71)], 11),      # 无双斩
 }
@@ -120,12 +121,13 @@ def main():
                 struct.pack_into("<I", buf, k["offset"], 2)
             print("entry %d: EC v2 windows %s" % (eid, wins))
         else:
-            assert len(nz) >= 2 * len(wins), "entry %d: %d donor windows < %d needed" % (
+            exact = len(nz) == len(wins)   # stale/own single-window state: reframe in place
+            assert exact or len(nz) >= 2 * len(wins), "entry %d: %d donor windows < %d needed" % (
                 eid, len(nz) // 2, len(wins))
             slot_frames = [None] * len(eck_sorted)
             used_slots = set()
             for w_i, (on_f, off_f) in enumerate(wins):
-                onk = nz[w_i * 2]
+                onk = nz[w_i] if exact else nz[w_i * 2]
                 later0 = [k for k in eck_sorted
                           if k["frame"] > onk["frame"] + 0.01 and k["value"] == 0]
                 assert later0, "entry %d: no off-key after f%.0f" % (eid, onk["frame"])

@@ -187,14 +187,20 @@ for nm in NAMES:
         tag(fc, bone_id, recipe[(bone_id, usage)])
         tagged += 1
 
-    # -- min-2-keys(坑⑪.5) --
+    # -- min-2-keys(坑⑪.5); 末帧单键向前补(f0-1), 否则顶爆 frameCount --
+    # 0 键空曲线删除(导出器 bounds() 空序列崩; 缺轨走游戏默认, 同 MhBone_252 先例)
+    emptied = 0
+    for fc in list(a.fcurves):
+        if not len(fc.keyframe_points):
+            a.fcurves.remove(fc)
+            emptied += 1
     bumped = 0
     for fc in a.fcurves:
         kp = fc.keyframe_points
         if len(kp) == 1:
             f0, v0 = kp[0].co
             kp.add(1)
-            kp[1].co = (f0 + 1.0, v0)
+            kp[1].co = (f0 - 1.0 if f0 + 1.0 > hi else f0 + 1.0, v0)
             kp[1].interpolation = kp[0].interpolation
             kp.sort()
             fc.update()
@@ -231,6 +237,8 @@ for nm in NAMES:
                 bad.append((nm, "obj rot kp=%d" % len(fc.keyframe_points)))
         if len(fc.keyframe_points) == 1:
             bad.append((nm, fc.data_path, "single key"))
+        if not len(fc.keyframe_points):
+            bad.append((nm, fc.data_path, "zero keys"))
     # 左手状态 + 000 形状 + 位移存在
     s30 = a.fcurves.find('pose.bones["MhBone_030"].scale', index=1)
     s47 = a.fcurves.find('pose.bones["MhBone_047"].scale', index=1)

@@ -548,6 +548,14 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   pan/zoom/drag, node/link/condition-tree inspectors, undo, search.
   The 刚1-era workflow (add `VariableNode R` / `cFSMPl_W03` to a condition) is a
   built-in button flow; verified the written binary reparses with the R child.
+- **两节点全边交换 (2026-10-07)**: 右键单节点 `与其他节点交换边…` 或框选两节点
+  `交换这两个节点的所有边`。实现 = 双方 `mpLinkList` 整表对调 + 全图
+  `mDestinationNodeId` A↔B 重指（每条边两端重标注: A→C 变 B→C、C→A 变 C→B、
+  自环跟走；条件/顺序随链接实例走，ActionNo/MotionNo/名称/颜色不动）。
+  背景: 刚1 改防御时闲置节点全是强化射击节点，直接替换其 ActionNo 触发游戏崩溃
+  （待机接气刃斩2 不崩）→ 改为只换接线不动节点身份。
+  `FsmModel.swapLinks`, 6 条回归测试；`mExistConditionTrainsitionFromAll`
+  节点级字段不参与（wp03 现状 0/90 使用）。
 - Limitations: canonical rewrite re-numbers var ordinals (game-written files are
   already canonical); unknown classes (quest FSMs) synthesize defs and warn;
   `mUIPos` preserved raw, not written back.
@@ -2427,3 +2435,166 @@ MHWNoChunk and MHWEditor
   `emptyExit 98 1 0 1 324`。stage 机跨动作接受存活, 3s 超时兜底, phase2 未配置则
   单段结束。PollStaminaControl 去掉 set!=3 提前 return (exit stage 机要跟踪 set 1)。
 - **user 语义记录**: 力竭(力尽倒下, 类死亡) ≠ 疲劳(1:324 喘粗气) — 两个状态。
+
+### 2026-10-06 (17) 动作衔接转向角定案: TIML PlMotionCommon.mAttackAdjustAngleIndex (user A/B 实测)
+
+- **每个动作的 TIML `nTimelineParam::PlMotionCommon` 轨道里的 `mAttackAdjustAngleIndex`
+  (int 键, 动作开始生效) = 该招出招/被衔接进入时的转向修正角档位**。user 局内 A/B 实测
+  (live w03_00.lmt entry 105 突刺): **档 0 ≈ 3-5°(几乎不转), 档 4 ≈ 40°(明显吸向目标)**。
+  作用点定案: **影响"上一招 → 本招"的进入衔接**(本招变 current 时 f0 键生效), 不影响
+  出招衔接(下一招自己带自己的索引)。
+- **vanilla 太刀索引分布** (w03_00.lmt dump): 101 拔刀纵斩/102 踏步斩/105 突刺 = 0;
+  104 气刃斩1/108 气刃3/110 气刃2连/170 気刃突刺 = 1; 109 大回旋/140 见切 = 4;
+  103/306 居合系**无此键** = 不修正。同轨道配套字段: mAttackAdjustGroundSpeedRate
+  (修正期间地面位移速率)、mTurnSpeed2(动作中转身速率)、mMoveBankType、mLookAt 族
+  (timl.md "方向范围"老记录即此套)。
+- **执行链 (静态新钉)**: 属性绑定 PlMotionCommon 控制器 +0x110 (注册类型 6, 注册表
+  FUN_14191F7D0 @ decompile 行 ~5175993); begin 处理器取玩家朝向四元数 (em+0x170..17C)
+  与锁定目标方向 (player+0x1510) 夹角 (FUN_142178230, 弧度 ×57.2958@0x142F16EC0 转度)
+  → 转身唯一咽喉 FUN_141F755C0(player, yaw度, 时长=param表+0x8AC, mode=2 绝对,
+  turnKind=2)。setter 本体无角度钳制 (只写 em+0xB220 请求槽, mode 0=空闲才转/1=相对/
+  2=绝对), 每帧消费端 FUN_141f637a0 限速应用。**角度表本体 VA 未钉** (消费方走运行时
+  指针路径, 与防御池桥同款静态盲区; 需要时 x64dbg 对 ctrl+0x110 读断点)。
+- **见切/居合例外 (user 判断+反编译佐证)**: FSM 特殊节点, 见切 begin 处理器
+  (FUN_1417FDAE0 尾部) 硬编码"朝锁定目标绝对转身", 与索引机制并存/或旁路 — 特殊节点
+  转向不归索引管, 别拿它们做本机制的实验对象。
+- **修改配方**: `python patch_timl_defense.py setval <w03_00.lmt> <entry> PlMotionCommon
+  mAttackAdjustAngleIndex 0 <档位> [期望旧值]` — 档位枚举未全表 (已知 0/1/4), 想要
+  自定义中间角度需钉表本体或走 GuardTurnSetHook (FUN_141F755C0 detour, mod 已有,
+  TURNCLAMP 钳制已验证) mod 侧任意角。改完需重载任务/换区 (TIML 属性绑定发生在加载)。
+- 实验改动已回退: entry 105 索引恢复 0 (部署 md5 e8d4fd1a6143d0491555cd8c8ac429b1)。
+
+### 2026-10-06 (18) 一文字长版合体动作 divide_full: 3衔接+小跑+斩击段 headless 拼接 (工作副本 MHW-Valor-divide-full.blend)
+
+- **目标**: 省 FSM 节点 — 长一文字整链 (rigit_up→right_down→left_up→divide_long) 合成**单动作**,
+  divide_long 可退役。用户给的链式语义: 动画 A 结束于 (x,y,z), 动画 B 局部坐标 (a,b,c) →
+  B 在游戏中播放于 (x+a,y+b,z+c)。
+- **结构实测 (_probe_align/2/_probe_handles, headless 全数值)**:
+  - divide_long(0..126) = 前奏24帧(小跑+突进, 根位移 0→-4.12 过冲→-3.86 回收) + 斩击段;
+    divide_short(0..114) = 前奏12帧(小步, 0→-0.68) + 斩击段。
+  - **short[18..114] ≡ long[30..126] 逐帧位差 0 (27839 采样 max 0)** — 斩击段是同一份数据;
+    short[12..17] 是修剪过渡带 (帧12 MhBone_012 差 0.375 rad), short[0..11] ≈ long[0..11]
+    (两次烘焙, 非拷贝)。
+  - 源曲线形态: 每 2 帧一键、99% LINEAR 插值; 边界键齐全性决定补键需求。
+- **构建 (_build_divide_full.py, 幂等, 工作副本)**: divide_full(0..165, frameCount 165) =
+  rigit_up[0..12]@0 + right_down[0..12]@13 + left_up[0..12]@26 + **long[0..29]@39(小跑+突进)** +
+  **short[18..114]@69(斩击段)**。骨骼内容 == divide_long 逐帧原样 (long 段 merged 39+f 对齐,
+  斩击段 bit 同源), 接缝 = 原版相邻帧, 无 pop。
+- **根位移锚定**: 每段平移 offset = 上一段末帧世界位置 − 该段首帧局部位置 (切段 loc(start)≠0,
+  直接套游戏链式公式会在接缝瞬移; whole-action loc(0)≈0 时两者等价)。锚定后 4 个接缝
+  位移步进全 0.00000; 整条世界路径连续, 终点 -3.74m (原版长版 -3.86m, 差异 = short 斩击段
+  位置曲线自身漂移 -0.23 vs long -0.34, 11cm 级)。
+- **坑(本轮踩的)**: ① 补边界键时 offset 别在预计算和 co 赋值处**加两次** (run 段末帧 29 无键
+  → 补键 → 双倍 offset → 接缝 7.3cm 瞬移; 三衔接段末帧 12 本来有键所以没暴露);
+  ② 拷贝键手柄类型改 **FREE** 冻结坐标 — AUTO_CLAMPED 在 update() 时按新邻居重算,
+  段边界处邻居变了会微改样条 (0.02 级); LINEAR 键手柄无效, 冻结无副作用;
+  ③ FCurve.evaluate() 返回单 float, 四元数要 4 个 array_index 各自 evaluate。
+- **验证全绿**: 全帧 0..165 × 全通道 48804 采样 0 违例 (>1e-4); 030/047 常量逐字一致;
+  `_verify_exporter_divide.py`: valid=True, transforms=82, rootTracks=2, frameCount=165,
+  警告码 {7:7, 80:80, 6:6, 2:2, 44:44} 与 5 个源动作**逐项相同** (已局内验证批次同签名 = 背景噪声);
+  `_preflight_tree.py`: 153 actions, 0 problems; 端到端 `_repro_wiring.py` ENTRY=103 →
+  正式导出 OK, 产物 entry103 tracks=82 frameCount=165 rootTracks=[(-1,4),(-1,3)],
+  030/047 keyless 常量 bufType1, 000-loc bufType4 (与已验证 divide_short→103 同形态)。
+  产物存证 `_divide_full_export_test.lmt` (可直接改名 w03_00.lmt 试玩 entry103, 或按 FSM
+  规划接别的 entry 重导)。
+- **MASTER 未动**; divide_full 只存在于工作副本 MHW-Valor-divide-full.blend (GUI 若开着旧
+  会话需 File>Revert, 坑⑭)。接线命令: `ENTRY=<n> ACTION=divide_full OUT=... blender -b
+  MHW-Valor-divide-full.blend --python mhgu/_repro_wiring.py`。
+
+### 2026-10-06 (19) 衔接+小跑合体三连: *_before_divide_long (同工作副本, _build_transitions_long.py)
+
+- 新增 3 动作 (frameCount 42): `rigit_up_before_divide_long` / `right_down_before_divide_long` /
+  `left_up_before_divide_long` = 各衔接原 0..12 帧 + `divide_long[0..29]` 小跑段 @13..42
+  (小跑锚定到衔接末帧位置, 接缝位移步进 0.000000)。之后接斩击段由 FSM 决定 (斩击段
+  已 bit 同源于 divide_short[18..114] / divide_long[30..126], 见 (18))。
+- **衔接末帧姿态与 divide_long 帧0 逐位一致 (三对 seam-pose mean=max=0.00000)** — 同一烘焙
+  族切分, 任何衔接→小跑都无姿态 pop。
+- 验证: 每动作 12470 全帧采样 0 违例; exporter valid=True 82轨+双Root+frameCount=42,
+  警告码与已验证批次逐项相同; 全树预检 0 problems; 端到端导出 OK (left_up 变体 → entry103
+  产物 tracks=82 frameCount=42 形态同前)。产物存证 `_trans_long_export_test.lmt`。
+
+### 2026-10-06 divide_slash 接入 entry 339: 左手修正 + [1,5] 攻击窗 + 强化射击帧摘除 (已部署)
+
+- **divide_slash (100f, 用户手搓) 已按 10_apply_rules_divide.py 规则处理并部署**:
+  732→284 fcurves, tether/frameCount=100/starType 补齐, 030/047 = 106 左手常量
+  (030.scaleY=2 / 047.scaleY=1), 000 只留 location, 291 条打标。二进制回读验证
+  (KBRAction 反导入): BoneFunction.030 scale=(1,2,1) / 047=(1,1,1) ✓。
+- **规则脚本两处加固** (10_apply_rules_divide.py): ① min-2-keys 末帧单键改向前补
+  f0-1 (向后 +1 会顶爆 frameCount, verify 拦下 — valor_sheath 会话同款坑); ② 0 键
+  空曲线删除 + verify 防护 — **divide_slash 的 MhBone_251/253 共 14 条 fcurve 在用户
+  ARP 烘焙里就是空的** (divide_long 同名骨是全程烘满的), 空曲线让导出器 bounds()
+  抛 `Vector(): sequence size is 0` 全树导出崩; 删除=缺轨走游戏默认 (与已局内验证的
+  MhBone_252 缺旋转向例同机制); 若局内脚部 IK 异常 = 源动作缺这些通道的烘焙。
+- **entry 339 TIML**: blend 侧本就带 10-02 时代的射击摘除 (点火对/slinger/claw/
+  camera/EG09 全零) + 旧一文字短窗 [17,22]; 本次 apply_valor_attack_config.py
+  PLAN[339] 改 ([(1,6)], 5) → **EC v2 [1,5] + CTO mFlag [1,5]**, 盘上验证 ✓。
+  EC 路径新增 `exact` reframe 分支 (非零键数==窗口数时原地改帧, 旧逻辑撞
+  assert len(nz)>=2*windows)。**CTO 保持部署现实 = 单配置 node 63** (59/72 双配置
+  配方从未落进这条部署线, 部署/导出/回读三处一致); 若局内 [1,5] 中段出现伤害空洞
+  (node 63 疑似反击态门控的老问题), 下一步才是换 59/72 重克隆。输入窗维持
+  [17..26) buffer→open (101f 动作内有效; 手感不对再调 INPUT_PLAN)。
+- **部署链**: 全树导出 (mhgu/_export_tree.py, 新工具 = 纯导出不改接线,
+  补 _repro_wiring.py 会顺手重接线的坑) → 部署 → 打标。导出 vs 部署逐 entry 对照
+  (_diff_entries.py): 43 个 entry 字节层差异全部是 addcto-EOF 追加 vs 连续重排的
+  布局假阳性, 解码级 (轨道+键值) 逐 entry diff 仅 339 frameCount 99→100。
+  部署 md5 68a89b8e0000d226e02be51b7f1994d8; 备份链: blend bak-20261006-190258
+  (raw)/190449, lmt bak-20261006-pre-divideslash (旧 99f)/192331-valorcfg。
+- **338-346 强化射击族**: 用户确认整族无用可改; 目前仅 339(divide_slash)/
+  340(divide_long, 窗 [29,34] 维持) 接了自定义动作, 其余槽保持原版, 接线时照
+  339 配方 (摘除已在脚本里, PLAN 加窗口即可)。divide_slash_long/short_left_up/
+  right_down 6 个变体动作 (38f/26f) 仍是 raw ARP 态, 接线前需跑
+  RULE_ACTIONS=... 10_apply_rules_divide.py。
+- **GUI 开着 MHW-Valor.blend 的话必须先 File>Revert** (坑⑭, 本次无头保存过两轮)。
+
+- **(2026-10-06 晚续) divide_slash "加速/播完还在动/乱飘" 根因 = 源动作半倍化 (user 确认误操作)**:
+  身体全部骨骼+000 重心键只到 f50(间距1), 只有根位移被拉到 f100(间距2) — 局内身体
+  0.83s 定格、根位移继续推满 1.67s = 加速感+定格滑行。修复 = `_x2_divide_slash_body.py`
+  身体侧 fcurve 时间 ×2(handle 同步缩放, object 层不动), 尾部 >100 键删除 + 单键向后补
+  (000 X/Z 的 min2@51 键 ×2 后落 102), 幂等守卫(body 已到 100 则跳过)。部署后 124 条
+  通道铺到 f100(修复前 92 条止步 f52)。**攻击窗随加倍平移: 设计帧 1-5 → TIML [2,10]**
+  (PLAN 339=[(2,11)])。部署 md5 d9642f43ebacbf7332fa471d39ebed9f; 备份链新增 blend
+  bak-20261006-200137-prebodyx2 / lmt bak-20261006-prebodyx2 + 200259-valorcfg。
+  **GUI 导出报 bounds() 空序列 = 旧会话内存里还有 251/253 空曲线** (修复在无头侧落盘,
+  会话没 Revert 过) — File>Revert 后即消失; 无头 x2 已代替 GUI 里未保存的手工 x2,
+  旧 GUI 会话勿再保存覆盖。导出器警告形态变化备忘: body 铺满后 MISSING_LAST_FRAME
+  72→6, 出现 MISSING_FIRST_FRAME 72(身体键从 f1 起烘, ×2 后首键 f2, Fix 级背景噪声)。
+
+### 2026-10-07 divide_valor_sheath 拼接: 纯复制定案 (user 指令, 今后所有拼接默认如此)
+
+- **任务**: `plw_LongSword_100_111_Armature_remap.short` 第 9 帧起尾插进用户自制
+  `divide_valor_sheath` (0..33, 310 曲线, m_mesh Armature)。用户手贴会粘到错误骨骼,
+  要求脚本做。**定案 (user 指令): 拼接 = 纯复制** — 骨骼曲线 + 物体级曲线 (世界坐标)
+  原样平移拷贝 (shift=24, 源 f9..f58 → f33..f82), 不做根运动焊接、不加数值偏移、
+  不动重心保持; 接缝世界坐标由用户手工对齐。第一版的 obj 位移焊接 (+0.37X) +
+  000 X/Z 尾部保持 (-0.125/-0.23) 游戏内 = 持续左飘 + IK"脱绑"观感 (身体被推离已
+  踩定的脚), 已整体回退为纯复制。
+- **接缝帧确定法**: 比较 dst 末帧姿态 vs 源 (cut-1)/cut 两帧的姿态差 (共享通道 L2,
+  四元数 2*acos(|dot|)), 取小者。本例 d9 << d8 (多数骨骼小一个量级) → dst@33 本就是
+  按源 f9 对齐的 → 源 f9 落 f33 (SEAM_GAP=0)。撞帧处理: 旋转类保留 dst 键 (差值一帧
+  过渡); 世界坐标类用源值覆盖 (纯复制语义)。用户 0..33 段自带的 000 X/Z 摆动未动,
+  若游戏内收刀段仍漂, 下一个对齐点就是它。
+- **LIMITS 坑**: 两边动作的 fcurve 都挂 LIMITS (FreeKinetics bufType/boneFunction
+  标记, 同时钳数值) → **fc.evaluate() 是钳过的值, 偏移/对齐计算必须读原始 keyframe
+  co.y** (COG 偏移曾因此算错)。另: 边界键生成路径曾把 offset 加了两次 (插入时一次、
+  shift 循环又一次), 恰好被撞帧去重/保持键替换完全掩盖未成害 — 生成键的代码要单测。
+- **常量源曲线 (单键@f0) 要核实不要跳过**: 251/253 IK 两边都是同一组恒等常量
+  (loc 0 / quat 单位, dst 外推保持值一致 → 无断); 252 旋转两边都无; 247-250/252
+  位置全程动画, 尾部 49 键到 f82。IK 数据完整 — "IK 不绑"观感 = 身体滑移, 非数据缺失。
+- **拼接后导出适配 (必做三件)**: ① `freehk.frameCount` 手改 (33→83;
+  A_LMT_FRAME_COUNT_LOW = 它过期); ② 6_tag recipe 重打 (本例 303 条与用户原标
+  **零差异** = 幂等确认); ③ 不在 recipe 的通道删除 (454 条新曲线全部出局: 身体骨骼
+  location/scale + 070-085 物理孪生 — 原生布局不跟踪, 游戏物理驱动; 删后
+  transforms=81 与基线一致)。
+- **预检**: `mhgu/_verify_exporter_divide.py -- divide_valor_sheath` → valid=True,
+  transforms=81 rootTracks=2; 噪声族 {UNEXPORTABLE 7, NONKEY 43, BASIS 2} = 基线同款;
+  UNSYNCHRONIZED/MISSING_LAST 非致命 — 导出器 completeRawKeyframes 按 timingSet
+  evaluate 重建缺键 (fix 模式), 短曲线尾部常量外推即正确值。
+- **Blender 坑**: `keyframe_points.remove()` 循环删崩 ("Keyframe not in F-Curve") —
+  一律 clear()+add() 整表重建。
+- **审计**: 0..82, 310 曲线 (拼后 764 − 删 454), 键 39799 = 4352 + 35447 逐条吻合;
+  物体位移 f33 = (-0.2424,-0.9429) = 源 f9 原值 (留给用户对齐), f82 = 源 f58。
+- **工具**: `mhgu/_splice_divide_valor_sheath.py` (主拼接), `_splice_plain_copy.py`
+  (纯复制重做), `_splice_finish_export.py` (frameCount+recipe 打标), `_splice_seam_check*.py`
+  (接缝测量); 备份 `MHW-Valor.blend.bak-20261007-020924`。
+  **splice_actions.py 惯例更正**: 其 docstring "B 物体位移按 A 末端偏移"的焊接种
+  只适用于循环类衔接 (A 末姿态 ≈ B 首姿态); 跨动作拼接一律纯复制。

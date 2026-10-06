@@ -15,6 +15,27 @@ src = bpy.data.objects[SOURCE_OBJECT]
 dst = bpy.data.objects[TARGET_OBJECT]
 tether = importlib.import_module("MHW-FreeKinetics.blender.tetherOps")
 
+GRIP_Y_SCALE_PATHS = {
+    'pose.bones["MhBone_030"].scale',
+    'pose.bones["MhBone_047"].scale',
+}
+
+
+def set_grip_y_scale_linear(action):
+    """Use straight interpolation for the discrete 030/047 grip states.
+
+    These channels are integer state switches, not animated socket transforms.
+    Blender inserts Bezier keys by default, which makes a grip value blend
+    between states during a transition.  MHW expects the authored Y-scale
+    state to be sampled as a regular straight line, so force LINEAR only on
+    array index 1 of the two grip curves.
+    """
+    for fcurve in action.fcurves:
+        if fcurve.data_path in GRIP_Y_SCALE_PATHS and fcurve.array_index == 1:
+            for key in fcurve.keyframe_points:
+                key.interpolation = 'LINEAR'
+
+
 def find_source(target_name):
     candidates = [target_name]
     for suffix in TARGET_SUFFIXES:
@@ -84,6 +105,8 @@ for index, target_action in enumerate(targets, 1):
             db.keyframe_insert("location", frame=frame)
             db.keyframe_insert("rotation_quaternion", frame=frame)
             db.keyframe_insert("scale", frame=frame)
+
+    set_grip_y_scale_linear(target_action)
 
 src.animation_data.action = old_src
 dst.animation_data.action = old_dst

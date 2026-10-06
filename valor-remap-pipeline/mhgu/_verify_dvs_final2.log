@@ -1,0 +1,65 @@
+Blender 4.3.2 (hash 32f5fdce0a0a built 2024-12-17 03:35:23)
+Warning: 'ChannelDisplayItems' does not contain '_UL_' with prefix and suffix
+ValueError: bpy_struct "MHWI_OT_batch_rename_physics_bones" registration error: '_fail_count' IntProperty could not register because it starts with an '_'
+Free Kinetics Free License
+register_class(...):
+Warning: 'ChannelDisplayItems' does not contain '_UL_' with prefix and suffix
+Loading translations
+Selected language: en_US
+Available languages: ['auto', 'en_US', 'ja_JP', 'ko_KR']
+Loading translation file: C:\Users\Afeather\AppData\Roaming\Blender Foundation\Blender\4.3\extensions\user_default\cats_blender_plugin\resources\translations\en_US.json
+Loaded 818 translations
+
+### Loading CATS...
+Warning: Unknown phrase: Scene.progress_update.label
+Warning: Unknown phrase: Scene.progress_update.desc
+### Loaded CATS successfully!
+
+MHW_Model_Editor-main addon is installed.
+--- Games: Registering ---
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ImportMesh: register_class(...): already registered as a subclass 'importMHWildsfmesh'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ToPose: register_class(...): already registered as a subclass 'MHWildstpose'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.SnapBones: register_class(...): already registered as a subclass 'MHWildsOpenDictionaryFolder'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.RenameVG: register_class(...): already registered as a subclass 'MHWildsrenamevg'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.RenameMesh: register_class(...): already registered as a subclass 'RenameMeshToREFormat'
+  [!] Failed to load bl_ext.user_default.Modder_Batch_Tool.games.MHWilds.ExportFbxskel: register_class(...): already registered as a subclass 'Generatefbxskel'
+--- Games: Done (23 modules) ---
+bl_ext.user_default.Modder_Batch_Tool addon is installed.
+Update armature presets...
+Settings lock timed out, releasing lock
+update_settings_core function called
+Checking setting: embed_textures
+Old value: False
+New value: False
+Checking setting: ui_lang
+Old value: auto
+New value: auto
+No settings changed
+update_ui function called
+update_settings_core function called
+Checking setting: embed_textures
+Old value: False
+New value: False
+Checking setting: ui_lang
+Old value: auto
+New value: auto
+No settings changed
+Settings not updated, scripts not reloaded
+Settings applied successfully
+divide_valor_sheath        valid=True frameCount=83 transforms=81 rootTracks=2 logged=135
+    codes: {'F_LMT_UNEXPORTABLE_PROPERTY': 7, 'F_LMT_MISSING_LAST_FRAME': 81, 'F_LMT_UNSYNCHRONIZED_KEYFRAMES': 2, 'F_LMT_MISSING_BASIS_FRAME': 2, 'F_LMT_INVALID_ENCODING_NONKEY': 43}
+[result] ALL VALID
+### Unloading CATS...
+Unregistered 132 CATS classes.
+UNLOADING ICONS!
+DONE!
+shapekey button was not registered
+Stopping settings threads...
+Settings threads stopped.
+### Unloaded CATS successfully!
+
+MHW_Model_Editor-main addon is uninstalled.
+bl_ext.user_default.Modder_Batch_Tool addon is uninstalled.
+Read blend: "E:\MHW-arts\MHW-Valor.blend"
+
+Blender quit

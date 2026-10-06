@@ -468,3 +468,19 @@ blender -b MHW-Valor.blend --python mhgu/_vanilla_reset_verify_final.py   # 验�
 坑(详见 AGENTS.md 2026-10-04 节): 段截取后骨 4 通道必须齐全(缺→导出器 Quaternion
 空序列崩), done 全曲线强制补 0/97 边界键(eval_hold 端点保持); min2 兜底键末帧向前补;
 四元数比较用 2*acos(|dot|)(逐分量差被 q/-q 双覆盖污染)。
+
+## 一文字长版合体 divide_full (2026-10-06, 工作副本 MHW-Valor-divide-full.blend)
+
+省 FSM 节点用: 3 衔接 + divide_long 整链合成单动作。详见 AGENTS.md 2026-10-06 (18) 节。
+- 结构: short[18..114] ≡ long[30..126] bit 级一致 (斩击段同一份数据); long = 前奏24帧 + 斩击段,
+  short = 前奏12帧 + 斩击段。
+- `_build_divide_full.py`: divide_full = rigit_up+right_down+left_up@0/13/26 + long[0..29]@39 +
+  short[18..114]@69, frameCount 165; 根位移按"段首帧锚到上一段末帧"平移 (切段 loc(start)≠0,
+  别直接套游戏链式公式); 补边界键 offset 只加一次、拷贝键 FREE 冻结手柄。
+- 验证: 全帧全通道 48804 采样 0 违例; exporter valid=True 82轨+双Root; 警告码与已验证批次
+  逐项相同; 端到端导出产物 `_divide_full_export_test.lmt` (entry103=divide_full, 可试玩)。
+
+## 衔接+小跑合体三连 *_before_divide_long (2026-10-06 续)
+
+`_build_transitions_long.py`: 三个衔接各 + divide_long[0..29] 小跑段 = frameCount 42 合体动作
+(接缝锚定步进 0, 衔接末帧姿态与 long 帧0 逐位一致); 验证/导出同 divide_full 流程全绿。
