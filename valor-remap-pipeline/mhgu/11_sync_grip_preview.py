@@ -28,6 +28,8 @@ v2 修正(v1 的病根):
         (一次性同步指定动作, 不注册回调, 不保存 blend; 动作名缺省=玩家骨架
          当时的 active action)
   卸载: blender ... --python ... -- --remove   (GUI 里改 REMOVE=True 运行同理)
+  彻底清扫全库旧 GRIP 键: 无头加 --clean-all (如 -- --clean-all "动作名");
+        默认跳过 —— swo022 只播 FK_grip_preview_auto, 旧键不会生效, 扫全库纯耗时
 
 注意:
   - 读键一律走 keyframe_points 原始 co, 不用 fcurve.evaluate() —— LIMITS
@@ -54,6 +56,10 @@ DEFAULT_SOCKET = 'L'      # 动作开头没有任何插座激活时的初始状�
 ACTIVE_THRESHOLD = 1.5    # scaleY >= 1.5 视为握持(2), < 1.5 视为闲置(1)
 REMOVE = False            # GUI 里想卸载回调就改 True 运行
 SOURCE_ACTION_OVERRIDE = None   # 想固定源动作就填动作名, 缺省=玩家骨架 active action
+# 全动作旧 GRIP 键清扫默认关: swo022 每次都被指到 FK_grip_preview_auto, 其他动作里
+# 的残留 influence 键永远不会播放, 扫它们只是防御。需要彻底清理时改 True 或无头
+# 传 --clean-all (每次运行都要遍历全库 fcurve, 是旧的耗时大头)。
+CLEAN_ALL_LEGACY = False
 
 _state = {'fp': object()}   # 哨兵: 保证第一次 tick 必刷
 
@@ -279,8 +285,12 @@ _argv = sys.argv
 _extra = _argv[_argv.index('--') + 1:] if '--' in _argv else []
 if _extra and _extra[0] == '--remove':
     REMOVE = True
+if _extra and _extra[0] == '--clean-all':
+    CLEAN_ALL_LEGACY = True
+    _extra = _extra[1:] if len(_extra) > 1 and not _extra[1].startswith('--') else []
 
-neutralize_legacy_influence()
+if CLEAN_ALL_LEGACY:
+    neutralize_legacy_influence()
 if REMOVE:
     unregister_handler()
     _log('完成: 已卸载自动同步 (influence 保持最后一次的计算结果)。')
