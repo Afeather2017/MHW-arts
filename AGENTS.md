@@ -2682,3 +2682,72 @@ MHWNoChunk and MHWEditor
   20261007-pre343mv` / `wp03.col.bak-20261007-pre343mv` (游戏目录)。
   **树侧待办**: blend 里 343 CTO action 的ノードID 键仍是 63 —— 下次 blend
   导出会冲回, 导出前在树侧改 85 (或届时 6 槽 PLAN 一起重打)。
+
+### 2026-10-08 LMT 槽位约束破案: entry 345/344 拒绝一切非原生导入内容 (user 实测闭环) + 加载器/游走器/校验器反编译
+
+- **现象与定案 (全部冷启动 user 实测)**: 强化射击 9 连尾部槽位 112/110 换上任何
+  非原生导入内容必挂——192_remap@345 = 播放即崩 (AV 恒定 0x2233DE0/DF0, 有时
+  先卡黑屏), divide_short@345 = **连存档都闪退** (加载期初始化), chunk-G0 裸
+  原版字节@345 也崩; 而 **原生导入重编码随意换** (345←native-332 实测稳, 344
+  同理); 对照组 entry 346 (action 111) **随便改都不崩**。104-109 槽 (338-343)
+  也宽容 (divide 系长期在用)。**原因未明**——class 归属、animLen、TIML 内容、
+  easing 字节、col、mbd、mod DLL 全部排除后仍成立, 结论 = 引擎里有按 entry
+  绑定的静态约束, 345/344 被锁死在"原生导入血统"上。
+- **操作纪律 (血泪教训)**: ① 改 LMT 必须**完全冷启动**才生效 (LMT 启动时读;
+  一次 mid-session 补丁 2 分钟后就测, 结论被旧数据污染整晚); ② 二进制手术
+  (splice+append) 结构本身会引入第二层崩溃——内容与 0.0.1 全等的手术文件
+  依然崩, **凡动内容一律走树导出**; ③ 正向二分 (从已知好的 0.0.1 逐步加变更)
+  优于反向二分; ④ 每轮只动一个变量。
+- **MHW-Valor.blend 已持久化状态 (2026-10-08)**: 345 ← `LMT::w03_00::332` +
+  TIML ← 344 同款节点 (animLength=133, 332 动作 134f 的合法配对——**TIML
+  animLength > frameCount = 进档闪退级硬伤**, A3 实测), 343 CTO 树侧键
+  63→85 已改 (**"导出前改 85"待办销账, 树导出原生携带, 部署侧补丁不再需要**)。
+  备份链: `225042-prefwd-persist` / `233844-pre345timl` / `223314-pre345test`。
+  部署 LMT = 0.0.1 原文件 + 343 CTO node85 补丁 (md5 27fa9926), user 确认可玩。
+- **class 表 (0x142EF5C30, 113 行, stride 0x20, classPtr@+8) 全名单已枚举**:
+  真·气刃/强化射撃类在低 id——0=cKijinSlash3, 1=cKijinStepSlash, 10=cKijinSlash2,
+  43/44/45=cKijin1ComboShotBase/F/R, 46/47/48=cKijin2ComboShotBase/F/L,
+  49/98/100=cKijin3ComboShotBase/L/R, 65=cKijinStab, 66=cKijinUpper,
+  67=cJumpSlashLanding, 75=cFinishAttack, 110=cWpOn(拔刀), 111=cWalkWpOn(拔刀走),
+  **112=cWalkWpOff(收刀走)**。用户实机观察: 110/111/112 = 気刃3 衔接的三方向
+  强化射撃 (右转/前向30°/?)——**class 名归属与实机观察的矛盾未解** (名字按
+  vtable 区间归属有漂移风险, RTTI 被剥; 实机行为是 ground truth, 345/344 严格、
+  346/104-109 宽容为实测事实)。110 实测同样拒绝自定义内容 (user 补测)。
+- **LMT 加载器反编译 (dump.c 行 7025621 起)**: 签名 "LMT\0"+ver95+piVar6[2]==
+  _DAT_1435454ac 校验; **原地重定位**: entry offset、track bufferOffset(+0x10)、
+  lerpOffset(+40, 仅类型∉{0,1,2,3,6,8,9})、timlOffset(+0x58) 全部 +=文件基址;
+  **头部无需连续** (逐 entry 经偏移表独立重定位——多槽 splice 后头部散落不致崩,
+  但 splice 结构本身另有问题, 见上); Flags2(@+67) bit0(→flags u32@+64 的
+  0x1000000)=跳过轨道重定位, bit7(0x8000000)=跳过 TIML 处理。
+- **TIML 校验器 FUN_14231f730 / 重定位器 FUN_14231f7e0**: 每个 type 行的 hash
+  (@typesOffset+i*0x18+0x10) 必须在全局注册表 (_DAT_1451c5c20/_DAT_1451c5c28)
+  里, 且行内 **u0 (@+0x14) 必须等于注册表项 +0xC** —— 任一不中 = **整个 LMT
+  加载失败**。TIML 变长记录格式: 头 40B + types 行 24B + transform 行 24B +
+  键 20B, 指针字段 = 每行首 u64。
+- **键游走器/插值器 FUN_142233e90 / FUN_142234010**: 按 **bufferType 步长表**
+  (0x143505C40 起 stride 0x18: {size, timeGetter, extractor}) 逐键游走, 前进方向
+  终止条件 = **delta==0 哨兵键** (全部文件已验证在场), 后退以数组基址为界;
+  size 表与 FreeKinetics 完全一致 (bt3=16/bt4=8/bt5=4/bt6=8/bt7=4/bt11-13=4/
+  bt14=6/bt15=5, bt1/2/10=0 keyless); bt3 timeGetter 读 u32@[rcx+12], **bt4 读
+  u16@[rcx+6] (=0x2233DE0), bt5 读 u8@[rcx+3] (=0x2233DF0)——当日全部 8+ 次崩溃
+  恒定落点 = 游走指针出界后的 getter 访问, 卡黑屏与闪退是同一游走失控的两种
+  结局** (我方文件哨兵/步长全部干净, 触发点在别处未钉)。bt1/2 哑 getter =
+  0x14035BE60 (xorps xmm0; ret 恒 0), keyless 轨游走立即终止, 安全。
+- **mbd (w03_00.mbd, 16,499B) 部分解码**: magic 18091001, "Default" 链名 +
+  "w03_00" 文件名 + 变长记录 {asciiz 名 ("w03_00"/"co00_01"...), u32, u32,
+  float, u32, i32, u32-link} = IK/链图; **截断覆盖实验 = 行为零变化 → 游戏对
+  该文件不敏感, 非槽位约束源**。
+- **动作库对比 (0.0.1 vs 当前 MHW-Valor, 逐 entry 字节级 + 动作库 hash 级)**:
+  463/464 entry 内容一致 (345 除外), **全部已接线动作内容零差异** ——工程文件
+  没坏, 10-06/07 的"改动"实际只是 6 个槽的接线挪动 (192_remap 140→106+345,
+  valor_sheath 306→342, 原生动作互相换位)。非接线差异仅 3 项: CTO.083 (63→85,
+  本会话), FK_grip_preview_auto (grip-sync 插件预览, 无害), divide_valor_sheath
+  (新增未接线, grip-sync 源)。
+- **工具沉淀**: `_bytediff_good_bad.py` (逐 entry 归一化字节 diff), `_deep_diff.py`
+  (轨道头/basis/lerp/TIML 值级 diff), `_delta_check.py` (delta 语义全轨校验),
+  `_fwd_stepA*.py` (正向二分脚本族, 0.0.1 基底无头改接线+导出不存盘),
+  `_dump_action_inventory.py` (动作库清单+内容指纹 JSON),
+  `Reverse/xref_to_rva.py` (rel32 xref 扫描)。
+- **未决**: 345/344 严格性的机制本体 (per-entry 静态数据在引擎何处、校什么);
+  342 上 valor_sheath 81 轨残次导出的重做; 346/110 的自定义容忍度补测;
+  DLL (ValorGauge/LuaEngine) 摘除状态待恢复验证。
