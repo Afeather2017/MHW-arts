@@ -4,7 +4,8 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import col_tool
 
-COL = r"E:\MHW-arts\chunk-extracted\chunk\hm\wp\wp03\collision\wp03.col"
+# live copy the game loads (chunk-extracted = readonly vanilla baseline, md5 d8cb2d4f)
+COL = r"E:\SteamLibrary\steamapps\common\Monster Hunter World\nativePC\hm\wp\wp03\collision\wp03.col"
 
 d, info = col_tool.parse(COL)
 names = info["names"]
@@ -33,13 +34,14 @@ MOVES = [
     ("气刃突刺 110",      110, 46),
     ("左右移动斩 127",    127, 57),
     ("刚1/见切反击行",    140, 63),
+    ("专属行 node85",     -1, 85),
     ("divide141/142",     141, 56),
     ("divide143 窗1",     143, 84),
     ("divide143 窗2",     143, 101),
     ("一文字短 339",      339, 63),
     ("一文字长 340",      340, 63),
-    ("无双斩1 343",       343, 63),
-    ("无双斩2 343",       343, 63),
+    ("无双斩1 343",       343, 85),
+    ("无双斩2 343",       343, 85),
     ("强化射击槽 346",    346, 54),
     ("居合1 307",         307, 84),
     ("居合2 307",         307, 101),
