@@ -2751,3 +2751,13 @@ MHWNoChunk and MHWEditor
 - **未决**: 345/344 严格性的机制本体 (per-entry 静态数据在引擎何处、校什么);
   342 上 valor_sheath 81 轨残次导出的重做; 346/110 的自定义容忍度补测;
   DLL (ValorGauge/LuaEngine) 摘除状态待恢复验证。
+
+### 2026-10-08 接线+节点属性整体恢复 0.0.1, 导出物 md5 级等同闭环 (user 实测定案)
+
+- **背景**: user 判定当前树接线混乱, 要求把 0.0.1 (10-06 00:47) 的接线恢复进最新 MHW-Valor.blend。上一条 (35f49d4) "改动只是 6 个槽的接线挪动" 的诊断只对了一半 —— **导出对比证明 per-entry 节点属性也被实验一起改掉了**, 只恢复连线导出物仍差 41B。
+- **恢复分两层**: ① 接线: 8 entry (106/140/306/342/343/344/345/346) 的 LMT 动作线 + 7 entry 的 TIML data 组 (343 仅 LMT 线, 其 TIML 组两边同名同内容; E433/435/437 本来就无 TIML 数据线, 非损伤)。② 节点属性: **TIMLDataNode**(unkn1/unkn2/animLength/loopStartPoint/loopControl → 导出 TIML 块头 dataIx0/1/animLen/loopStart/loopCtrl, freeHKDataNodes.py basicStructure) + **LMTEntryNode**(loopFrame/byteflag/byteflag2 → entry 头 loop_frame/byte_flag0/1, flagMake bit7=首元素)。症状样本: E106 animLen 被设 142 (见切值), E342 带着 valor_sheath 的 214/loop50/ctrl1, E140/E346 byte_flag0/1 互换, E306/E342 loopFrame 50↔-1 镜像。
+- **定案 (user): 动作数据 + TIML 数据相同 ⇒ 导出 LMT 逐字节相同、md5 一致** — 恢复完成后 MHW-Valor.blend 与 0.0.1 各跑正式导出器 (exportNodeToFile, GUI 同码路径) 产物 **md5 相同 (e8d4fd1a, 4,011,220B, 464 entry)**。"导出物 md5 对比"从此可当树状态一致性校验 (比逐 entry diff 便宜); 差异溯源路径: `_bytediff_lmt.py` 把差字节归 entry 区域再结构化 diff TIML, 41B 级小差异基本全是块头字段/键值, 动作 fcurve 本体零差异。
+- **192_remap (刚1) 曾被孤儿清理删除** (当前文件与 blend1 均无, 接线摘除后成的孤儿): 从最新幸存备份 `bak-20261007-233844-pre345timl` append 回 (313 fcurves 与 0.0.1 同版) + fake_user 防再清。**append 依赖追踪会连带拖入同库动作** (本次 9 个带 fake_user 的 .001/.002 重复, 零接线无害留守)。注意 blend1 是清理后状态, 找动作用带日期的 .bak。
+- **E343 CTO 键 85→63 (user 批准回退, "不知道改了啥了")**: 该键不在节点属性上, 在 E343 接线的 `CollisionTimelineObject.083` 动作 fcurve `FreeHKTiml.mB296CA66[0]` @f0 的键值里 (10-07/08 树侧已把它 63→85, = f2a4e70 那条"树侧待办"实际已被做完)。**已部署文件未动, node85 MV100 补丁仍在生效; 但下次从本树导出并部署 w03_00.lmt 会把 343 打回 node63 路由 (10-03 借見切り攻撃行配方伤害)** — 要回 85: 树侧把该键改回 85 再导出, 或对部署文件重跑 `_patch_cto_node.py`。
+- **工具沉淀 (valor-remap-pipeline/mhgu/)**: `_dump_wiring.py` (树接线 dump), `_extract_wiring_json.py` + `_restore_wiring_from_json.py` (0.0.1 接线快照 → 带全表校验恢复; 缺动作数据块即中止不保存; 按快照节点名+动作名双重校验复用旧节点), `_restore_nodeprops.py` (节点属性提取/恢复, EXTRACT/SAVE 环境变量门, 含 VERIFY), `_revert_343_cto_key.py`, `_bytediff_lmt.py` (差字节归属 entry + TIML 结构化 diff), `_probe_192remap.py` / `_probe_timl_sets.py` / `_append_192remap.py`。0.0.1 基准快照: 根目录 `_wiring_001.json` / `_nodeprops_001.json`, 基准导出物 `_wiring_001_export.lmt` (md5 e8d4fd1a); 改前全状态备份 `MHW-Valor.blend.bak-20261008-wiring-restore` (实验接线+实验属性)。
+- **GUI 提醒**: 无头改完 blend, 开着的会话必须 File>Revert (坑⑭)。
