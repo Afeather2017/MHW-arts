@@ -2761,3 +2761,27 @@ MHWNoChunk and MHWEditor
 - **E343 CTO 键 85→63 (user 批准回退, "不知道改了啥了")**: 该键不在节点属性上, 在 E343 接线的 `CollisionTimelineObject.083` 动作 fcurve `FreeHKTiml.mB296CA66[0]` @f0 的键值里 (10-07/08 树侧已把它 63→85, = f2a4e70 那条"树侧待办"实际已被做完)。**已部署文件未动, node85 MV100 补丁仍在生效; 但下次从本树导出并部署 w03_00.lmt 会把 343 打回 node63 路由 (10-03 借見切り攻撃行配方伤害)** — 要回 85: 树侧把该键改回 85 再导出, 或对部署文件重跑 `_patch_cto_node.py`。
 - **工具沉淀 (valor-remap-pipeline/mhgu/)**: `_dump_wiring.py` (树接线 dump), `_extract_wiring_json.py` + `_restore_wiring_from_json.py` (0.0.1 接线快照 → 带全表校验恢复; 缺动作数据块即中止不保存; 按快照节点名+动作名双重校验复用旧节点), `_restore_nodeprops.py` (节点属性提取/恢复, EXTRACT/SAVE 环境变量门, 含 VERIFY), `_revert_343_cto_key.py`, `_bytediff_lmt.py` (差字节归属 entry + TIML 结构化 diff), `_probe_192remap.py` / `_probe_timl_sets.py` / `_append_192remap.py`。0.0.1 基准快照: 根目录 `_wiring_001.json` / `_nodeprops_001.json`, 基准导出物 `_wiring_001_export.lmt` (md5 e8d4fd1a); 改前全状态备份 `MHW-Valor.blend.bak-20261008-wiring-restore` (实验接线+实验属性)。
 - **GUI 提醒**: 无头改完 blend, 开着的会话必须 File>Revert (坑⑭)。
+
+### 2026-10-09 调试工具升级: Ghidra MCP + x64dbg MCP + 键鼠注入 (强化射击双悬案的前置)
+
+- **动机**: 气刃3强化射击崩溃 / 删342强化射击后局内仍能强化射击 两悬案久攻不下 (纯静态推断+文件A/B无法定位), user 拍板先升级工具链: 逆向=Ghidra MCP, 调试=x64dbg MCP, 输入=Agent 直接注入键鼠操作游戏 (截图看画面)。
+- **ZCode MCP 配置位置坑: `.mcp.json` 是 Claude-Code 惯例, ZCode 不读**。实际位置: 工作区 `<repo>/.zcode/config.json` → `mcp.servers` (用户级 `~/.zcode/cli/config.json`)。两 server 已写入 `.zcode/config.json` (`.mcp.json` 同步一份备用)。**MCP 在会话启动时连接, 新配置要重开会话才生效**。
+- **x64dbg MCP (duty1g/x64dbg-mcp-server v1.3)**: 原生插件 (Zig), dp64/dp32 已在 `tools/x64dbg/release/x64|x32/plugins/`; 随 x64dbg 启动自动开 HTTP (127.0.0.1:9094), Bearer token 在 x64dbg.exe 旁 `mcp_config.json` (换 token 两处要同步); 84 工具 (断点/单步/内存/调用栈/FindPattern/ExecuteDebuggerCommand 等)。已实测: 启动 x64dbg → initialize 握手 OK。源码 `tools/x64dbg-mcp-server/` (SKILL.md = 工具文档)。
+- **Ghidra MCP (LaurieWired/GhidraMCP 1.4)**: 官方仅支持 ≤11.3.2 (12.1.x 支持卡在 PR), user 定案装 11.3.2 → `tools/ghidra_11.3.2_PUBLIC` (本机 Java 26 可启动, analyzeHeadless 验过)。插件 = 解压即装: **Windows 用户设置目录 = `%APPDATA%\ghidra\ghidra_<ver>\`, 不是 `~/.ghidra`** (Unix 惯例; 首装就栽在这 —— 装错处 = 插件在 Configure 里永远不出现, 且设置目录里连 application.log 都不会产生) → `%APPDATA%\ghidra\ghidra_11.3.2_PUBLIC\Extensions\GhidraMCP\ (**必须扁平, 不带 `Ghidra` 子目录** —— 多一层永不被扫描, 手动平铺解压+重启实测可用; 官方路径 = Install Extensions 对话框右上 `+` 从 zip 添加 → 勾选 → OK → 重启)`。**启用: 插件分类 = `Analysis` 不是 Miscellaneous** (在 Misc 里翻不到就是这原因); 扩展装好后首次开 CodeBrowser 弹 `New Plugins Found!` → Yes → 勾 GhidraMCPPlugin → OK。**8080 只在 CodeBrowser 工具开着时存活**。2026-10-09 闭环实装: 8080 监听 + mcp 实调 get_current_address 真实响应。副产物: 误勾 GnuDisassembler 被装上 (unbuilt 纯源码包, 无害可留)。bridge = `tools/ghidra-mcp/bridge_mcp_ghidra.py` (stdio MCP ↔ 插件 http://127.0.0.1:8080; 27 工具 decompile/rename/xref...), 依赖 `requests` + **`mcp<2`** (mcp 2.x 把 FastMCP 改名 MCPServer, bridge 直接 ModuleNotFoundError, 必须 pin)。下载走代理 `localhost:1080` (curl -x)。
+- **重大代价**: `Reverse/MHW-reverse.gpr` 是 12.1.3 分析的工程, **Ghidra 不支持旧版开新版程序库** → 11.3.2 里要对 `MonsterHunterWorld_dump.exe` 重新 import+auto-analysis (可 analyzeHeadless 后台跑); 12.1.3 保留当 GUI 备用 (用户目录按版本独立, 可共存)。Reverse/*.py 直接读 dump exe/.c 文件, 不受影响。
+- **键鼠注入 `tools/game-control/gameio.py`**: 扫描码级 SendInput (游戏读原始扫描码, 虚拟键窗口消息无效; 与 ValorGauge counter-repeat 同通道, user 已证可达 MHW) + PIL ImageGrab 截屏 + GetForegroundWindow 焦点查询。CLI: `tap/hold/release/type/mmove/mabs/mclick/mdown/mup/shot/focus/pos`。桌面实测全通: 鼠标滑动+nvim 打字+截屏读回。坑: ① 打字前等目标窗口完全起来 (nvim 启动吞了前 6 个键); ② 注入走前台焦点, 打游戏前确认游戏窗口在前台 (gameio.py focus); ③ 独占全屏截屏可能全黑 → 游戏改无边框窗口; ④ git-bash 里 `(notepad &)` 的 notepad wrapper 坏的, 用 `cmd //c start <app>`。
+
+
+- **computer-use 操控 Ghidra/Swing 经验**: Swing 无 Java Access Bridge 时 a11y 树只剩标题栏按钮, 全靠截图+坐标点击; 小复选框必须先 zoom 精确定位 (差几像素就点空/点错行, 本次两次点到邻行); zoom 只裁最新一张 raster, 连续 zoom 前必须重新 screenshot; 列表行点击=选中, 复选框要点方框本体; Swing 文件选择器可点 File name 输入框直接敲完整路径+回车; 对话框弹出会使 app 级捕获失效 (invalid_target), 重新 observe 或全屏 screenshot 即可。
+
+- **11.3.2 工程重建完成 (headless 导入 90MB dump)**: `analyzeHeadless.bat <project_dir> <project_name> -import <exe> -log <log>`, git-bash 里 **Windows 路径必须单引号** (裸反斜杠被 bash 吃掉变 `MHW-artsReverse`); headless 进程名是 `java.exe` 不是 `javaw` (grep 关键字写错差点误判分析进程死亡); 90MB MonsterHunterWorld_dump.exe 全量 auto-analysis 28 分钟 (20:14→20:43), `Analysis succeeded` + `Save succeeded` 后程序落在工程根。GUI 侧 computer-use 全程代操作: Tip of the Day 顺手关掉开机提示, 双击程序即开 CodeBrowser → 8080 恢复 → MCP `search_functions_by_name('14118c320')` 返回 `FUN_14118c320` 与笔记地址吻合, 数据链路实锤。屏幕自动锁定会让截屏管线超时 (capture timeout = 先怀疑锁屏)。headless 与 GUI 抢工程锁, 导入前必须完全退出 GUI (taskkill 后还要删残留 .lock/.lock~, 否则 headless 卡锁)。
+### 2026-10-09 强化射击(気刃スリ族)专档立档: SPIRIT_SHOT_Research.md
+
+- 强化射击 9 招的全部结论/修正史/验证方法已迁入 **`SPIRIT_SHOT_Research.md`**(根目录),
+  本文件此后只记增量。核心定案: 动作id→LMT 非线性映射表(104→338/105→340/106→339/
+  107→341/108→343/109→342, 以 DLL MOTIONTRACE 为准); 射击=类代码×TIML 按类门控——
+  104/109 类读 PMC(mTrigger 为首要信号轨,338 已零化待测), 105 类不生成投射物,
+  **108 类 TIML 免疫**(343 無双斬零化 PMC 照射, 只能换 ARP 来源动画或 DLL 拦);
+  EventGroup09 只是射击族签名/音效轨不是投射物开关; 刀身伤害走 CTO 借行, 与去射击互不干扰。
+- 方法论沉淀: TIML 二分法(删整条→零化单键, 一轮一测) + 结构化对比(parse_timl 字典级,
+  字节 diff 差异簇=±尺寸增量即纯指针平移) + MOTIONTRACE 运行时映射, 三件套已两次定位成功。
