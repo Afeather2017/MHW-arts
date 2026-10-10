@@ -2785,3 +2785,27 @@ MHWNoChunk and MHWEditor
   EventGroup09 只是射击族签名/音效轨不是投射物开关; 刀身伤害走 CTO 借行, 与去射击互不干扰。
 - 方法论沉淀: TIML 二分法(删整条→零化单键, 一轮一测) + 结构化对比(parse_timl 字典级,
   字节 diff 差异簇=±尺寸增量即纯指针平移) + MOTIONTRACE 运行时映射, 三件套已两次定位成功。
+
+### 2026-10-10 LS 防御(格挡) TIML 配方定案: PMC mFlag 单键 0x90080000, 无 mTrigger (user-verified "终于有了")
+
+- **配方**: PlMotionCommon mFlag = 单键 f0=0x90080000 (b31+b28+b19), **不设 mTrigger**, 整动作常驻。
+  bit28=block-valid(11f1c38 全武器扫描+GS/306 双重印证); b19 为 GS 独有贡献位(所有 LS 尝试中从未出现过)。
+- **依据链**: user 删大剑 w00_00 entry6 的 PMC(PlMotionCommon.250)→大剑防御失效 ⇒ 防御由当前动作的 PMC 携带;
+  原版 GS6 PMC = 单键 0x90080000 无 trigger(chunk-extracted/chunk/hm/wp/wp00/mot/w00_00/w00_00.lmt entry6) = 参考实现;
+  306 已验证格挡 0x12400006(b28+b22+b25+6) 与 GS 的公共核 = b28。
+- **弯路目录(勿重蹈)**: ① b26 单独=无声无敌帧; ② b24 单独=无呈现; ③ b22+b25+低16_6+2048 = 突刺**原生普通标志**
+  (vanilla 105/112 自带, 不是防御配方——被当"112 配方"连抄四轮); ④ 105.txt 配方(0x87400006@f0 18f, 10-01 验证过)
+  10-10 复测失败(当日 DLL 状态差异嫌疑); ⑤ 完整 306 TIML + 192_remap 迁移动作 = 失败(动作侧嫌疑未排)。
+- **两个坑**: ① **mTrigger 2048 = 无敌帧 no-hit 门**, 命中在仲裁上游被排除 → 格挡永远到不了呈现层
+  (GS 无 trigger; LS 每轮都带着它); ② **ValorGauge.dll 只对 LS 激活**, 其 clang-latch/SHEATHREASSERT(吞 3:37)
+  会污染 LS 防御测试 —— GS 删除实验是干净环境(武器门关), **LS 测试必须无 DLL 对照**。
+  (plugins 里 ValorGauge.dll=10-04 生效中, "ValorGauge.dl l"=10-06 带空格已失效, 勿混淆。)
+- **现状**: 0.0.2 树 105+345 均已移植(345=PMC.348 新建 mFlag 轨, 保留 snowshovel/flag4 辅助轨);
+  部署备份 w03_00.lmt.bak-20261010-2041-pre-guard-port; 干净树实验版=_blend_export_mhw_origin_105b24.lmt 系。
+- **user-verified 收官(10-10 晚)**: 345(192_remap **迁移动作**)**开着 DLL** 局内出防御 —— 迁移动作嫌疑与
+  mod latch 嫌疑双双排除, 配方跨动作/跨武器通用; **一武器可多防御招并存**(突刺105/收刀见切/刚1-345)。
+  105 突刺作为实验载具已**回归原版 PMC**(mFlag 三键 0x02400006/0x02000006/6 + mTrigger 2048@f0), 防御只保留在 345。
+  最终部署 = _blend_export_final.lmt, 备份 w03_00.lmt.bak-20261010-2100-final; 测试期 12 个备份 blend 已清。
+- **窗口化已验证(user 10-10 "搞定")**: off-key 拆窗生效, 345 = `mFlag f0=0x90080000 → f12=0`(0.2s 窗, 恢复无标志态),
+  **带角度防御的时长可任意调节**(挪 off-key 即可); 部署备份 w03_00.lmt.bak-20261010-2112-pre-345-win12。
+- **待办**: 收刀防御(收刀态见切 rewrite)与本法互不干扰性未测。
