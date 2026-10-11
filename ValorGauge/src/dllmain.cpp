@@ -1255,6 +1255,15 @@ struct GuardConfig {
     // so direction gating is ours; 98/99 rely on the native guard points and
     // the reaction rollback only. Empty = all ids (legacy behavior).
     std::vector<std::uint32_t> armIds;
+    // Turn-clamp scope (GuardTurnSetHook): clamp turning to startYaw +/- maxTurn
+    // ONLY while the CURRENT action is one of these ids. Default {86}: 86 is a
+    // short unsteered counter, while 98/99 are HELD stances where vanilla lets
+    // the player steer with WASD - clamping there froze the valor-sheathe turn
+    // at the stance-entry yaw (2026-10-11 user A/B: DLL renamed out = angle
+    // fine; TURNCLAMP yaw 180 -> start+30 in the log). Config "turnIds <ids>"
+    // overrides; "turnIds 0" disables the clamp everywhere (0 is never a live
+    // set-3 id).
+    std::vector<std::uint32_t> turnIds{86};
     float arcHalfDeg = 90.0f;
     float maxTurnDeg = 30.0f;
     int guardLevel = 2;
@@ -4967,6 +4976,22 @@ void __fastcall GuardTurnSetHook(void* em, float yawDeg, float duration,
     void* controller = g_lockedPlayerController;
     if (g_guardActive.load(std::memory_order_acquire) && controller &&
         em == static_cast<std::uint8_t*>(controller) - 0x61C8) {
+        // Scope gate: only clamp while the CURRENT action is a turnIds member.
+        // Live controller+0xAC/+0xB0 (player+0x6274/+0x6278), not the tracker
+        // snapshot - held stances (98/99) steer per-frame and must stay free.
+        const auto* c = static_cast<const std::uint8_t*>(controller);
+        if (IsReadable(c + 0xAC, 8)) {
+            const std::uint32_t curSet =
+                *reinterpret_cast<const std::uint32_t*>(c + 0xAC);
+            const std::uint32_t curId =
+                *reinterpret_cast<const std::uint32_t*>(c + 0xB0);
+            if (curSet != 3 ||
+                std::find(g_guardCfg.turnIds.begin(), g_guardCfg.turnIds.end(),
+                          curId) == g_guardCfg.turnIds.end()) {
+                g_originalTurnSet(em, yawDeg, duration, mode, turnKind);
+                return;
+            }
+        }
         const float startYaw = g_guardStartYaw.load(std::memory_order_relaxed);
         const float maxTurn = g_guardCfg.maxTurnDeg;
         float clamped = yawDeg;
@@ -5780,6 +5805,12 @@ void LoadGuardConfig() {
             if (ss >> ids) {
                 ParseIdList(ids, g_guardCfg.armIds);
             }
+        } else if (kind == "turnIds") {
+            // Failed parse (e.g. "turnIds off") clears the list = clamp off.
+            std::string ids;
+            if (ss >> ids) {
+                (void)ParseIdList(ids, g_guardCfg.turnIds);
+            }
         } else if (kind == "option") {
             std::string key;
             float val = 0.0f;
@@ -5826,6 +5857,15 @@ void LoadGuardConfig() {
         for (std::size_t i = 0; i < g_guardCfg.armIds.size(); ++i) {
             if (i) m << ',';
             m << g_guardCfg.armIds[i];
+        }
+    }
+    m << " turnIds=";
+    if (g_guardCfg.turnIds.empty()) {
+        m << "(off)";
+    } else {
+        for (std::size_t i = 0; i < g_guardCfg.turnIds.size(); ++i) {
+            if (i) m << ',';
+            m << g_guardCfg.turnIds[i];
         }
     }
     Log(m.str());

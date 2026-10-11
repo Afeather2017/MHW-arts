@@ -2809,3 +2809,22 @@ MHWNoChunk and MHWEditor
 - **窗口化已验证(user 10-10 "搞定")**: off-key 拆窗生效, 345 = `mFlag f0=0x90080000 → f12=0`(0.2s 窗, 恢复无标志态),
   **带角度防御的时长可任意调节**(挪 off-key 即可); 部署备份 w03_00.lmt.bak-20261010-2112-pre-345-win12。
 - **待办**: 收刀防御(收刀态见切 rewrite)与本法互不干扰性未测。
+
+### 2026-10-11 勇气纳刀(3:98) WASD 转身角度乱 = GUARD 转身钳制误伤 (user 排除法定案, 已修)
+
+- **症状/定位(user 排除法)**: 改名 DLL 不加载 → 勇气纳刀 WASD 转身正常; 装回 → 按方向键角度乱。
+  日志实锤: `GUARDOPEN act=3:98` 后 `TURNCLAMP yaw 180 -> 103.572 (mode 0, start 73.5721, maxTurn 30)`
+  — 游戏的转身请求被钳回"进架势瞬间朝向 ±maxTurn"。
+- **机理**: guard.txt `guard 86,98,99 ...` 使 98 是 watched id → DoActionHook GuardOnActionAccepted(98)
+  开窗(捕捉 startYaw, maxWindowSec 6s, 动作切换才关) → GuardTurnSetHook 门条件只有 `g_guardActive`,
+  整个 3:98 架势期间钳制全程生效。该钳制是 98 还是"特殊纳刀防御测试架势"年代的设计("架势中不能乱转"),
+  98 变成勇气纳刀持刀态后与原版 WASD 转向直接冲突。GUARD 其它通道(方向角兜底/血量回滚/吞反应)不动角度。
+- **修复(部署 md5 975fcdd7)**: GuardConfig 新增 `turnIds`(默认 {86}) — GuardTurnSetHook 先读实时
+  controller+0xAC/+0xB0(= player+0x6274/6278), 当前动作 ∉ turnIds 或 set≠3 → 原样放行不钳。
+  guard.txt 新配置行 `turnIds <ids逗号分隔>`(缺省=86; `turnIds 0`/解析失败 = 全局关钳; Shift+F6 热重载生效)。
+  86 短促无转向, 整窗钳制保留不动; 98/99 持刀架势转身恢复原版。部署 guard.txt 已加 turnIds 86 行+注释。
+  注意: GUARDOPEN/GUARDCLOSE(3:98) 日志行照旧出(防御窗口仍在, 只是钳制按 id 圈定), 勿当新 bug。
+  待 user 局内复测 WASD 转身。
+- **user 待定项(2026-10-11)**: 勇气纳刀 360° 随便转偏宽泛(原版一般只有前/左/右转向); 等评估 mod
+  实际游戏影响后再决定限转向平衡难度 — 机制已具备: guard.txt `turnIds` 加回 98 + 调 maxTurn 即可,
+  Shift+F6 热重载, 无需改代码。user 已局内验证修复: WASD 转身正常。
