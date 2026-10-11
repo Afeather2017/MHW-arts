@@ -935,14 +935,17 @@ void LoadModWeaponTypeConfig() {
 // spirit blade plays.
 // Config nativePC/plugins/ValorGauge.sheath-rewrite.txt:
 //   "<toId> <holdVK> <reqLevel> <minGauge> <fromId> [fromId...]"
-//   default "86 0 3 0.15 0.2 11"  (toId 0 = off, holdVK 0 = no key gate,
+//   default "112 0 3 0.15 0 11"  (toId 0 = off, holdVK 0 = no key gate,
 //   reqLevel 0 = no level gate, minGauge < 0 = no gauge gate,
 //   nohitSec <= 0 = no injection)
-// I-frames: from the sheathed path the FSM stays in 待機(1000) (request does
-// not enter node 28), so the vanilla TIML/FSM defense window never opens.
-// The rewrite therefore injects the same pool+0xE4 no-hit window the clang
-// triggers use, for <nohitSec> seconds starting at the move's first frame.
-std::atomic<std::uint32_t> g_sheathRewriteToId{86};
+// Defense (2026-10-11 user decision): the counter moved off 见切 86's i-frame
+// recipe onto 刚见切 3:112 (LMT 345) whose TIML carries the native guard
+// window (PMC mFlag 0x90080000 f0->f12) - angle-limited engine guard
+// arbitration instead of all-angle i-frames. The GUARD borrow window
+// (guard.txt ids) swallows the engine reaction and rolls chip back, the
+// 刚1 gauge scope below takes the 0.15 cost. nohitSec stays available for
+// i-frame style targets but ships as 0.
+std::atomic<std::uint32_t> g_sheathRewriteToId{112};
 std::atomic<std::uint32_t> g_sheathRewriteHoldVK{0};
 std::atomic<std::uint32_t> g_sheathRewriteReqLevel{3};
 std::atomic<float> g_sheathRewriteMinGauge{0.15f};
@@ -956,10 +959,10 @@ std::vector<std::uint32_t> g_sheathRewriteFromIds{11, 12};
 std::mutex g_sheathRewriteMutex;
 // 刚1 gauge accounting (2026-10-04, user-aligned semantics): the cost is
 // 0.15 UNCONDITIONALLY - hit/parry/whiff irrelevant, the only condition is
-// "the user used the move". The rewritten 86 is vanilla 见切 whose handlers
-// move weapon+0x2368 through SEVERAL paths (GAUGEEVT-visible events AND
-// direct writes like the whiff full-clear), so those writers are BYPASSED,
-// not intercepted:
+// "the user used the move". The counter move (3:112, LMT 345) has native
+// gauge handlers that move weapon+0x2368 through SEVERAL paths (GAUGEEVT-
+// visible events AND direct writes like the whiff full-clear), so those
+// writers are BYPASSED, not intercepted:
 //   phase 1 (waiting): from the rewrite until the restore moment - the FIRST
 //     of: the 叮 (bit15 rising) / the move reaching frame 56 (TIML) / a
 //     different set-3 action becoming current (ended or canceled) / the 5s
@@ -976,6 +979,9 @@ std::atomic<float> g_gang1Expected{0.0f};
 std::atomic<std::int64_t> g_gang1DeadlineMs{0};
 // Event bit 15 (the vanilla 见切 success latch, player+0x8938 & 0x8000) at
 // arm time - success = the bit RISING during the scope, not its stale value.
+// Dormant for the 112 scope: bit15 is set by the vanilla action-86 machinery
+// only, so the parry restore never fires and the cost lands unconditionally
+// via frame56/left/deadline (user design: 0.15 net, always).
 std::atomic_bool g_gang1Bit15AtArm{false};
 constexpr float kGang1GaugeCost = 0.15f;
 // Restore timing (user design, 2026-10-04): the cost is 0.15 UNCONDITIONALLY
@@ -991,7 +997,7 @@ constexpr float kGang1RestoreFrame = 56.0f;
 void InjectNoHitLocked(float seconds);
 
 void LoadSheathRewriteConfig() {
-    int toId = 86;
+    int toId = 112;
     int holdVk = 0;
     int reqLevel = 3;
     float minGauge = 0.15f;
@@ -1204,9 +1210,9 @@ std::atomic_int32_t g_sheathReassertId{77};
 bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
 void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
 
-// Arms the 刚1 gauge scope for ANY local-player 86 accept - the sheath
-// rewrite AND the natural drawn foresight are the same move (86, plays the
-// 刚1 motion) with the same unconditional 0.15 cost per user design.
+// Arms the 刚1 gauge scope for ANY local-player 112 accept - the sheath
+// rewrite target IS the 刚1 move (3:112, LMT 345, TIML guard frames) with
+// the same unconditional 0.15 cost per user design.
 // Deterministically pre-cost: DoAction accept happens before the updater's
 // begin runs the start-cost handler. Skips while a scope is already waiting
 // (phase 1); a settled/tail scope (phase 2) is re-armed by the next press.
@@ -1251,19 +1257,24 @@ void ArmGang1GaugeScope(void* controller) {
 struct GuardConfig {
     std::vector<std::uint32_t> ids;
     // Subset of ids where the mod-side directional arm fallback (and the
-    // window-wide lethal override) may negate: 86 has no native guard point,
-    // so direction gating is ours; 98/99 rely on the native guard points and
-    // the reaction rollback only. Empty = all ids (legacy behavior).
+    // window-wide lethal override) may negate. All currently watched ids
+    // (112 / 98 / 99) carry NATIVE guard points (TIML PMC bit28), so
+    // direction gating is the engine's and this list ships empty-by-config
+    // ("armIds 0"): the block negation runs off the reaction rollback only.
+    // The legacy entry was 86 - the old i-frame counter had no native guard
+    // point, so direction gating was ours. Empty list = ALL ids (legacy
+    // behavior) - write "armIds 0" to express none (0 is never current
+    // while a window is open: the window closes on any non-watched action).
     std::vector<std::uint32_t> armIds;
     // Turn-clamp scope (GuardTurnSetHook): clamp turning to startYaw +/- maxTurn
-    // ONLY while the CURRENT action is one of these ids. Default {86}: 86 is a
-    // short unsteered counter, while 98/99 are HELD stances where vanilla lets
-    // the player steer with WASD - clamping there froze the valor-sheathe turn
-    // at the stance-entry yaw (2026-10-11 user A/B: DLL renamed out = angle
-    // fine; TURNCLAMP yaw 180 -> start+30 in the log). Config "turnIds <ids>"
-    // overrides; "turnIds 0" disables the clamp everywhere (0 is never a live
-    // set-3 id).
-    std::vector<std::uint32_t> turnIds{86};
+    // ONLY while the CURRENT action is one of these ids. Default {112}: 112
+    // (like the old 86 counter) is a short unsteered counter, while 98/99 are
+    // HELD stances where vanilla lets the player steer with WASD - clamping
+    // there froze the valor-sheathe turn at the stance-entry yaw (2026-10-11
+    // user A/B: DLL renamed out = angle fine; TURNCLAMP yaw 180 -> start+30
+    // in the log). Config "turnIds <ids>" overrides; "turnIds 0" disables
+    // the clamp everywhere (0 is never a live set-3 id).
+    std::vector<std::uint32_t> turnIds{112};
     float arcHalfDeg = 90.0f;
     float maxTurnDeg = 30.0f;
     int guardLevel = 2;
@@ -1549,11 +1560,11 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         StaminaOnActionAccepted(
             static_cast<std::uint32_t>(action->actionId));
         ApplyActionGaugeRules(action->actionSet, action->actionId);
-        // 刚1 gauge scope: arm for EVERY local-player 86 accept (rewritten
-        // sheathed draws AND the natural drawn foresight - same move, same
-        // unconditional 0.15 net cost). Snapshot is pre-cost: the updater's
-        // begin (start-cost handler) runs after this.
-        if (action->actionId == 86) {
+        // 刚1 gauge scope: arm for EVERY local-player 112 accept (rewritten
+        // sheathed draws and any natural 112 - the 刚1 move, unconditional
+        // 0.15 net cost). Snapshot is pre-cost: the updater's begin
+        // (start-cost handler) runs after this.
+        if (action->actionId == 112) {
             ArmGang1GaugeScope(controller);
         }
     }
@@ -4066,9 +4077,9 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
 
 // 刚1 gauge accounting state machine (see the block comment at g_gang1Phase).
 // Runs on the game thread (property-getter hook). Phase 1 waits for the
-// request tracker to leave 86 (the rewritten request is BUFFERED while the
+// request tracker to leave 112 (the rewritten request is BUFFERED while the
 // previous move plays, so the controller current-action reads the old move -
-// an immediate settle fired before 86's own cost in the first version).
+// an immediate settle fired before the move's own cost in the first version).
 // Phase 2 guards the settle against the vanilla whiff full-clear, which is a
 // direct +0x2368 write that lands AFTER the settle and bypasses every hook.
 void PollGang1GaugeScope() {
@@ -4100,9 +4111,9 @@ void PollGang1GaugeScope() {
             why = "parry(bit15)";
         }
         // Trigger 2: the move reached frame 56 (TIML frames, 60/s) - use the
-        // 86 instance's own frame counter so a mid-move cancel freezes it.
-        if (!restore && curSet == 3 && curId == 86) {
-            void* inst = ResolveActionInstance(ctrl, 3, 86);
+        // 112 instance's own frame counter so a mid-move cancel freezes it.
+        if (!restore && curSet == 3 && curId == 112) {
+            void* inst = ResolveActionInstance(ctrl, 3, 112);
             if (inst) {
                 const float frame = *reinterpret_cast<volatile float*>(
                     static_cast<std::uint8_t*>(inst) + 8);
@@ -4112,12 +4123,12 @@ void PollGang1GaugeScope() {
                 }
             }
         }
-        // Trigger 3: a DIFFERENT set-3 action is current - 86 ended or was
+        // Trigger 3: a DIFFERENT set-3 action is current - 112 ended or was
         // canceled. (During the initial buffer the controller still shows the
         // pre-rewrite move, set 1 - no fire.) The move came out, cost owed.
-        if (!restore && curSet == 3 && curId != 86) {
+        if (!restore && curSet == 3 && curId != 112) {
             restore = true;
-            why = "left86";
+            why = "left112";
         }
         // Trigger 4: deadline backstop.
         if (!restore &&
@@ -4663,9 +4674,11 @@ void LoadSheathCounterConfig() {
 }
 
 // ==========================================================================
-// GUARD: native-guard borrow for the migrated counter moves (见切 86 /
-// 特殊纳刀 99 + 架势持续 98 by default). Replaces the all-angle no-hit windows
-// with the engine's own guard arbitration, direction-limited:
+// GUARD: native-guard borrow for the migrated counter moves (刚见切 112 /
+// 特殊纳刀 99 + 架势持续 98 by default; 2026-10-11 the counter moved
+// 86 -> 112 - the i-frame recipe became TIML guard frames on LMT 345).
+// Replaces the all-angle no-hit windows with the engine's own guard
+// arbitration, direction-limited:
 //   1. While a watched action runs, write weapon+0x20F8 = guard level and the
 //      weapon param block (*(player+0x7810)) +0x940/+0x944 = guard arc in
 //      degrees. The engine's hit routing then treats in-arc hits as guarded:
@@ -5227,8 +5240,9 @@ void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) 
     // trace), so the react latch can never legitimately cover its own hit -
     // pre-negating on it only granted blanket immunity to FOLLOW-UP hits for
     // 1.2s (the "knocked back outside the move but HP preserved" bug).
-    // Negation now requires the current action to be arm-armed (86 by
-    // default; 98/99 rely on native guard points + reaction rollback):
+    // Negation now requires the current action to be arm-armed (armIds
+    // scoped; currently none - 112/98/99 all carry native guard points and
+    // rely on the reaction rollback):
     //   - arm latch (directional, from DmgCalcHook) -> drop the write;
     //   - lethal override (would leave <1 HP) -> drop unconditionally.
     //   - everything else passes; GuardOnReactionAction rolls it back when
