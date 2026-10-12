@@ -1,0 +1,7004 @@
+{
+ "__class__": 0,
+ "__id__": 1,
+ "__var__": 0,
+ "mQuality": 2,
+ "mOwnerObjectName": "cFSMPl_W03",
+ "mpRootCluster": {
+  "__class__": 1,
+  "__id__": 3,
+  "__var__": 1,
+  "mId": 0,
+  "mOwnerNodeUniqueId": 0,
+  "mInitialStateId": 0,
+  "mpNodeList": [
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 2,
+    "mName": "南风焓",
+    "mId": 0,
+    "mUniqueId": 2892196061,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 3,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 4,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 5,
+      "mName": "南风焓",
+      "mDestinationNodeId": 13,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 6,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 7
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 7,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 8,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 9,
+       "EnumValue": 7
+      }
+     }
+    },
+    "mUIPos": 384049370,
+    "mColorType": 6,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 10,
+    "mName": "南风焓",
+    "mId": 1,
+    "mUniqueId": 1116295242,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 11,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 16
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 12,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 15
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 13,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 11
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 14,
+      "mName": "南风焓",
+      "mDestinationNodeId": 23,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 15,
+      "mName": "南风焓",
+      "mDestinationNodeId": 2,
+      "mExistCondition": 1,
+      "mConditionId": 1
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 16,
+      "mName": "南风焓",
+      "mDestinationNodeId": 2,
+      "mExistCondition": 1,
+      "mConditionId": 32
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 17,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 18,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 19,
+       "EnumValue": 98
+      }
+     }
+    },
+    "mUIPos": 483534651,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 20,
+    "mName": "南风焓",
+    "mId": 2,
+    "mUniqueId": 1116295242,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 21,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 11
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 22,
+      "mName": "南风焓",
+      "mDestinationNodeId": 23,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 23,
+      "mName": "南风焓",
+      "mDestinationNodeId": 50,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 24,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 25,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 26,
+       "EnumValue": 100
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 27,
+    "mName": "南风焓",
+    "mId": 3,
+    "mUniqueId": 4248510695,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 28,
+      "mName": "南风焓",
+      "mDestinationNodeId": 27,
+      "mExistCondition": 1,
+      "mConditionId": 14
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 29,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 13
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 30,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 31,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 32,
+       "EnumValue": 86
+      }
+     }
+    },
+    "mUIPos": 501686506,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 33,
+    "mName": "南风焓",
+    "mId": 4,
+    "mUniqueId": 2942530302,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 34,
+     "mName": "南风焓",
+     "mDestinationNodeId": 22,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 35,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 36,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 37,
+       "EnumValue": 111
+      }
+     }
+    },
+    "mUIPos": 375269070,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 38,
+    "mName": "南风焓",
+    "mId": 5,
+    "mUniqueId": 4044741691,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 39,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 40,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 41,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 42,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 43,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 44,
+       "EnumValue": 1005
+      }
+     }
+    },
+    "mUIPos": 465574874,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 45,
+    "mName": "南风焓",
+    "mId": 6,
+    "mUniqueId": 3488668375,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 46,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 47,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 48,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 49,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 50,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 51,
+       "EnumValue": 21
+      }
+     }
+    },
+    "mUIPos": 428481582,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 52,
+    "mName": "南风焓",
+    "mId": 7,
+    "mUniqueId": 699328255,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 53,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 54,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 55,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 56,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 57,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 58,
+       "EnumValue": 22
+      }
+     }
+    },
+    "mUIPos": 453581800,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 59,
+    "mName": "南风焓",
+    "mId": 8,
+    "mUniqueId": 535432307,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 60,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 61,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 62,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 63,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 64,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 65,
+       "EnumValue": 20
+      }
+     }
+    },
+    "mUIPos": 439032861,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 66,
+    "mName": "南风焓",
+    "mId": 9,
+    "mUniqueId": 2888005413,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 67,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 68,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 69,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 70,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 71,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 72,
+       "EnumValue": 84
+      }
+     }
+    },
+    "mUIPos": 394666824,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 73,
+    "mName": "南风焓",
+    "mId": 10,
+    "mUniqueId": 714098022,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 74,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 75,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 76,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 77,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 78,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 79,
+       "EnumValue": 82
+      }
+     }
+    },
+    "mUIPos": 394273463,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 80,
+    "mName": "南风焓",
+    "mId": 11,
+    "mUniqueId": 431831502,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 81,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 82,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 83,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 84,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 85,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 86,
+       "EnumValue": 83
+      }
+     }
+    },
+    "mUIPos": 393421759,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 87,
+    "mName": "南风焓",
+    "mId": 12,
+    "mUniqueId": 1437241298,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 88,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 89,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 90,
+      "mName": "南风焓",
+      "mDestinationNodeId": 13,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 91,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 7
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 92,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 93,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 94,
+       "EnumValue": 85
+      }
+     }
+    },
+    "mUIPos": 386932808,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 95,
+    "mName": "南风焓",
+    "mId": 13,
+    "mUniqueId": 1855990172,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 96,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 97,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 98,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 99,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 100,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 101,
+       "EnumValue": 81
+      }
+     }
+    },
+    "mUIPos": 392437397,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 102,
+    "mName": "南风焓",
+    "mId": 14,
+    "mUniqueId": 3999252772,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 103,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 104,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 105,
+      "mName": "南风焓",
+      "mDestinationNodeId": 13,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 106,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 107,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 108,
+       "EnumValue": 80
+      }
+     }
+    },
+    "mUIPos": 403513732,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 109,
+    "mName": "南风焓",
+    "mId": 15,
+    "mUniqueId": 1507851574,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 110,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 111,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 112,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 113,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 114,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 115,
+       "EnumValue": 79
+      }
+     }
+    },
+    "mUIPos": 447946723,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 116,
+    "mName": "南风焓",
+    "mId": 16,
+    "mUniqueId": 2122803857,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 117,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 24
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 118,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 119,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 120,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 121,
+      "mName": "南风焓",
+      "mDestinationNodeId": 19,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 122,
+      "mName": "南风焓",
+      "mDestinationNodeId": 18,
+      "mExistCondition": 1,
+      "mConditionId": 21
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 123,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 124,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 125,
+       "EnumValue": 1001
+      }
+     }
+    },
+    "mUIPos": 425141561,
+    "mColorType": 6,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 126,
+    "mName": "南风焓",
+    "mId": 17,
+    "mUniqueId": 912089102,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 127,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 28
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 128,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 29
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 129,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 30
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 130,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 31
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 131,
+      "mName": "南风焓",
+      "mDestinationNodeId": 28,
+      "mExistCondition": 1,
+      "mConditionId": 19
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 132,
+      "mName": "南风焓",
+      "mDestinationNodeId": 20,
+      "mExistCondition": 1,
+      "mConditionId": 22
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 133,
+      "mName": "南风焓",
+      "mDestinationNodeId": 13,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 134,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 7
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 135,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 136,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 137,
+       "EnumValue": 72
+      }
+     }
+    },
+    "mUIPos": 422716362,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 138,
+    "mName": "南风焓",
+    "mId": 18,
+    "mUniqueId": 2714805162,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 139,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 28
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 140,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 29
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 141,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 30
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 142,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 31
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 143,
+      "mName": "南风焓",
+      "mDestinationNodeId": 28,
+      "mExistCondition": 1,
+      "mConditionId": 19
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 144,
+      "mName": "南风焓",
+      "mDestinationNodeId": 17,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 145,
+      "mName": "南风焓",
+      "mDestinationNodeId": 20,
+      "mExistCondition": 1,
+      "mConditionId": 22
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 146,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 147,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 148,
+       "EnumValue": 67
+      }
+     }
+    },
+    "mUIPos": 470426557,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 149,
+    "mName": "南风焓",
+    "mId": 19,
+    "mUniqueId": 2547217629,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 150,
+      "mName": "南风焓",
+      "mDestinationNodeId": 18,
+      "mExistCondition": 1,
+      "mConditionId": 21
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 151,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 152,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 153,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 154,
+       "EnumValue": 71
+      }
+     }
+    },
+    "mUIPos": 401810691,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 155,
+    "mName": "南风焓",
+    "mId": 20,
+    "mUniqueId": 2184487996,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": null,
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 156,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 157,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 158,
+       "EnumValue": 68
+      }
+     }
+    },
+    "mUIPos": 385230317,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 159,
+    "mName": "南风焓",
+    "mId": 21,
+    "mUniqueId": 4275470921,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 160,
+     "mName": "南风焓",
+     "mDestinationNodeId": 56,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 161,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 162,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 163,
+       "EnumValue": 104
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 164,
+    "mName": "南风焓",
+    "mId": 22,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 165,
+     "mName": "南风焓",
+     "mDestinationNodeId": 25,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 166,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 167,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 168,
+       "EnumValue": 107
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 169,
+    "mName": "南风焓",
+    "mId": 23,
+    "mUniqueId": 3273332354,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 170,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 28
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 171,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 29
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 172,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 30
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 173,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 31
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 174,
+      "mName": "南风焓",
+      "mDestinationNodeId": 28,
+      "mExistCondition": 1,
+      "mConditionId": 19
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 175,
+      "mName": "南风焓",
+      "mDestinationNodeId": 17,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 176,
+      "mName": "南风焓",
+      "mDestinationNodeId": 20,
+      "mExistCondition": 1,
+      "mConditionId": 22
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 177,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 178,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 179,
+       "EnumValue": 70
+      }
+     }
+    },
+    "mUIPos": 492512496,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 180,
+    "mName": "南风焓",
+    "mId": 24,
+    "mUniqueId": 2122803857,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 181,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 182,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 183,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 184,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 185,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 186,
+      "mName": "南风焓",
+      "mDestinationNodeId": 19,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 187,
+      "mName": "南风焓",
+      "mDestinationNodeId": 18,
+      "mExistCondition": 1,
+      "mConditionId": 21
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 188,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 189,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 190,
+       "EnumValue": 16
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 6,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 191,
+    "mName": "南风焓",
+    "mId": 25,
+    "mUniqueId": 2678859680,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 192,
+     "mName": "南风焓",
+     "mDestinationNodeId": 2,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 193,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 194,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 195,
+       "EnumValue": 102
+      }
+     }
+    },
+    "mUIPos": 430450476,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 196,
+    "mName": "南风焓",
+    "mId": 26,
+    "mUniqueId": 1001712052,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 197,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 198,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 27
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 199,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 26
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 200,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 201,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 202,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 203,
+      "mName": "南风焓",
+      "mDestinationNodeId": 12,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 204,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 7
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 205,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 206,
+      "mName": "南风焓",
+      "mDestinationNodeId": 48,
+      "mExistCondition": 1,
+      "mConditionId": 9
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 207,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 208,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 209,
+       "EnumValue": 1012
+      }
+     }
+    },
+    "mUIPos": 424485115,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 210,
+    "mName": "南风焓",
+    "mId": 27,
+    "mUniqueId": 2394267271,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 211,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 28
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 212,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 29
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 213,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 30
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 214,
+      "mName": "南风焓",
+      "mDestinationNodeId": 30,
+      "mExistCondition": 1,
+      "mConditionId": 31
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 215,
+      "mName": "南风焓",
+      "mDestinationNodeId": 28,
+      "mExistCondition": 1,
+      "mConditionId": 19
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 216,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 217,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 218,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 219,
+       "EnumValue": 95
+      }
+     }
+    },
+    "mUIPos": 379003791,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 220,
+    "mName": "南风焓",
+    "mId": 28,
+    "mUniqueId": 4275470921,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 221,
+     "mName": "南风焓",
+     "mDestinationNodeId": 29,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 222,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 223,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 224,
+       "EnumValue": 73
+      }
+     }
+    },
+    "mUIPos": 457975406,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 225,
+    "mName": "南风焓",
+    "mId": 29,
+    "mUniqueId": 1034600920,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 226,
+      "mName": "南风焓",
+      "mDestinationNodeId": 31,
+      "mExistCondition": 1,
+      "mConditionId": 22
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 227,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 228,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 229,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 230,
+       "EnumValue": 76
+      }
+     }
+    },
+    "mUIPos": 471017079,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 231,
+    "mName": "南风焓",
+    "mId": 30,
+    "mUniqueId": 3575008659,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 232,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 233,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 234,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 235,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 236,
+      "mName": "南风焓",
+      "mDestinationNodeId": 31,
+      "mExistCondition": 1,
+      "mConditionId": 19
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 237,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 238,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 239,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 240,
+       "EnumValue": 87
+      }
+     }
+    },
+    "mUIPos": 379331764,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 241,
+    "mName": "南风焓",
+    "mId": 31,
+    "mUniqueId": 3363493286,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 242,
+     "mName": "南风焓",
+     "mDestinationNodeId": 32,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 243,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 244,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 245,
+       "EnumValue": 74
+      }
+     }
+    },
+    "mUIPos": 464791157,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 246,
+    "mName": "南风焓",
+    "mId": 32,
+    "mUniqueId": 3363493286,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 247,
+     "mName": "南风焓",
+     "mDestinationNodeId": 33,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 248,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 249,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 250,
+       "EnumValue": 77
+      }
+     }
+    },
+    "mUIPos": 464791157,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 251,
+    "mName": "南风焓",
+    "mId": 33,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 252,
+     "mName": "南风焓",
+     "mDestinationNodeId": 34,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 253,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 254,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 255,
+       "EnumValue": 75
+      }
+     }
+    },
+    "mUIPos": 457320259,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 256,
+    "mName": "南风焓",
+    "mId": 34,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65535
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 257,
+     "mName": "南风焓",
+     "mDestinationNodeId": 58,
+     "mExistCondition": 1,
+     "mConditionId": 13
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 258,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 259,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 260,
+       "EnumValue": 78
+      }
+     }
+    },
+    "mUIPos": 457320259,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 261,
+    "mName": "南风焓",
+    "mId": 35,
+    "mUniqueId": 1116295242,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 262,
+      "mName": "南风焓",
+      "mDestinationNodeId": 49,
+      "mExistCondition": 1,
+      "mConditionId": 17
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 263,
+      "mName": "南风焓",
+      "mDestinationNodeId": 26,
+      "mExistCondition": 1,
+      "mConditionId": 13
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 264,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 265,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 266,
+      "mName": "南风焓",
+      "mDestinationNodeId": 26,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 267,
+      "mName": "南风焓",
+      "mDestinationNodeId": 12,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 268,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 269,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 270,
+       "EnumValue": 99
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 271,
+    "mName": "南风焓",
+    "mId": 36,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 272,
+     "mName": "南风焓",
+     "mDestinationNodeId": 39,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 273,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 274,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 275,
+       "EnumValue": 38
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 276,
+    "mName": "南风焓",
+    "mId": 37,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 277,
+     "mName": "南风焓",
+     "mDestinationNodeId": 39,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 278,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 279,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 280,
+       "EnumValue": 39
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 281,
+    "mName": "南风焓",
+    "mId": 38,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 282,
+     "mName": "南风焓",
+     "mDestinationNodeId": 39,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 283,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 284,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 285,
+       "EnumValue": 40
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 286,
+    "mName": "南风焓",
+    "mId": 39,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 287,
+      "mName": "南风焓",
+      "mDestinationNodeId": 0,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 288,
+      "mName": "南风焓",
+      "mDestinationNodeId": 2,
+      "mExistCondition": 1,
+      "mConditionId": 13
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 289,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 290,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 291,
+       "EnumValue": 69
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 292,
+    "mName": "南风焓",
+    "mId": 40,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 293,
+     "mName": "南风焓",
+     "mDestinationNodeId": 1,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 294,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 295,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 296,
+       "EnumValue": 6
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 297,
+    "mName": "南风焓",
+    "mId": 41,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 298,
+     "mName": "南风焓",
+     "mDestinationNodeId": 1,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 299,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 300,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 301,
+       "EnumValue": 9
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 302,
+    "mName": "南风焓",
+    "mId": 42,
+    "mUniqueId": 161993858,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 303,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 304,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 305,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 306,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 307,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 308,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 309,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 310,
+       "EnumValue": 1013
+      }
+     }
+    },
+    "mUIPos": 483796947,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 311,
+    "mName": "南风焓",
+    "mId": 43,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 312,
+     "mName": "南风焓",
+     "mDestinationNodeId": 46,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 313,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 314,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 315,
+       "EnumValue": 35
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 316,
+    "mName": "南风焓",
+    "mId": 44,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 317,
+     "mName": "南风焓",
+     "mDestinationNodeId": 46,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 318,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 319,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 320,
+       "EnumValue": 36
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 321,
+    "mName": "南风焓",
+    "mId": 45,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 322,
+     "mName": "南风焓",
+     "mDestinationNodeId": 46,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 323,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 324,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 325,
+       "EnumValue": 37
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 326,
+    "mName": "南风焓",
+    "mId": 46,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": null,
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 327,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 328,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 329,
+       "EnumValue": 105
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 330,
+    "mName": "南风焓",
+    "mId": 47,
+    "mUniqueId": 2910519423,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 331,
+     "mName": "南风焓",
+     "mDestinationNodeId": 26,
+     "mExistCondition": 1,
+     "mConditionId": 35
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 332,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 333,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 334,
+       "EnumValue": 41
+      }
+     }
+    },
+    "mUIPos": 4736590,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 335,
+    "mName": "南风焓",
+    "mId": 48,
+    "mUniqueId": 1811365776,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": null,
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 336,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 337,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 338,
+       "EnumValue": 44
+      }
+     }
+    },
+    "mUIPos": 439885605,
+    "mColorType": 6,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 339,
+    "mName": "南风焓",
+    "mId": 49,
+    "mUniqueId": 176816982,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 340,
+     "mName": "南风焓",
+     "mDestinationNodeId": 47,
+     "mExistCondition": 1,
+     "mConditionId": 18
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 341,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 342,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 343,
+       "EnumValue": 94
+      }
+     }
+    },
+    "mUIPos": 361768307,
+    "mColorType": 4,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 344,
+    "mName": "南风焓",
+    "mId": 50,
+    "mUniqueId": 3088666264,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 345,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 346,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 347,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 348,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 349,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 350,
+      "mName": "南风焓",
+      "mDestinationNodeId": 55,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 351,
+      "mName": "南风焓",
+      "mDestinationNodeId": 14,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 352,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 353,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 354,
+       "EnumValue": 101
+      }
+     }
+    },
+    "mUIPos": 425207409,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 355,
+    "mName": "南风焓",
+    "mId": 51,
+    "mUniqueId": 2544075596,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 356,
+     "mName": "南风焓",
+     "mDestinationNodeId": 52,
+     "mExistCondition": 1,
+     "mConditionId": 23
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 357,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 358,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 359,
+       "EnumValue": 1009
+      }
+     }
+    },
+    "mUIPos": 354428375,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 360,
+    "mName": "南风焓",
+    "mId": 52,
+    "mUniqueId": 1905155735,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 361,
+     "mName": "南风焓",
+     "mDestinationNodeId": 53,
+     "mExistCondition": 1,
+     "mConditionId": 6
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 362,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 363,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 364,
+       "EnumValue": 93
+      }
+     }
+    },
+    "mUIPos": 350954629,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 365,
+    "mName": "南风焓",
+    "mId": 53,
+    "mUniqueId": 1384523091,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": null,
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 366,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 367,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 368,
+       "EnumValue": 13
+      }
+     }
+    },
+    "mUIPos": 368058923,
+    "mColorType": 1,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 369,
+    "mName": "南风焓",
+    "mId": 54,
+    "mUniqueId": 1811365776,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 370,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 371,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 372,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 373,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 374,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 375,
+      "mName": "南风焓",
+      "mDestinationNodeId": 19,
+      "mExistCondition": 1,
+      "mConditionId": 12
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 376,
+      "mName": "南风焓",
+      "mDestinationNodeId": 18,
+      "mExistCondition": 1,
+      "mConditionId": 21
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 377,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 378,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 379,
+       "EnumValue": 106
+      }
+     }
+    },
+    "mUIPos": 439885605,
+    "mColorType": 6,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 380,
+    "mName": "南风焓",
+    "mId": 55,
+    "mUniqueId": 3825528362,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": {
+     "__class__": 3,
+     "__id__": 7,
+     "__var__": 381,
+     "mName": "南风焓",
+     "mDestinationNodeId": 24,
+     "mExistCondition": 1,
+     "mConditionId": 36
+    },
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 382,
+     "mContainerName": "LinkMotion_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 7,
+      "__id__": 15,
+      "__var__": 383,
+      "MotionNo": 363,
+      "MotionNo_Phase1": -1
+     }
+    },
+    "mUIPos": 424945077,
+    "mColorType": 2,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 384,
+    "mName": "南风焓",
+    "mId": 56,
+    "mUniqueId": 3864901010,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": null,
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 385,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 386,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 387,
+       "EnumValue": 109
+      }
+     }
+    },
+    "mUIPos": 517219503,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 388,
+    "mName": "南风焓",
+    "mId": 57,
+    "mUniqueId": 1969765995,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 389,
+      "mName": "南风焓",
+      "mDestinationNodeId": 3,
+      "mExistCondition": 1,
+      "mConditionId": 2
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 390,
+      "mName": "南风焓",
+      "mDestinationNodeId": 24,
+      "mExistCondition": 1,
+      "mConditionId": 8
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 391,
+      "mName": "南风焓",
+      "mDestinationNodeId": 13,
+      "mExistCondition": 1,
+      "mConditionId": 6
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 392,
+      "mName": "南风焓",
+      "mDestinationNodeId": 15,
+      "mExistCondition": 1,
+      "mConditionId": 7
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 393,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 394,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 395,
+       "EnumValue": 29
+      }
+     }
+    },
+    "mUIPos": 378282514,
+    "mColorType": 0,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   },
+   {
+    "__class__": 2,
+    "__id__": 5,
+    "__var__": 396,
+    "mName": "南风焓",
+    "mId": 58,
+    "mUniqueId": 2272193464,
+    "mOwnerId": 0,
+    "mpSubCluster": {
+     "__null__": true,
+     "__id__": 65534
+    },
+    "mpLinkList": [
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 397,
+      "mName": "南风焓",
+      "mDestinationNodeId": 35,
+      "mExistCondition": 1,
+      "mConditionId": 35
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 398,
+      "mName": "南风焓",
+      "mDestinationNodeId": 1,
+      "mExistCondition": 1,
+      "mConditionId": 0
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 399,
+      "mName": "南风焓",
+      "mDestinationNodeId": 11,
+      "mExistCondition": 1,
+      "mConditionId": 5
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 400,
+      "mName": "南风焓",
+      "mDestinationNodeId": 10,
+      "mExistCondition": 1,
+      "mConditionId": 4
+     },
+     {
+      "__class__": 3,
+      "__id__": 7,
+      "__var__": 401,
+      "mName": "南风焓",
+      "mDestinationNodeId": 9,
+      "mExistCondition": 1,
+      "mConditionId": 3
+     }
+    ],
+    "mpProcessList": {
+     "__class__": 4,
+     "__id__": 9,
+     "__var__": 402,
+     "mContainerName": "Action_W03",
+     "mCategoryName": "cAIFSMProcessContainer",
+     "mpParameter": {
+      "__class__": 5,
+      "__id__": 11,
+      "__var__": 403,
+      "ActionNo": {
+       "__class__": 6,
+       "__id__": 13,
+       "__var__": 404,
+       "EnumValue": 110
+      }
+     }
+    },
+    "mUIPos": 456796105,
+    "mColorType": 5,
+    "mSetting": 1,
+    "mUserAttribute": 0,
+    "mExistConditionTrainsitionFromAll": 0,
+    "mConditionTrainsitionFromAllId": 0
+   }
+  ]
+ },
+ "mpConditionTree": {
+  "__class__": 8,
+  "__id__": 17,
+  "__var__": 500,
+  "mQuality": 2,
+  "mpTreeList": [
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 501,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 502,
+     "mId": 0
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 503,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 504,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 505,
+        "mPropertyName": "居合斬り",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 506,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 507,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__null__": true,
+       "__id__": 65534
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 508,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 509,
+     "mId": 1
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 510,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 511,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 512,
+       "mPropertyName": "R押してない",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 513,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 514,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 515,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 516,
+     "mId": 2
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 517,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 518,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 519,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 520,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 521,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 522,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 523,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 524,
+          "mPropertyName": "練気ゲージ判定(気刃大回転斬り",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 525,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 526,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 527,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 528,
+          "mPropertyName": "R",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 529,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 530,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 531,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 532,
+     "mId": 3
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 533,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 534,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 535,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 536,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 537,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 538,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 539,
+        "mPropertyName": "△+○",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 540,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 541,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 542,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 543,
+     "mId": 4
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 544,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 545,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 546,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 547,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 548,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 549,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 550,
+        "mPropertyName": "△+○+←",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 551,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 552,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 553,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 554,
+     "mId": 5
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 555,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 556,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 557,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 558,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 559,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 560,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 561,
+        "mPropertyName": "△+○+→",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 562,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 563,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 564,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 565,
+     "mId": 6
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 566,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 567,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 568,
+       "mPropertyName": "△",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 569,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 570,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 571,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 572,
+     "mId": 7
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 573,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 574,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 575,
+       "mPropertyName": "○",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 576,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 577,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 578,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 579,
+     "mId": 8
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 580,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 581,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 582,
+       "mPropertyName": "R",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 583,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 584,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 585,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 586,
+     "mId": 9
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 587,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 588,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 589,
+       "mPropertyName": "抜刀クローモード有効(L2+R3)",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 590,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 591,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 592,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 593,
+     "mId": 10
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 594,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 595,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 596,
+        "mPropertyName": "練気ゲージ判定(気刃大回転斬り",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 597,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 598,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 599,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 600,
+        "mPropertyName": "○",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 601,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 602,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 603,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 604,
+     "mId": 11
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 605,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 606,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 607,
+       "mPropertyName": "△+○",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 608,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 609,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 610,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 611,
+     "mId": 12
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 612,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 613,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 614,
+        "mPropertyName": "△",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 615,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 616,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 617,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 618,
+        "mPropertyName": "○",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 619,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 620,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 17
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 621,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 622,
+     "mId": 13
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 623,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 624,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 625,
+       "mPropertyName": "アクション終了",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 626,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 627,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 628,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 629,
+     "mId": 14
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 630,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 631,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 632,
+       "mPropertyName": "見切り回避成功後の攻撃ヒット",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 633,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 634,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 635,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 636,
+     "mId": 15
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 637,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 638,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 639,
+       "mPropertyName": "△+○+←",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 640,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 641,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 642,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 643,
+     "mId": 16
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 644,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 645,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 646,
+       "mPropertyName": "△+○+→",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 647,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 648,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 649,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 650,
+     "mId": 17
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 651,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 652,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 653,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 654,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 655,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 656,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 657,
+        "mPropertyName": "着地",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 658,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 659,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 660,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 661,
+        "mPropertyName": "抜刀中",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 662,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 663,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 664,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 665,
+        "mPropertyName": "納刀中",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 666,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 667,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 668,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 669,
+     "mId": 18
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 670,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 671,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 672,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 673,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 674,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 675,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 676,
+        "mPropertyName": "着地",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 677,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 678,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 679,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 680,
+        "mPropertyName": "抜刀中",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 681,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 682,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 683,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 684,
+        "mPropertyName": "納刀中",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 685,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 686,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 17
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 687,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 688,
+     "mId": 19
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 689,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 690,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 691,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 692,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 693,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 694,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 695,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 696,
+          "mPropertyName": "練気ゲージ判定(気刃斬りII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 697,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 698,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 699,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 700,
+          "mPropertyName": "R",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 701,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 702,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 703,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 704,
+     "mId": 20
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 705,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 706,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 707,
+        "mPropertyName": "練気ゲージ判定(気刃斬りIII",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 708,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 709,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 710,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 711,
+        "mPropertyName": "△+○",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 712,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 713,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 714,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 715,
+     "mId": 21
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 716,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 717,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 718,
+        "mPropertyName": "R",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 719,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 720,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 721,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 722,
+        "mPropertyName": "練気ゲージ判定(気刃斬りII",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 723,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 724,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 725,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 726,
+     "mId": 22
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 727,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 728,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 729,
+        "mPropertyName": "R",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 730,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 731,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 732,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 733,
+        "mPropertyName": "練気ゲージ判定(気刃斬りIII",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 734,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 735,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 736,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 737,
+     "mId": 23
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 738,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 739,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 740,
+        "mPropertyName": "坂道下り(Z方向)",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 741,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 742,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 743,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 744,
+        "mPropertyName": "抜刀(通常)",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 745,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 746,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 747,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 748,
+     "mId": 24
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 749,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 750,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 751,
+       "mPropertyName": "オーラレベル白以上",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 752,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 753,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 754,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 755,
+     "mId": 25
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 756,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 757,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 758,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 759,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 760,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 761,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 762,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 763,
+          "mPropertyName": "練気ゲージ判定(気刃大回転斬り",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 764,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 765,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 766,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 767,
+          "mPropertyName": "○",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 768,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 757,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 769,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 770,
+     "mId": 26
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 771,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 772,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 773,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 774,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 775,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 776,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 777,
+        "mPropertyName": "R+△",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 778,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 779,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 780,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 781,
+     "mId": 27
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 782,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 783,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 784,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 785,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 786,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 787,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 788,
+        "mPropertyName": "R+△+レバー",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 789,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 790,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 791,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 792,
+     "mId": 28
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 793,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 794,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 795,
+        "mPropertyName": "R+↑",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 796,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 797,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 798,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 799,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 800,
+          "mPropertyName": "練気ゲージ判定(気刃斬りII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 801,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 802,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 803,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 804,
+          "mPropertyName": "オーラレベル白以上",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 805,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 806,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 807,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 808,
+     "mId": 29
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 809,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 810,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 811,
+        "mPropertyName": "R+←",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 812,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 813,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 814,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 815,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 816,
+          "mPropertyName": "練気ゲージ判定(気刃斬りII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 817,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 818,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 819,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 820,
+          "mPropertyName": "オーラレベル白以上",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 821,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 822,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 823,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 824,
+     "mId": 30
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 825,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 826,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 827,
+        "mPropertyName": "R+→",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 828,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 829,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 830,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 831,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 832,
+          "mPropertyName": "練気ゲージ判定(気刃斬りII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 833,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 834,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 835,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 836,
+          "mPropertyName": "オーラレベル白以上",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 837,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 838,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 839,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 840,
+     "mId": 31
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 841,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 842,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 843,
+        "mPropertyName": "R+↓",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 844,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 845,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 846,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 847,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 848,
+          "mPropertyName": "練気ゲージ判定(気刃斬りII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 849,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 850,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 851,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 852,
+          "mPropertyName": "オーラレベル白以上",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 853,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 854,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 855,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 856,
+     "mId": 32
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 857,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 858,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 859,
+       "mPropertyName": "スタミナ切れ",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 860,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 861,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 862,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 863,
+     "mId": 33
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 864,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 865,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 866,
+        "mPropertyName": "オーラレベル白以上",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 867,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 868,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 869,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 870,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 871,
+          "mPropertyName": "練気ゲージ判定(気刃大回転斬り",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 872,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 873,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 874,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 875,
+          "mPropertyName": "R+△+○",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 876,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 877,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 878,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 879,
+     "mId": 34
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 880,
+     "mpChildList": [
+      {
+       "__class__": 12,
+       "__id__": 25,
+       "__var__": 881,
+       "mpChildList": null,
+       "mVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 882,
+        "mPropertyName": "R+△",
+        "mOwnerName": "cFSMPl_W03",
+        "mIsSingletonOwner": 0
+       },
+       "mIsBitNo": 0,
+       "mIsArray": 0,
+       "mIsDynamicIndex": 0,
+       "mIndex": 0,
+       "mIndexVariable": {
+        "__class__": 13,
+        "__id__": 27,
+        "__var__": 883,
+        "mPropertyName": "",
+        "mOwnerName": "",
+        "mIsSingletonOwner": 0
+       },
+       "mUseEnumIndex": 0,
+       "mIndexEnum": {
+        "__class__": 14,
+        "__id__": 29,
+        "__var__": 873,
+        "mNameCRC": 4294967295,
+        "mEnumNameCRC": 2147483647
+       }
+      },
+      {
+       "__class__": 11,
+       "__id__": 23,
+       "__var__": 884,
+       "mpChildList": [
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 885,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 886,
+          "mPropertyName": "練気ゲージ判定(気刃斬りIII",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 887,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 878,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        },
+        {
+         "__class__": 12,
+         "__id__": 25,
+         "__var__": 889,
+         "mpChildList": null,
+         "mVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 890,
+          "mPropertyName": "オーラレベル白以上",
+          "mOwnerName": "cFSMPl_W03",
+          "mIsSingletonOwner": 0
+         },
+         "mIsBitNo": 0,
+         "mIsArray": 0,
+         "mIsDynamicIndex": 0,
+         "mIndex": 0,
+         "mIndexVariable": {
+          "__class__": 13,
+          "__id__": 27,
+          "__var__": 891,
+          "mPropertyName": "",
+          "mOwnerName": "",
+          "mIsSingletonOwner": 0
+         },
+         "mUseEnumIndex": 0,
+         "mIndexEnum": {
+          "__class__": 14,
+          "__id__": 29,
+          "__var__": 882,
+          "mNameCRC": 4294967295,
+          "mEnumNameCRC": 2147483647
+         }
+        }
+       ],
+       "mOperator": 16
+      }
+     ],
+     "mOperator": 16
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 892,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 893,
+     "mId": 35
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 894,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 895,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 896,
+       "mPropertyName": "R+○",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 897,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 898,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 899,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 900,
+     "mId": 36
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 901,
+     "mpChildList": null,
+     "mOperator": 0
+    }
+   },
+   {
+    "__class__": 9,
+    "__id__": 19,
+    "__var__": 902,
+    "mName": {
+     "__class__": 10,
+     "__id__": 21,
+     "__var__": 903,
+     "mId": 37
+    },
+    "mpRootNode": {
+     "__class__": 11,
+     "__id__": 23,
+     "__var__": 904,
+     "mpChildList": {
+      "__class__": 12,
+      "__id__": 25,
+      "__var__": 905,
+      "mpChildList": null,
+      "mVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 906,
+       "mPropertyName": "回避",
+       "mOwnerName": "cFSMPl_W03",
+       "mIsSingletonOwner": 0
+      },
+      "mIsBitNo": 0,
+      "mIsArray": 0,
+      "mIsDynamicIndex": 0,
+      "mIndex": 0,
+      "mIndexVariable": {
+       "__class__": 13,
+       "__id__": 27,
+       "__var__": 907,
+       "mPropertyName": "",
+       "mOwnerName": "",
+       "mIsSingletonOwner": 0
+      },
+      "mUseEnumIndex": 0,
+      "mIndexEnum": {
+       "__class__": 14,
+       "__id__": 29,
+       "__var__": 908,
+       "mNameCRC": 4294967295,
+       "mEnumNameCRC": 2147483647
+      }
+     },
+     "mOperator": 0
+    }
+   }
+  ]
+ },
+ "mFSMAttribute": 3,
+ "mLastEditType": 0
+}

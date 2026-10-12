@@ -2858,3 +2858,187 @@ MHWNoChunk and MHWEditor
   arule 自身路径同样进 3:77。**有意不配 bit222 规则**: 112 自带攻击帧, 事件位按动作异义,
   斩击命中可能误触发。Shift+F6 热重载即生效, 无需重编。
   空挥(窗内无攻击)不触发 -> 112 自己播完(防御窗 f0-f12 + 斩击段 f48+)。
+
+
+- **MCP 开工顺序 (两个 server 都是'寄生'在宿主进程里的, 非常驻)**: ghidra 8080 只在 Ghidra GUI + CodeBrowser 工具打开时存在; x64dbg 9094 只在 x64dbg 进程活着时存在。ZCode 在**会话启动那一刻**连接, 连不上 = 该 server failed = 工具不出现。所以固定顺序 = 先开两个程序 (Ghidra 要进到 CodeBrowser 里打开过程序) → `bash tools/check_mcp.sh` 双绿 → 再开/重开会话。新会话里 MCP '都不可用' 先跑这个脚本查后端, 别怀疑配置。
+### 2026-10-12 FSM→LMT 映射定案: LinkMotion_W03 通道 + 南风焓mod数据侧机制全拆 (局内验证差一步, 见文末协议)
+
+- **现场**: nativePC 当前 = 南风焓 2020-10-14 原版发布文件 (wp03_action.fsm 40KB/59节点 md5 06702f3d;
+  w03_00.lmt 3.76MB md5 1c9e8676; 均与当前原版 117KB/90节点/3.6MB 不同 = 老版本基线+他的改动)。
+  `ValorLS.d ll`/`ValorGauge.d ll` 空格禁用 (纯数据侧运行), `LuaEngine.dll` 活+TCP 28991。
+  工作区分析副本+两份 xfs.json dump: `nfh-analysis/`。
+- **FSM→LMT 原生直连通道 = 节点 process 参数 `nPlFSM::LinkMotion_W03 { MotionNo:i32, MotionNo_Phase1:i32 }`**
+  (XFS def hash 0x19b8aa01; 另一类 = `nPlFSM::ActionSet_W03 { ActionNo }` hash 0x4e5f1d2f)。
+  **进 MOT 节点 → 引擎直接播 LMT[MotionNo], Phase1 接第二段** — 不经过动作层/类表/请求。
+  原版 s0000-s000c + '152or132' 全是它; 原版组合衔接的真实现 = **ACT节点 --按键条件--> MOT节点(直播
+  LMT entry) --无条件()--> 下一ACT节点**。实测原版: 突き(79) --△--> MOT119 --> ACT80(上捞, 80→119 ✓
+  与 action-list 互证); 居合斬り(101) 八出边: R→MOT363 / R+△→MOT364 / △→MOT365 / ○→MOT366 /
+  R+○→ACT86(见切) / △+○→MOT362 / △+○+→→MOT361 / △+○+←→MOT360。待機２(1012) --△--> MOT131。
+  MOT 节点出边全是空条件 = 动作播完自动走。
+- **ACT 节点进节点 = 发 DoAction{3, ActionNo}** (09-22 已证"node-entry beats request"), LMT 映射走
+  动作层类表 0x142EF5C30→类工厂硬编码 (action-list.md), FSM 数据里不携带 LMT 号。两条通道正交。
+- **运行时对象 (dump .c 实锤)**: 工厂 FUN_140b200c0 分配 0x10B: vtable@+0=0x1430B8E20,
+  **MotionNo@+8 / MotionNo_Phase1@+0xC, 构造清 -1**; 反射注册 FUN_140b24cb0 (名字串 0x1430bb118/
+  0x1430bb138, SUB_140240720 型 stub accessor); 静态注册 FUN_1400a3190 (类名 0x1430b84e0 +
+  hash 0x19b8aa01 → DAT_144f1a188, 每武器一个 LinkMotion_Wnn)。消费方=纯虚调用, 静态不可见
+  (vtable+0x288 播 motion 调用点 2113 处无法筛) — 下次会话硬件断点读 [实例+8] 一步抓到。
+- **南风焓"非原生节点"真相 (用户问点的答案): 他没发明新映射, 全是复用**。59 节点全部改名"南风焓"
+  (mName=作者标签, 与 09-12 结论一致); 给一批原版无节点请求 id 补 ACT 节点 (98/99/100/16/6/9/
+  35-41 等, 用于勇气路由条件) + 克隆原版 s000c-363 为自己的 MOT 节点 [55] (101 --R--> MOT363)。
+  条件属性全用原版名 (R/△/○/回避/納刀中/気刃斬りII/III/見切り回避成功後の攻撃ヒット...), 无私有属性
+  (他的 gauge/狩技在 DLL 里, 空格禁用后数据侧剩纯路由)。
+- **他的新招 = 原地替换既有 LMT entry 内容, 零新槽位**: 两边 LMT 都是 164 非空 entry; 差异 =
+  21 个 entry 内容改动 (109 大回旋/140 见切/154/156/158 跳斩族/162/170 気刃突刺/174 兜割/
+  308-312 特殊纳刀族/338-342,344,346 强化射击族/351) + 文件尾追加 163KB (指针落入追加区的:
+  154/156/158/306 勇气纳刀/346/351, 其中 351 fcurves+TIML 整体搬家, 306 加了 EffectParameter1)。
+  entry 363 (他 MOT 节点播的) 与原版逐字节相同 = 播的是原版动作。
+- **我们的新招配方 (数据侧, 免 DLL 免类注册)**: FSM-Studio 原生支持 (model.ts motion kind 节点,
+  inspector 编辑 MotionNo/Phase1): ① 动作写进 LMT 任一 entry (FreeKinetics 管线已有); ② FSM-Studio
+  加 motion 节点 MotionNo=<entry>; ③ 源节点加链接 (如 R/自定义可用条件) → MOT 节点 → 空条件链回。
+  开问题: MOT 直播时动作层 (controller set:id) 是否/如何跟随 (局内 probe_log 一看便知); 判定/COL
+  路由 (EventCollision ReqNo) 是否照常 — 待局内验证。
+- **LuaEngine 现场工具链 (本次跑通)**: TCP 28991 单向无回包 (LuaEngine/send_lua.py), 命令在
+  **main_loop_begin 帧钩子**(游戏线程)执行, 输出用 io.open 落文件读回; TCP lua 状态跨调用持久
+  (全局表就是-state)。全局表有 RunFsmAction(set,id)/RunLmtAction(0xC000|entry) 强制原语 (部署版
+  DLL 比工作区源码新, 源码里没有); 引擎 Player.Action: fsm=player+0x6274/78, lmtID=anim+0xE9C4
+  (=entry|0xC000), derive=player+0x6284/88, frame=anim+0x10C; player=GetAddress(0x1450139A0,{0x50})
+  (ValorLS 老链 0x145073ED0 本版本已失效, 读到字符串)。首验: idle fsm=3:0 lmt=0xC001=entry1 ✓。
+- **⚠️ 事故 (2026-10-12, 我造成的)**: TCP 裸调 `AddChronoscope(单参)` → handler 内 strlen(NULL) →
+  main_loop_begin first-chance AV → x64dbg 放行后 second-chance → **游戏进程崩溃退出**。教训:
+  TCP chunk = 帧线程, pcall 接不住硬件异常, 未知签名的 C++ 注册函数绝不裸调 (先在工作区源码/示例里
+  钉签名, 或干脆只用 GetAddressData/SetAddressData 这类已验证 API)。
+- **探针现状**: `nativePC/Lua/action_probe.lua` 已改为文件日志版 (fsm/lmt entry/frame/derive 变化
+  → `E:/MHW-arts/nfh-analysis/probe_log.txt`; 原版备份 `nfh-analysis/action_probe.lua.bak`)。
+  需聊天框 `reload action_probe` 或重启游戏生效。
+- **下次会话验证协议 (10 分钟)**: ① 重启游戏进场拔刀; ② 聊天框 `reload action_probe`; ③ 打小居合
+  (3:101) 后按 R → probe_log 出现 `entry=363` 且 fsm 仍是 3:101 = MOT 直播实锤; ④ 要抓消费方:
+  x64dbg attach → Lua 取 player→mgr(player+0x7D20) 附近内存搜 qword 0x1430B8E20 (MOT 实例 vtable)
+  → 实例+8 硬件断点(读) → 进任何带 MOT 节点的招 (突き+△ 即可) → 断点回溯即消费者; ⑤ RunLmtAction
+  /RunFsmAction 语义测试 (从 1-2 个 entry 开始, 别再裸调未知函数)。
+
+- **✅ 2026-10-12 局内实锤补完 (user 局内 + probe_log)**: 小居合(101) 按 R → probe_log 三连:
+  `3:101 entry=307` → `3:16 lmt=49515 entry=363 frame=0.0` → `3:16 entry=104 frame=42.0`。
+  **LinkMotion 通道闭环**: 0xC16B=0xC000|363 真出现在 anim+0xE9C4, 363 播满全长 42/42 帧后骨架才
+  交给后继动作 (104=気刃斬り1 的 motion)。链条 = node50(101) --R(id8)--> node55 MOT363 --空-->
+  node24 ACT=16 (DoAction{3,16}, 他的"气刃斬り1连段态", motion=entry104; 原版同位置=特抜1001,
+  user 在原版 FSM 里核对一致)。新钉机制三条: ① MOT motion 播满才交还骨架; ② 后继 DoAction 在
+  MOT entry 同帧就发 (fsm 提前变 3:16) — 即 MOT 节点=播motion+立即放行路由, motion 本身压住骨架
+  到自然结束; ③ entry 可在动作内段内切换 (3:7 先 115 后 101)。user 连按 R 又测出气刃链
+  16(104)→67(106)→68(108)。新映射数据: 67→106/85→101/81→102✓/7→115→101; **set-1 行的 lmt 字段
+  是 0x6000 bank** (24752=0x60B0 → entry176 = 身体/共有 LMT), 0xC000 只是武器 bank 标签 —
+  "motion id = entry|0xC000" 修正为 "entry|bank", bank 按动作集而异。nfh 条件表全用原版属性
+  (練気ゲージ判定(気刃斬りII/III/大回転斬り + オーラレベル白以上 + R+↑←→↓ id28-31 等),
+  见 nfh-analysis 可复跑脚本。
+
+- **长按检测之谜解开 (2026-10-12, user 问 "他怎么做到原生长按的")**: 南风焓 node[1](ACT=98 勇气纳刀)
+  出边里有一条 **`R押してない` → node[2](ACT=100 收刀)** + `スタミナ切れ → node[2]`(没力气强制收刀)。
+  保持 = 按住 R 时全部出边条件不成立 → FSM 停在 node[1],306 的 loop=129 呼吸循环兜着;松开瞬间
+  `R押してない` 点火 → 100 → entry 312 收刀动作。**`R押してない` 是引擎全局注册的输入属性**
+  (.rdata 属性串 0x1430B9BE0, 与 レバー前キープ 0x1430B9C48/スタミナ切れ 0x1430B9E60 同块),
+  输入系统每帧无条件写 (cFSMPlBase, registration accessor=SUB_140240720 stub, 09-22 已证) —
+  **原版 wp03 FSM 的 29 个属性里 0 个按键状态族 = "太刀没有长按检测"只是原版 FSM 没引用**,
+  他加一条引用就激活, 纯数据无 DLL。组合键限制(09-22)只管 combo→请求分类 (R+↑ 族), 单键否定态
+  不是 combo 不受限。否定态全家桶 (.rdata): **△押してない / ○押してない / R押してない /
+  アイテムボタンを押してない** + レバー前キープ 方向族。
+  **对我们的直接收益: 勇气纳刀 195(松开收刀)/196(保持按下构) 的 DLL GetAsyncKeyState 检测可退役**
+  — FSM-Studio 两节点 + 一条 `R押してない` 边 = 纯数据长按, 与 nfh 同配方。
+
+- **受击反应路由机制 (2026-10-12 user 局内实测, probe_log 7× 复现)**: 勇气纳刀(98)中被怪打 →
+  每次都是 `3:98 → 3:38(lmt=1,无bank) → 3:69(entry=109) → 3:100(312)`。**受击反应不走 FSM 条件** —
+  伤害系统在受击瞬间直接发动作请求 {3,38}(零入边请求进入, 与按键条件无关); 38/39/40=受击硬直族
+  (原版无节点只播硬直), 35/36/37=另一族(本次会话 3:37 出现过一次, motion=entry212, 有专属受击动画;
+  他的接线 35/36/37→node46 ACT=105, 105 零出边=播完即止)。哪族被请求由伤害系统按受击时玩家状态选,
+  **FSM 只能接管"反应之后"**: 他给 38/39/40 补节点 + cond id18(OR 状态组,近恒真) → 69(大回旋),
+  且他改短了 entry 109 内容(159→60帧, LMT diff 清单内) = **"勇气纳刀被打中→自动大回旋反击"是故意设计**,
+  69 完 → id13(アクション終了) → 100 回架势。我们的"被击→自定义动作"配方 = 同款(补受击 id 节点+边)。
+- **9-22 分类器结论要修 (user 实战反馈)**: user 称左右袈裟"很容易出来"(右袈裟=推摇杆+登龙键=
+  他的 id27 `R+△+レバー`→83) — 若属实则 **`R+△+レバー` 在 LS 上活** ⇒ "分类器只写原版 wp03 引用过的
+  组合"过宽, 分类器静态表(113条)大于原版引用集; R+↑(09-22 实测死)与 R+△+レバー(疑似活)并存说明
+  表内容无规律可猜, 只能逐个实测。注意: 本次 probe 会话 0× 3:82/3:83/3:87 — kesa 结论还差一次
+  带 probe 的实测确认(做一次左右袈裟看 3:82/3:83 是否落日志)。
+- **新数据**: 3:11 上下文相关选 motion — 常规=entry104, 居合系连段中出现过 entry=166
+  (49318=0xC0A6); 3:37→entry212(受击动画); 3:88→entry6; 3:12→113→104 段内切换;
+  set-1 还见 0x1000 bank (1:362 lmt=4104=0x1008) — bank 标签至少 0xC000(武器)/0x6000/0x1000 三种。
+
+- **A 组受击测试第一轮结果 (2026-10-12 局内, v2/v3 探针)**: 勇气纳刀保持段吃高伤怪攻击 13+ 次,
+  **HP 全程零变动(连削韧都没有)** — H1(GP窗口 20f 边界)与 H3(方向)被"无论什么时机/方向都无伤"
+  排除; **"零伤吸收 → 38 族, 削韧防御 → 35-37 族"(user 假说)成为唯一存活候选**(user 的 37 经验
+  来自我们 112/345 防御帧招 = 有削韧; 今晚 38 = 无伤)。因果方向未定: 无伤导致 38, 还是同一 TIML
+  配方同时产生两者。**他的 306 零伤配方候选成分 (与原版 306 全量 track diff)**:
+  新增 `PlMotionCommon mFlag1 f0=0x50000000 (b30+b28)`、
+  **`PlMotionCommon mStaminaParamIndex f0=256`(原版 306 根本没有这条轨!)**、
+  `PlMotionInput mFlag2 (2键)`; mFlag 开头加 b31+b26 GP 窗(f0-20); 删除了 PlMotionVisual 两轨 +
+  EffectParameter1 WorkNo00。
+  - **注意**: mStaminaParamIndex 也可能只是配置架势本身的耐力消耗(他 readme: 保持要耐力, FSM 有
+    スタミナ切れ出边) — 未必是"格挡伤害转耐力"。判别: 受击瞬间盯耐力条有没有额外跳降。
+  - 决定性实验: 把这套成分(mFlag1 0x50000000 + mStaminaParamIndex 256 + mFlag GP窗)烙进我们
+    112/345 的 TIML → 换文件实测: 若削韧消失且反应 37→38 翻转 = 因果链闭合 + 白拿无伤防御配方。
+  - 38 的请求方代码未钉: 可 x64dbg 条件断点 DoAction(0x140269CE0) cond `[rdx+4]==0x26` 抓调用栈。
+  - 探针盲区修正: v3 加了 slot1 身体控制器监控(player+0x6924/6928), 普通受击硬直若走身体不再漏。
+    普通招式(A3)中受击的样本仍未取得。
+
+- **✅ A 组定案 (2026-10-12, user 混合实验收口)**: 受击反应族 = **格挡的伤害结果**, 与动作 id/时机/
+  方向无关。三向对照表: ①零伤格挡(他 306 成分) → 3:38/39/40 → 他的FSM接69大回旋反击; ②削韧格挡
+  (我们 0x90080000=b31+b28+b19) → 3:35/36/37 → 他的FSM接105死胡同(user 实测"被打进入105");
+  ③无防御 → 身体控制器 1:339 族 + 全额伤害(武器 FSM 完全不参与, 1570行 -72 真伤样本)。
+  **因果闭合证据**: 同一个他的 FSM, 换我们的 LMT → 37→105, 换他的 LMT → 38→69。
+  **零伤格挡配方 = 他 306 的新增成分**: mFlag1=0x50000000(b30+b28) + mStaminaParamIndex=256 +
+  mFlag 开头20帧 b31+b26(GP窗); 与我们配方唯一结构差异 b19(削韧) vs b30+staminaParam(无伤) —
+  最小成分位未bisect(V1 b19→b30 / V2 +staminaParam / V3 全套), 但直接抄全套已可用。
+  35-37 vs 38-40 语义 = "有削韧格挡反应" vs "无伤格挡反应"; 普通受击走身体控制器, 武器FSM看不到。
+  **⚠️ LMT 换文件实验必须完整重启游戏** — 任务重进不清 LMT 缓存, 混合态会造成"防御失效"假象
+  (user 差点被吓到)。
+
+### 2026-10-12 (2) R+方向之谜: 组合键开关疑似在 PlMotionInput TIML 轨里 — 9-22 结论待翻案
+
+- **user 决定性实验**: 他的 FSM 不动, 只换 LMT(他的↔我们的↔原版): R+方向**只在他的 LMT 下成立**
+  (R+方向→3:87→entry170; 无方向→3:76→entry154); 改名排除法排除了 efx/col/wav 等全部其他文件
+  → **开关就在 LMT 里**。9-22"LS 分类器不写 R+方向"的结论被此实验推翻至少一半。
+- **嫌疑轨 = nTimelineParam::PlMotionInput** (动作输入耦合, 我们从没挖过):
+  - entry 106(気刃斬り2 的动作): mFlag/mFlag2/mFlag4 与原版逐键相同, **唯独 mFlag1 同帧异值**:
+    vanilla f44=0x0C001000/f54=0x0C003000 → 他的 f44=0xCFFC10CC/f54=0xCFFC30CC (保留原版
+    b27+b26+b12, 叠加 b31+b30+b25..b22+b20+b7+b6+b3+b2; 他还删了 f24 键)。
+  - entry 170(気刃突刺): 原版无 mFlag1/mFlag2 轨, 他整套新增 (mFlag2: 256/768/336/1008...)。
+  - entry 154: mFlag 整条重写。他的 306 也有新增 PlMotionInput mFlag2。
+- **单变量测试文件已造**: `nfh-analysis/w03_00_rdir_test.lmt` = 原版 LMT + 仅 entry106 mFlag1
+  三键(f24→0, f44/f54→他的值), 其余全原版。部署(他的 FSM + 此 LMT, **完整重启游戏**)后
+  気刃斬り2 中按 R2+方向: 出 3:87 = mFlag1 位即组合键开关(9-22 翻案 + 解锁配方);
+  不出 = 开关在他 LMT 的其他内容里, 回头二分。
+- 若成立: **方向派生/自定义组合 = 改动作 TIML 即可, 无需 DLL** — 对我们的自定义招意义重大。
+
+- **✅ B 题定案 (2026-10-13 局内实锤)**: `w03_00_rdir_test.lmt`(原版+仅 entry106 mFlag1 三键
+  f24→0/f44→0xCFFC10CC/f54→0xCFFC30CC)部署后, probe_log 三连:
+  `3:16(104)→3:67(106)→3:87(170)`(R2+方向,两次)/`→3:76(154)`(无方向)。
+  **PlMotionInput mFlag1 位 = 方向组合输入开关, 9-22"LS 分类器不写 R+方向"结论翻案** —
+  当年失败根源是原版动作没带使能位。他的 mFlag1 值 = 原版位(27,26,12)∪新增(31,30,25,24,23,22,20,7,6,3,2)。
+  待细化: 最小位集 bisect(候选 b31+b30, 试 0xCC001000 即可); 该机制是否同样门控
+  レバー前キープ/回避+↑ 等其他输入属性未测。**对我们: 自定义招要方向派生, 改自己 TIML 的
+  PlMotionInput mFlag1 即可**。新映射: 3:87→170✓/3:76→154/3:73→153/3:99 共享 306 的 motion
+  (frame=74 中段采样)/3:6→3/3:80→119→107 段内切换。
+
+- **C 组准备 (2026-10-13)**: ①154/156/158 的 `mFlag2=256` 原版本就有(非他加) — 他在这仨 entry 改的是
+  PlMotionInput 输入位+追加新动画(=他的自定义招本体), 不是无伤成分; "y回无伤"疑似他 DLL 时代的
+  伤害钩子行为, 数据侧无伤配方目前仅 306 一份。②motion 节点伤害判定测试件:
+  `nfh-analysis/nfh_action_mot306.fsm` = 他的 FSM + node55(101--R-->MOT) MotionNo 363→306
+  (xfs_parse+XFSWriter 重写, 回读验证 MotionNo=306, canonical 重排尺寸不变属预期)。
+  部署(他的 fsm 测试件 + user 自己的 LMT, **完整重启**) → 勇气纳刀→△→R → MOT 路径播 user 的
+  306(带防御帧) → 吃刀: 削韧+35-37→105 = MOT 带 TIML(新招配方可行); 全额伤害+身体硬直 =
+  MOT 仅视觉, 伤害需 ACT 节点复用。攻击半边后续可再指 140/109 对怪打。
+
+- **✅ C 组定案 (2026-10-13, user 自制实验, 比 planner 版本更彻底)**: user 新增 **motion 节点
+  (id370) + 新 LMT entry 370** —— 306 数据拷入 = **防御帧生效**(受击 3:37 + -1 最小削韧,
+  削韧配方在 MOT 路径完整工作); 110 数据拷入 = **攻击触发**。**LinkMotion 路径带完整 TIML
+  (攻击+防御), 纯数据新招配方全线贯通**。**MOT 本质 = 往当前动作注入骨架动画, 不是动作状态**:
+  fsm(动作层)停在进入前动作(如 3:16)而 0xE9C4 显示 MOT 的 entry —— 两层分离, 非 bug。
+  MOT 招的四条已知代价: 无动作身份(派生/气刃表/反应上下文/规则系统都看不到)、反应按底层动作算、
+  底下动作的 motion 在 MOT 播完后从 0 重启、联机同步未知(单机无影响)。工具箱定稿:
+  改既有槽位(nfh式,有身份,牺牲原版招)=主力; 新 MOT 节点+新 entry(加法式,不牺牲,适合 MHGU
+  迁移招, 300+ 空槽)=加法。user 修正: 无伤防御非 DLL 行为, 今日全部测试无外力(除探针)。
+
+- **联机 MOT 同步假说 (user, 2026-10-13)**: 网络好的时候其他玩家动作衔接自然、无明显断裂 →
+  游戏大概率同步的是 **fsm id + motion id**(轻量状态)+ 客户端本地模拟插值, 不传动画本身
+  (卡普空动作游戏惯例)。MOT 注入会设置 motion id(0xE9C4 可见 0xC000|entry), 因此 MOT 招
+  联机可见性可能比预想乐观, 待实测(进联机任务让队友看)。
+- **下次任务 (user 定)**: ①无伤格挡实现 — 把 306 零伤成分(mFlag1=0x50000000 +
+  mStaminaParamIndex=256 + GP窗)烙进我们自己的防御招; ②按键按住数据侧化 — 勇气纳刀
+  195/196 的 DLL GetAsyncKeyState 检测退役, 换 `R押してない` 条件边(FSM-Studio 两节点)。

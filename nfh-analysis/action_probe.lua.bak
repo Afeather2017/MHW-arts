@@ -1,0 +1,32 @@
+local last = {}
+
+local function emit(label, value)
+    Console_Info("[ActionProbe] " .. label .. "=" .. tostring(value))
+end
+
+function on_time()
+    local ok, player = pcall(function() return engine.Player:new() end)
+    if not ok or not player then return end
+
+    local action = player.Action
+    local fsm = action.fsm
+    local lmt = action.lmtID
+    local actualLmt = nil
+    if type(lmt) == "number" and lmt >= 0 then
+        actualLmt = lmt % 4096
+    end
+    local weaponType = player.Weapon and player.Weapon.type or nil
+    local weaponId = player.Weapon and player.Weapon.id or nil
+    local key = string.format("%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s:%s", tostring(fsm.fsmTarget), tostring(fsm.fsmID), tostring(lmt), tostring(actualLmt), tostring(action.rawE9C0), tostring(action.rawE9C8), tostring(action.rawE9CC), tostring(action.rawE9D0), tostring(action.rawE9D4), tostring(action.deriveSet), tostring(action.deriveID), tostring(weaponType), tostring(weaponId))
+    if key ~= last.key then
+        last.key = key
+        emit("fsm", tostring(fsm.fsmTarget) .. ":" .. tostring(fsm.fsmID))
+        emit("lmt", lmt)
+        emit("actualLmt", actualLmt)
+        emit("raw", string.format("e9c0=%s e9c8=%s e9cc=%s e9d0=%s e9d4=%s", tostring(action.rawE9C0), tostring(action.rawE9C8), tostring(action.rawE9CC), tostring(action.rawE9D0), tostring(action.rawE9D4)))
+        emit("frame", string.format("%s/%s", tostring(action.frame), tostring(action.frameEnd)))
+        emit("weapon", string.format("type=%s id=%s", tostring(weaponType), tostring(weaponId)))
+        emit("derive", tostring(action.deriveSet) .. ":" .. tostring(action.deriveID))
+        emit("useItem", action.useItem)
+    end
+end
