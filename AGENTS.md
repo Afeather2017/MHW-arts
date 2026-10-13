@@ -3083,3 +3083,28 @@ MHWNoChunk and MHWEditor
   单字段实验确认: 106 OR 0x00030000 即可测)。**最小配方(待验证): mFlag1 | 0x00030000 只开方向组**。
   已知字段: LS106 原版 f6/f13(01→11, vanilla组合族), wp05 family B f1/3/13, family A 全开+f8。
   entry 11(気刃斬り1) 独占 b18/b19(全LS唯一) — 语义未钉。345 已双侧还原(刚一不需要方向)。
+
+- **✅ 强格挡位破案 (2026-10-13): PlMotionCommon mFlag b30 = 強ガード(零削韧)判定位**。wp06=盾斧
+  (FSM '盾'x7 + G/強G反应节点全点名: 34=弾かれ, 35/36/37=GリアクションS/M/L=通常格挡(削韧),
+  **38/39/40=強GリアクションS/M/L=强格挡(零削韧)**, 零入边引擎请求, 出边接反击(→84/83/107) —
+  "强格挡接反击"是CB原生行为, nfh 的 38→69 同款)。CB 格挡动作 TIML: entry28 mFlag=0xD0000000
+  (b31+b30+b28)+mFlag1=0x10000000(b28)+staminaParam=10; entry60/64/65 mFlag=0x42000226→0x42000006
+  (b30+b25+b22族)。三方交集(原版CB/NFH306/零伤行为)= **b30**; 我们削韧配方 0x90080006(b31+b28+b19)
+  无 b30。mStaminaParamIndex 排除为关键成分(CB 用小指数 10/11, 非NFH的256)。
+  **测试件已部署**: 345 格挡窗(f0-f12) mFlag 0x90080006→0xD0080006(+b30), 同时 106/110/156 rdir
+  位重打(备份 w03_00.lmt.bak-20261013-pre-b30, md5 5814bffb)。user 待测: 刚一防御窗吃刀 →
+  零削韧+反应38 = b30 定案; 仍削韧+37 = b30 需配合成分(则试 +mFlag1 b28)。
+  blend 侧 345 已同patch(f0 idx1 0x9008→0xD008)。**真实 345 PlMotionCommon action = `.348`**
+  (dedup 名, 必须走 nodetree 定位); 其格挡配方 = 0x90080006 (b31+b28+b19+b2+b1) f0-f12。
+
+- **✅✅ 零伤格挡配方定稿 (2026-10-13 user-verified)**: 345 格挡窗(f0-f12)三件套
+  **mFlag b30 + mFlag1 b28 + mStaminaParamIndex=10**(复刻长枪 entry28 签名)→ 被击进 **3:39
+  (強Gリアクション中)+ 持续掉耐力不掉血** = 长枪强格挡(Instant Guard 族)行为完整复刻。
+  b30 单独不够(mFlag 加 b30 仍 37),mFlag1 b28 + staminaParam 是必要成分(或组合生效)。
+  S/M/L tier 由伤害/招式决定(我们中档=39,NFH 上档=38 同族)。
+  **管线教训(重要)**: FreeKinetics exporter 对新建 fcurve 通道静默丢弃 —— 新关键帧默认
+  BEZIER 插值不在 interpolationMapping=['CONSTANT','LINEAR','QUAD','CUBIC','QUART','EXPO','SINE']
+  里, exception 被吞。**往 TIML action 加通道必须设 kf.interpolation='CONSTANT'**。
+  ExportTIMLTypesNode 可直接进程内调用调试(ErrorHandler(prefs,prefs))。
+  昨日遗留清单更新: 无伤格挡 ✅(今日); 按住检测数据侧化(R押してない)待做;
+  反应族对照表: 34 弾かれ / 35-37 GリアクションS/M/L(削韧) / 38-40 強G S/M/L(零伤+耐力)。
