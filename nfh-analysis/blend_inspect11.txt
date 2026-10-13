@@ -1,0 +1,7 @@
+action TIML::nTimelineParam::PlMotionInput.157 fc=6
+  odd fp='FreeHKTiml.m08FD20A6'
+  odd fp='FreeHKTiml.m08FD20A6'
+  odd fp='FreeHKTiml.m6E63FBC7'
+  odd fp='FreeHKTiml.m6E63FBC7'
+  odd fp='FreeHKTiml.mF76AAA7D'
+  odd fp='FreeHKTiml.mF76AAA7D'

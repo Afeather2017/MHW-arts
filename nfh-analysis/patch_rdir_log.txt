@@ -1,0 +1,7 @@
+patching TIML::nTimelineParam::PlMotionInput.157
+f36 idx0: 0x1000 -> 0x10CC
+f56 idx0: 0x3000 -> 0x30CC
+f36 idx1: 0x400 -> 0xCFFC
+f56 idx1: 0xC00 -> 0xCFFC
+all keys patched
+SAVED

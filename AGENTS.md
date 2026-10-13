@@ -3042,3 +3042,35 @@ MHWNoChunk and MHWEditor
 - **下次任务 (user 定)**: ①无伤格挡实现 — 把 306 零伤成分(mFlag1=0x50000000 +
   mStaminaParamIndex=256 + GP窗)烙进我们自己的防御招; ②按键按住数据侧化 — 勇气纳刀
   195/196 的 DLL GetAsyncKeyState 检测退役, 换 `R押してない` 条件边(FSM-Studio 两节点)。
+
+### 2026-10-13 (2) R+↑ 使能位写进我们自己的管线 (blend→export→验证通过)
+
+- **FreeKineties TIML 数据模型 (逆向自 addons/MHW-FreeKinetics 源码)**: 每个参数类别 = 独立 action
+  `TIML::<类别>[.NNN]`(.NNN 是 Blender 去重号, **不是 entry 号**!); entry↔TIML 映射在 nodetree
+  `w03_00` (FreeHKNodeTree): LMTEntryNode.entryNum → "TIML Data" 输入 → TIMLDataNode(多输入) →
+  TIMLActionNode.input_action; 类别由 action.freehk.timelineParam(Raw) 定(Raw='m6FCCD10E'=PlMotionInput)。
+  通道 = fcurve data_path `FreeHKTiml.m<hash>`; **打包: LMT u32 = (idx1<<16)|idx0**(bigFlags 双半字)。
+  哈希表: dump_timl_frames.py load_names() 读 FHK 的 TIMLTimelineParam/TIMLDatatypes.txt;
+  PlMotionInput=0x6FCCD10E, mFlag=0x08FD20A6, mFlag1=0x6E63FBC7, mFlag2=0xF76AAA7D。
+- **345 patch**: blend=MHW-Valor-0.0.2-345-valor-spirit1 (entry345 node → 动作 valor_1, 142帧,
+  PlMotionInput action=`TIML::nTimelineParam::PlMotionInput.157`)。改 mFlag1 四键:
+  f36 idx0 0x1000→0x10CC / idx1 0x400→0xCFFC; f56 idx0 0x3000→0x30CC / idx1 0xC00→0xCFFC
+  (= NFH 使能值 0xCFFC10CC/0xCFFC30CC)。blend 已原位保存(备份 .bak-pre-rdir)。
+- **无头导出模板** (照 _export_verify_1003.py): blender -b <blend> --python: 开文件 →
+  scn.freehk_tether=bpy.data.objects["m_mesh Armature"](本 blend 有3骨架) → tree=w03_00 →
+  LMTFileNode.filepath=OUT → importlib MHW-FreeKinetics.operators.export_ops →
+  exportNodeToFile(outn, addon.preferences)。新进程跑(避 structureCache)。
+- **产物已验证**: `nfh-analysis/w03_00_rdir345.lmt` entry345 PlMotionInput mFlag1 =
+  f0=0/f36=0xCFFC10CC/f56=0xCFFC30CC/f110=0 ✓。待 user: 部署(替换自己 mod 的 w03_00.lmt,
+  完整重启) + FSM 侧在播 345 的节点上接 R+↑ 边(09-22 的旧边若还在则免接线) → 招式中 R2+↑ 实测。
+  窗口 = f36..f110(约0.6~1.8s)。最小位集 bisect 未做(先抄全套,通了再抠)。
+
+- **✅ R+↑ user-verified 贯通 (2026-10-13 终)**: 首测"无效"根因 = **位与边不在同一动作**(边挂在
+  ACT=70/67/77/72(播 entry 110/106/155/156)上,位打在 345)——**PlMotionInput 使能位只对当前
+  播放动作生效**。修复: 部署 LMT 上 106/110/156 的非零 mFlag1 键全部 OR 0xC3FC00CC(106:
+  f24/f44/f54/f120 → 0xC7FC10CC/0xCFFC10CC/0xCFFC30CC/0xC7FC10CC = 全动作窗口;备份
+  w03_00.lmt.bak-20261013-rdir-106110156)。user 复测正确: 斬り2 中 R2+↑ → MOT 节点[81]播
+  entry362(12帧带判定小招) ✓。155 无 PlMotionInput 轨需造轨(ACT=72 边暂死); 345 位保留
+  (valor spirit 1 接边即用)。**配方定稿: 招式要接方向派生 = 该招 entry 的 PlMotionInput mFlag1
+  非零键 OR 0xC3FC00CC(blend 侧改 fcurve 或 LMT 侧 setval) + FSM 节点接 R+方向边**。
+  blend 侧注意: entry 的 PlMotionInput action 经 nodetree 查(勿信 .NNN 后缀); export 用新进程。

@@ -1,0 +1,19 @@
+raw type=str len=9
+raw[:64]: 6d 34 38 44 36 31 31 34 46
+fp='FreeHKTiml.m08FD20A6' idx=0 keys=(t=0.0 v=6)
+fp='FreeHKTiml.m08FD20A6' idx=1 keys=(t=0.0 v=576)
+fp='FreeHKTiml.mF76AAA7D' idx=0 keys=(t=0.0 v=0) (t=20.0 v=32768)
+fp='FreeHKTiml.mF76AAA7D' idx=1 keys=(t=0.0 v=0) (t=20.0 v=0)
+PlMotionInput actions: 244
+  TIML::nTimelineParam::PlMotionInput
+  TIML::nTimelineParam::PlMotionInput.001
+  TIML::nTimelineParam::PlMotionInput.002
+  TIML::nTimelineParam::PlMotionInput.003
+  TIML::nTimelineParam::PlMotionInput.004
+  TIML::nTimelineParam::PlMotionInput.005
+  TIML::nTimelineParam::PlMotionInput.006
+  TIML::nTimelineParam::PlMotionInput.007
+  TIML::nTimelineParam::PlMotionInput.008
+  TIML::nTimelineParam::PlMotionInput.009
+  TIML::nTimelineParam::PlMotionInput.010
+  TIML::nTimelineParam::PlMotionInput.011

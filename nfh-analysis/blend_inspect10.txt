@@ -1,0 +1,16 @@
+entry node: LMT Entry Node.125 entryNum=345 loopFrame=-1
+TIMLDataNode: TIML Data Node animLength=142 loop=0
+  TIMLAction -> TIML::nTimelineParam::CollisionTimelineObject.052 (param=78 raw='m38FF82EA', starType=2)
+  TIMLAction -> TIML::nTimelineParam::PlMotionInput.157 (param=133 raw='m6FCCD10E', starType=2)
+  TIMLAction -> TIML::nTimelineParam::PlMotionVisual.095 (param=134 raw='m46F3E901', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventCollision00.198 (param=141 raw='m0CFD985C', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup01.207 (param=146 raw='m2EC7FA34', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup02.086 (param=147 raw='m37CEAB8E', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup03.081 (param=148 raw='m40C99B18', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup05.034 (param=150 raw='m29AA3E2D', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup06.182 (param=151 raw='m30A36F97', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::EventGroup07.066 (param=152 raw='m47A45F01', starType=2)
+  TIMLAction -> TIML::nTimelineParam::nWwiseTimeline::GameParameter.206 (param=157 raw='m01739779', starType=2)
+  TIMLAction -> TIML::nTimelineParam::PlMotionCommon.348 (param=132 raw='m48D6114F', starType=2)
+  TIMLAction -> TIML::nTimelineParam::EffectParameter1.106 (param=79 raw='m6B32DCF6', starType=2)
+motion action: valor_1 fc=313 frameCount=142
