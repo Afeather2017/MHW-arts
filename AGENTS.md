@@ -3074,3 +3074,12 @@ MHWNoChunk and MHWEditor
   (valor spirit 1 接边即用)。**配方定稿: 招式要接方向派生 = 该招 entry 的 PlMotionInput mFlag1
   非零键 OR 0xC3FC00CC(blend 侧改 fcurve 或 LMT 侧 setval) + FSM 节点接 R+方向边**。
   blend 侧注意: entry 的 PlMotionInput action 经 nodetree 查(勿信 .NNN 后缀); export 用新进程。
+
+- **✅ PlMotionInput mFlag1 位映射破案 (2026-10-13, 全武器普查+wp05对照)**: **mFlag1 = 16 个
+  2-bit 字段**(b0-b31, 三态 00=关/01=基态/11=全开), 原版所有值都是"若干字段01→激活窗翻11"。
+  **f8(b17:16) = R+方向组开关**: wp05(原生R+↑←→↓,FSM各6条边,R+△/○为0)的方向招家族增量里
+  唯一新字段 = f8(00→11); LS 原版 profile 无 f8 ✓。方向本身由摇杆状态决定, 无 per-direction 位。
+  NFH 的 0xC3FF.../0xC3FC00CC = 大撒网(f1,3,8,9,10,11,12,15 全置11), 其中仅 f8 为方向必需(待
+  单字段实验确认: 106 OR 0x00030000 即可测)。**最小配方(待验证): mFlag1 | 0x00030000 只开方向组**。
+  已知字段: LS106 原版 f6/f13(01→11, vanilla组合族), wp05 family B f1/3/13, family A 全开+f8。
+  entry 11(気刃斬り1) 独占 b18/b19(全LS唯一) — 语义未钉。345 已双侧还原(刚一不需要方向)。
