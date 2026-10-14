@@ -3163,3 +3163,13 @@ MHWNoChunk and MHWEditor
   (`a.freehk.starType = "TIML_Action"; a.freehk.timelineParamRaw = ...`;
   timelineParam/transx 等 EnumProperty 传字符串、失败即 skip);
   导出验证 = 306 categories 应含 PlMotionInput。
+
+- **✅✅ 按住/松开 R 数据侧完全落地 (2026-10-15 user-verified)**: 306 PlMotionInput **恒定全开**
+  (f0 即满值: mFlag=0xC0030000, mFlag1=0x0C003000, mFlag2=0xF0, CONSTANT) + FSM 的
+  R押してない→100 边 → **按住 R2 = 架势保持(强格挡+掉耐力行10), 松开 = R押してない点火→100→312收刀**。
+  早前失败根因 = 抄 NFH 档时两个值错位(mFlag 0x10000000↔0x00010000 半字错位、mFlag1 丢低半
+  0x3000)→ R/R押してない 属性未使能。**结论: 输入属性(含否定态)全部随动作 PlMotionInput 使能位
+  写入 — 与方向组合同一机制**。原版 98 类自带"松开→收刀"处理(R押してない 边与原生行为殊途同归)。
+  现部署状态: 306 = 强格挡三件套(mFlag 0x52400006 + mFlag1 b28 + staminaParam 行10) + PlMotionInput
+  恒定全开; 345 = 原始削韧态; 106/110/156 = 方向位。用户可调项: 掉耐力行号(换 staminaParam 值)、
+  松开目标(改边指向 195 节点或其他)。ValorGauge.dll 仍禁用中(数据侧验证完毕, 恢复=改回名字)。
