@@ -3149,3 +3149,17 @@ MHWNoChunk and MHWEditor
   **LS 等价物(纯数据)**: 强格挡位(b30+mFlag1b28) 引擎必发 38-40 请求 → LS FSM 补 38/39/40 零入边
   节点 + 出边接反击 = CB/长枪"強G→反击"的 LS 版(nfh 38→69 / 长枪→84/83/107 同模式)。
   类表类名读取法: 类表 wp 行 +0x40 → entry*0x20 → +8 classPtr → +0 vtable → vtable+0x20 = ASCII 类名。
+
+- **✅ 按住R数据侧接线完成 + IDProperty 双层坑 (2026-10-15)**: user 已在 FSM 加 R押してない→收刀边;
+  实测松开无效 → 对照发现 **我们的 306 (valor_sheath_start) 整个缺 PlMotionInput 类别**(自制动作
+  没建该轨; R/R押してない 属性随动作的 PlMotionInput 使能位写入 — 和方向组合同机制!)。
+  **修法 = 给 306 补 PlMotionInput action + TIMLActionNode + 连到 TIMLDataNode**, 内容照抄
+  NFH 306 档(他的按住/松开实测工作)映射到我们循环帧(f50/f60): mFlag f50=0x10000000
+  f60=0xC0030000 / mFlag1 f60=0x0C000000 / mFlag2 f50=0xF00000。
+  **⚠️ FreeKinetics IDProperty 双层坑**: 新建 action 若用 `a['freehk'] = {}` + 键赋值,
+  **属性访问 (a.freehk.starType) 与键访问 (a['freehk']['starType']) 解析到不同层** —
+  键层='TIML_Action' 属性层='None' → extend 的 starType 检查失败 → 类别被静默省略
+  (export 尺寸不变、无报错)。**必须按 importer 原始写法纯属性赋值**
+  (`a.freehk.starType = "TIML_Action"; a.freehk.timelineParamRaw = ...`;
+  timelineParam/transx 等 EnumProperty 传字符串、失败即 skip);
+  导出验证 = 306 categories 应含 PlMotionInput。
