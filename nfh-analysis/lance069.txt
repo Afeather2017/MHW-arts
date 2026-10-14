@@ -1,0 +1,16 @@
+action: TIML::nTimelineParam::PlMotionCommon.069 (fc=10)
+TIMLActionNode: TIML Action Node.503 in tree w06_00
+  consumed by TIMLDataNode: TIML Data Node (animLength=180 loop=0)
+  -> LMTEntryNode entryNum=120 loopFrame=150
+--- channels ---
+  mAimViewParamPage idx0: (f0=1.0)
+  mAimViewParamId idx0: (f0=1.0)
+  mLookAtParam idx0: (f0=9.0)
+  mActionPhase idx0: (f0=0.0) (f52=1.0) (f115=3.0)
+  mAttackAdjustAngleIndex idx0: (f0=2.0)
+  mCamSpring idx0: (f0=1.5)
+  mFlag idx0: (f0=2.0)
+  mFlag idx1: (f0=0xB040)
+  mTrigger idx0: (f0=0x800)
+  mTrigger idx1: (f0=0.0)
+total TIML:: actions: 1626
