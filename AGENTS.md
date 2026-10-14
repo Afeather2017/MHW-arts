@@ -3173,3 +3173,11 @@ MHWNoChunk and MHWEditor
   现部署状态: 306 = 强格挡三件套(mFlag 0x52400006 + mFlag1 b28 + staminaParam 行10) + PlMotionInput
   恒定全开; 345 = 原始削韧态; 106/110/156 = 方向位。用户可调项: 掉耐力行号(换 staminaParam 值)、
   松开目标(改边指向 195 节点或其他)。ValorGauge.dll 仍禁用中(数据侧验证完毕, 恢复=改回名字)。
+
+- **⚠️ 入场保护窗 (2026-10-15 深夜, 未测)**: 恒定全开档会拆掉架势入场保护 — 特殊纳刀按键含 R2,
+  R 属性 f0 即活 → R边(→70 踏込斬り)首个 checkpoint 立刻点火 (user 实测: 按特殊纳刀直接打出
+  気刃踏步斬)。**NFH 档位的前段关闭(f0=0)就是入场保护窗**。已恢复分段档: 306 PlMotionInput
+  f0=全关(入场保护) / f50=partial(b16) / f60=full(0xC0030000) — 已部署未测(备份
+  w03_00.lmt.bak-20261015-post-const)。明日首测: 特殊纳刀应正常进架势(不再直接70),
+  按住保持+掉耐力, 松开→100→312。若仍 70: 查 mTrigger checkpoint 标记(原版306 f73=0x400,
+  我们的 306 未必有对应标记 — checkpoint 时机可能与 mTrigger 绑定)。
