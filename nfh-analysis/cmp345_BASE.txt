@@ -1,0 +1,12 @@
+=== blend: BASE ===
+--- entry 345 (loopFrame=-1) ---
+  PlMotionCommon action: TIML::nTimelineParam::PlMotionCommon.348
+    unkF3DA8324 idx0: [(0, '0x3')]
+    mFlag4 idx0: [(0, '0x4')]
+    mFlag4 idx1: [(0, '0x0')]
+    mFlag idx0: [(0, '0x0'), (12, '0x0')]
+    mFlag idx1: [(0, '0x9008'), (12, '0x0')]
+--- entry 306 (loopFrame=50) ---
+  PlMotionCommon action: TIML::nTimelineParam::PlMotionCommon
+    mFlag idx0: [(0, '0x6')]
+    mFlag idx1: [(0, '0x1240')]

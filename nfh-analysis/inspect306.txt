@@ -1,0 +1,6 @@
+entry node: LMT Entry Node.121 loopFrame=50
+TIMLData: animLength=214 loop=1
+PlMotionCommon action: TIML::nTimelineParam::PlMotionCommon
+  mFlag idx0: [(0, '0x6')]
+  mFlag idx1: [(0, '0x1240')]
+motion: valor_sheath_start frameCount=214
