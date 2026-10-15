@@ -7,9 +7,11 @@
 
 ## 安装
 
-已完成 (本机): `timl_window_editor.py` 已拷入
-`%APPDATA%/Blender Foundation/Blender/4.3/scripts/addons/MHW-FreeKinetics/`,
-并在 addon `__init__.py` 的 `modules` 列表挂了注册。重开 Blender 即生效。
+**源码正本 = FreeKinetics 仓库** (功能高度耦合, 不在 MHW-arts 留副本):
+`%APPDATA%/Blender Foundation/Blender/4.3/scripts/addons/MHW-FreeKinetics/` 自带 .git,
+`timl_window_editor.py` + `__init__.py` 挂钩 + `freeHKActionNodes.py` 排序修复已提交
+(main: ff42eff 编辑器 / d1bc9ce parseBigFlag 排序修复)。重开 Blender 即生效。
+改编辑器直接在 addon 仓库改, 本目录只保留验证工具链与文档。
 
 **附带修了 addon 两个既有 bug** (见文末"addon 修复"), 对未手工单边改过双通道的
 文件零影响 (已用 0.0.2 重导出逐字节回归验证)。
@@ -129,7 +131,6 @@ b15 = 见切成功锁存/纳刀态信号 [推断]; mTrigger: 2048=无敌门 [确
 
 ## 文件
 
-- `timl_window_editor.py` — addon 扩展源 (部署拷贝在 addon 目录)
 - `_export_blend_lmt.py` — 参数化无头导出 (BLEND/OUT 环境变量)
 - `_inspect_timl_blend.py` / `_dump_timl_action.py` — blend 内 TIML 形态检查
 - `_acceptance_run.py` — 验收脚本 (单会话 ops+export)
