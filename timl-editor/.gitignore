@@ -1,0 +1,4 @@
+# 验证产物可由 README 流程再生: 无头导出 + timl-diff
+*.lmt
+*.log
+_acceptance.txt

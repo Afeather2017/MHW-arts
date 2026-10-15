@@ -3181,3 +3181,63 @@ MHWNoChunk and MHWEditor
   w03_00.lmt.bak-20261015-post-const)。明日首测: 特殊纳刀应正常进架势(不再直接70),
   按住保持+掉耐力, 松开→100→312。若仍 70: 查 mTrigger checkpoint 标记(原版306 f73=0x400,
   我们的 306 未必有对应标记 — checkpoint 时机可能与 mTrigger 绑定)。
+
+### 2026-10-15 TIML 窗口编辑器 (FreeKinetics 扩展) + 0.0.1/0.0.2 导出验证链 (timl-editor/)
+
+- **方向定案 (user)**: TIML 编辑不做独立应用, **改 FreeKinetics addon** 复用其 TIML
+  导入表示 (TIML action → `FreeHKTiml.m<hash>` fcurve; bigFlags 类 mFlag/mFlag1/
+  mFlag2/mTrigger 按 array_index 0/1 拆低/高 16 位, 导出 parseBigFlag 按整数帧合并,
+  transition ↔ Blender 插值枚举 5=EXPO/6=SINE/1=LINEAR; Keyframe.back/period =
+  controlL/R — 4.3 实测存在)。blend 检查点 = MHW-valor-blender/ 各版本 (user 手工
+  逐步改对的现场, 差异多处, 验证以逐 entry 全量 diff 为准, 不假设小 diff)。
+- **交付 1 — 窗口编辑器** `timl-editor/timl_window_editor.py` (已装入 addon 并挂
+  `__init__.py` modules; N 面板 "FreeHK" 3D/Dope Sheet 双挂点): 五功能 = 无敌窗
+  (b26+自动清窗内 b28+补 mTrigger 2048 门, 门已有则不重加) / 霸体窗 (b24) / 防御窗
+  (b28 角度格挡+自动清窗内 b26, 无门键) / 攻击窗 (EC.mFlag 整值 0-3) / 按键位窗
+  (PI 三轨任意位)。只动目标位保留同键其他位; 整数帧强制; 新建 PC.mFlag 轨种基线
+  0x02400006; 新键继承邻键插值/back/period。ops: `freehk.timl_{iframe,armor,guard,
+  attack_window,input_paint,gate,list_windows}`, action 用名字 StringProperty
+  (**Operator 不支持数据块 PointerProperty**, 注册会炸)。
+- **交付 2 — 导出验证链**: `_export_blend_lmt.py` (BLEND/OUT 环境变量, 与 GUI 按钮同
+  exportNodeToFile 路径) + `TIML-Studio/dist/timl-diff.js` (逐 entry 窗口级+轨道级
+  diff; 解析器 = TIML-Studio 27 测试字节级验证过的 TS 实现, npm test 全绿: 解析 161
+  块/规范序列化字节对照 vanilla/回环/配方/保存校验 append-only + 回读断言)。
+  **0.0.1 vs 0.0.2-345 diff 已出** (`timl-editor/_verif_diff_001_002.txt`): 5 个
+  entry — 105 摘 b26 / 140↔345 类别块互换(345 得 b28 [0,12) = 手工 0.2s 防御帧) /
+  342 攻击窗+2048门 / 306 输入窗重排 + PC.mFlag 0x12400006→**0x52400006 (b30 新增)**
+  — 与 hist-MHW-Valor.md 手工轨迹逐条吻合。
+- **验收 (2026-10-15 通过)**: 0.0.2 拷贝上五类 ops 各一次 → 同会话导出 → diff 仅
+  entry 105 且逐键符合操作 (`_acceptance.lmt/_acceptance.log`)。**流程坑: ops 改
+  内存 blend, 导出必须同会话或先保存** (分两次起 blender = 改动全丢)。
+- **addon 两 bug 修复 (2026-10-15)**: ① `freeHKActionNodes.parseBigFlag` 合并双通道
+  按 "低通道全帧→高通道全帧" dict 插入序产出键列 — **单边通道加键导出乱序键** (游戏
+  要求有序; 手工 dopesheet 单边加键同样踩), 修复 = `sorted(channelFrames.items())`;
+  回归: 未编辑 0.0.2 重导出 md5 一致 (f724d191)。② 编辑器关闭键继承 "当前值清目标位"
+  不写 0 (写 0 会清同通道其他位, 在别的位窗上挖洞)。
+- **位义更正 (推翻 09-13 笔记一处)**: 原版见切 140 `mFlag f0=0x80400000` = **b31+b22**,
+  不是 b26 — nibble 读错 (b26=0x04000000, 0x00400000=b22); b26/2048 配方本身不受影响
+  (312 局内验证过)。原版见切 TIML 无 b26 = 无敌在 FSM/动作层, 与 09-18 "b26 清零无效"
+  互证。140 原版带 mTrigger f45=2048 (b31/b22 窗内) — 2048 门与 b26 并非死绑, 语义
+  待再挖。TS 侧顺带产出: TIML-Studio (浏览器版骨架+验证器, 现役角色 = 导出比对器)。
+
+### 2026-10-15 (2) 位语义表 + 多类别防御/按键轨 全量进编辑器 (timl-editor 增补)
+
+- **BIT_SEMANTICS 表** (timl_window_editor.py, track hash → 类别 PC/PI → bit →
+  (标签, 置信度 确证/推断/未解)): 面板"位语义速查"栏 + 窗口清单 + op 报告全带标签;
+  新语义直接改表即全局生效。TS 侧同步 (names.ts piBitLabel/pcBitLabel,
+  timl-diff.js 报告带标签; tsc CLEAN, 27 测试绿)。
+- **多类别防御**: 面板除 b26 无敌/b24 霸体/b28 角度格挡三按钮外, "任意位窗"
+  (轨 0-6 = mFlag..mFlag6) 覆盖其余类别 — b27(霸体?未解)/b31(GP?未解)/
+  **PC.mFlag1 b30+b28 零伤格挡配方**(他版306 0x50000000, 配 mStaminaParamIndex=256)/
+  **PC.mFlag2 = 事件位写入轨**(b15 = 见切成功锁存/纳刀态信号, 强假设;
+  0.0.2-345 的 PlMotionCommon.345 实际带 mFlag2 b15 [20,open), list 已能解出)。
+- **多类别按键**: PI 轨选择器扩到 mFlag/mFlag1/mFlag2/mFlag3-6 — mFlag1 =
+  组合键开关(R2+方向, b12+b26/b13+b27 对, 推断); mFlag2(b4-b9,b22/b23 未解);
+  PI.mFlag 补 b9/b15/b0 伴出位标签。
+- **op 改名/扩展**: `freehk.timl_bit_window`(track 0-6 + bit + on) 取代
+  timl_input_paint 成为通用位窗; 无头验收重跑 = diff 与金标准逐字节一致
+  (`_verif_002 vs _acceptance.lmt` 仅 entry 105 预期变化)。
+- 带标签 0.0.1/0.0.2 报告已重建 (`_verif_diff_001_002.txt`): 306 段现在可读出
+  "连段(b16)[50,open) / 特殊(b17+b31)[60,open) / 组合键开关 mFlag1 全家 [60,open) /
+  PC.mFlag1 零伤格挡? b28 [0,open) / PI.mFlag2 未解 b4-7 [0,open)" — user 手工
+  0.0.2 的 306 改动全景。

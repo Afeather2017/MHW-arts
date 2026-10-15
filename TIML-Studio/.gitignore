@@ -1,0 +1,4 @@
+node_modules/
+dist/
+.tmp/
+TIML-Studio/*.txt
