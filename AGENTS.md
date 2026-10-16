@@ -3241,3 +3241,28 @@ MHWNoChunk and MHWEditor
   "连段(b16)[50,open) / 特殊(b17+b31)[60,open) / 组合键开关 mFlag1 全家 [60,open) /
   PC.mFlag1 零伤格挡? b28 [0,open) / PI.mFlag2 未解 b4-7 [0,open)" — user 手工
   0.0.2 的 306 改动全景。
+
+### 2026-10-17 R+方向组合键解锁簇: 部署还原闭环 + 结论入编辑器 (user-verified)
+
+- **丢簇复盘**: 10-13 的使能位当时只 OR 在**导出物**上 (备份 bak-20261013-rdir-106110156);
+  blend 里 entry 106/110/156 的 PlMotionInput action (`.149/.153/.163`) 一直是基线值。
+  10-16/17 从 blend 重导出后簇消失 → 局内 R+方向失效。**教训: TIML 配方必须落在 blend 侧,
+  导出物后打补丁活不过下次导出。**
+- **本次还原 (MCP 会话内, 打开的 blend = MHW-Valor-0.0.2-345-r+up-dash, 与
+  valor-spirit1 同内容副本)**: 三条 PlMotionInput action 的 `FreeHKTiml.m6E63FBC7` 双 fcurve
+  (array_index 0/1 = 低/高 16 位) 同帧改值, 106: f24=0xC7FC10CC/f44=0xCFFC10CC/f54=0xCFFC30CC/
+  f120=0xC7FC10CC; 110: f38/f58; 156: f5/f14/f46 (完整表入 timl-editor/README)。
+  导出 (globalCacheClear + exportNodeToFile → 全新文件防 inject) → timl-diff 验证:
+  vs `w03_00.lmt.r+up_dash` (md5 26e43fd4) 106/110/156 **零差异**, vs 旧部署全文件仅此
+  3 entry 差异 → 部署 (md5 d3d6212c; 备份 w03_00.lmt.bak-20261017-pre-rup-restore)。
+  **blend 已保存 = 簇首次落进 blend, 以后导出自带。**
+- **FSM 侧 + 361-363 衔接动画**: user 已接好且局内验证无误 (R+↑ → MOT 衔接 361-363 播对),
+  本会话未动、不要再动。
+- **结论入库**: FreeKinetics `timl_window_editor.py` BIT_SEMANTICS PI.mFlag1 重写 —
+  10-12 的 "b12/b26 组合键开关" 假设更正为**基线位**; 解锁 = 位簇
+  {b2,b3,b6,b7,b18-b25,b30,b31} 整簇 (确证, 参考 106 增量恰为 14 位), b27/28/29/b13 =
+  中段次级位 (未解)。timl-editor/README 补配方表; TIML-Studio 仅同步 timl-diff 标签
+  (该目录只留验证工具链)。
+- **bisect 遗留 (10-13)**: 单字段最小配方仍未验证。字节级事实: 工作参考值里 **b16/b17=0**,
+  10-13 笔记 "f8(b17:16)=方向组" 的字段序号对不上参考值 — 候选实为 b19:18 (掩码
+  0x000C0000) 或别的字段, 抠位实验时先重排字段序号。最小化前部署维持全簇 (NFH 撒网值)。

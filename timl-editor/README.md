@@ -29,6 +29,8 @@ Blender 里 N 面板 → **FreeHK** 标签 → "TIML 窗口编辑" (3D 视口和
    - **EventCollision**: `槽` (0=关 1/2/3=开) + `应用` → mFlag 整值窗。
    - **PlMotionInput**: `轨` (0=mFlag 1=mFlag1 2=mFlag2) + `位` + `开窗/关窗`。
      位义: b8=翻滚 b14/16/30=连段预输入 b17+31=特殊派生窗。
+   - **组合键解锁簇** (PlMotionInput 面板专属): `起` + `开簇→末尾/关簇→末尾`。
+     = 起帧起的已有非零键 OR `0xC3FC00CC` (R2+方向使能; 0 值关窗键不动), 配方见下文。
 4. 面板底部"当前窗口"实时列出该 action 解码出的全部窗口。
 
 无头用法 (脚本/批处理):
@@ -114,12 +116,32 @@ b15 = 见切成功锁存/纳刀态信号 [推断]; mTrigger: 2048=无敌门 [确
 | mFlag | b14/b16/b30 | 连段预输入 | 确证 |
 | mFlag | b17+b31 | 特殊派生窗 (见切→必殺攻撃, 成对) | 确证 |
 | mFlag | b9/b15/b0 | 伴出位/未知 | 未解 |
-| mFlag1 | b12+b26 / b13+b27 | 组合键开关 (R2+方向 解锁) | 推断 |
+| mFlag1 | 位簇 b2/b3/b6/b7/b18-b25/b30/b31 | R2+方向组合键解锁簇 (整簇实证, 单位未拆) | 确证 |
+| mFlag1 | b12+b26 | 基线位 (原版动作自带, 非解锁成分) | 确证 |
+| mFlag1 | b27/b28/b29/b13 | 簇次级位 (仅中段键出现, 作用未解) | 未解 |
 | mFlag2 | b4-b9, b22/b23 | 未解 (值族 0x150/0x3F0/0x3C300) | 未解 |
 | mFlag3-6 | — | 未解 (mFlag4 在 342 见 4键) | 未解 |
 
 面板"任意位窗"(轨 0-6) 可对所有 bigFlags 轨画窗; 新观测到的语义直接改
 `timl_window_editor.py` 里的 `BIT_SEMANTICS` 表 (标签+置信度), 面板/清单/报告同步生效。
+
+### R2+方向组合键解锁配方 (2026-10-17 实证部署)
+
+机制: mFlag1 位簇整簇置位后, **当前播放动作**期间输入层才写组合键属性 (R+↑ 等),
+FSM 的 R+方向 链接才能路由; 无簇则恒不写 (10-13 局内 A/B 三连定案, 9-22 旧结论翻案)。
+配方 = 该招 entry 的 PlMotionInput.mFlag1 非零键 OR `0xC3FC00CC` + FSM 节点接 R+方向边。
+已部署实例 (气刃二家族, user 局内验证 R+↑ → MOT 衔接 361-363):
+
+| entry | 招式 | mFlag1 键值 |
+|---|---|---|
+| 106 | 気刃斬り2 (act 67) | f24=0xC7FC10CC / f44=0xCFFC10CC / f54=0xCFFC30CC / f120=0xC7FC10CC |
+| 110 | 袈裟斩后气刃2 (act 70) | f38=0xC7FC10CC / f58=0xCFFC30CC |
+| 156 | 跳跃气刃二连斩二段目 (act 76/77) | f5=0xC7FC10CC / f14=0xCFFC30CC / f46=0 |
+
+blend 侧定位: entry 的 PlMotionInput action 走节点树接线查 (106/110/156 = `.149/.153/.163`,
+勿信 .NNN 后缀); 轨 = `FreeHKTiml.m6E63FBC7` 双 fcurve (array_index 0/1 = 低/高 16 位),
+同帧键直接改值即可。mFlag1 疑为 16 个 2-bit 三态字段 (AGENTS 10-13), 单字段最小配方未验证。
+参考文件: `w03_00.lmt.r+up_dash` (md5 26e43fd4)。
 
 ## addon 修复 (2026-10-15)
 
@@ -134,6 +156,8 @@ b15 = 见切成功锁存/纳刀态信号 [推断]; mTrigger: 2048=无敌门 [确
 - `_export_blend_lmt.py` — 参数化无头导出 (BLEND/OUT 环境变量)
 - `_inspect_timl_blend.py` / `_dump_timl_action.py` — blend 内 TIML 形态检查
 - `_acceptance_run.py` — 验收脚本 (单会话 ops+export)
+- `_test_combo_unlock.py` — 组合键解锁工具无头自测 (幂等/关簇/还原/操作符/错误分支,
+  2026-10-17 ALL PASS)
 - `_verif_001/002.lmt`, `_verif_diff_001_002.txt`, `_acceptance.*` — 验证产物
 - `E:\MHW-arts\TIML-Studio\` — 二进制解析/序列化 + `timl-diff.js` 比对器
   (`npm test` 27 项: 解析/规范序列化字节对照 vanilla/回环/配方/保存校验)
