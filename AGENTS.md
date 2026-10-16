@@ -3266,3 +3266,43 @@ MHWNoChunk and MHWEditor
 - **bisect 遗留 (10-13)**: 单字段最小配方仍未验证。字节级事实: 工作参考值里 **b16/b17=0**,
   10-13 笔记 "f8(b17:16)=方向组" 的字段序号对不上参考值 — 候选实为 b19:18 (掩码
   0x000C0000) 或别的字段, 抠位实验时先重排字段序号。最小化前部署维持全簇 (NFH 撒网值)。
+
+### 2026-10-17 (2) 勇气纳刀強格挡耐力: mStaminaParamIndex 定案 (user 局内 A/B + 反编译)
+
+- **起因**: 306 复制线 (gp-valor-sheath.blend, 306 格挡转強G) 掉耐力极慢; 旧好工程
+  (no-change-306-to3840) 快。timl_headless dump + jsondiff 定位: 差异 = E306 缺
+  **mStaminaParamIndex (0x85A14934)** 轨。GUI"耐力档"显示的 -1 是配方输入滑条 (-1=不动),
+  不是数据现值 — 该坑已加 GUI 现值标签堵死。
+- **修复 (MCP 会话内, spend-stamina.blend)**: ①E306 PC 补 mStaminaParamIndex ix0 f0=10
+  (CONSTANT); ②mFlag f0 0xD0000000→0x52400006 (对齐已验证定稿); ③从旧工程 append
+  PlMotionInput306 (按住R分段档, freehk 属性+6 fcurve 完整) 并接 E306 的 TIMLDataNode。
+  无头 dump+jsondiff vs 旧工程 E306 = **0 差异**。user 局内: 耐力正常 ✓。
+- **副作用 (user 发现并接受)**: PI306 的 f50/f60 输入接受窗打开后, 架势中 R→気刃踏込斬り、
+  △+○→袈裟斩 等 FSM 链接恢复点火 (=旧好工程的完整行为; f0 保护窗仍防进架势瞬间出招)。
+- **档位 A/B (user 局内实测)**: **9 ≈ 7 > 8 > 10 > 1 ≈ 11 (慢), 256 = 完全不掉**;
+  306 最终选 10。345 完全不掉 = 配置使然 (mFlag 0x90080000 无 b30, 无 mFlag1.b28 →
+  普通 35-37 格挡路线, 本来就不掉耐力), 想掉 = GUI 強G 配方 (起0止12) 一键三件套。
+- **代码依据 (反编译实锤)**: ①mStaminaParamIndex 是正式 TIML 参数 (名字串 0x1433C6648,
+  注册于 FUN_14191f7d0), 采样值写运行时参数块 **+0xa8** 槽位; 邻座 +0x94 mSuperArmorTime/
+  +0x98 mHyperArmorTime/+0x9c mNoHitTime/+0xa0 mDamageHitNo/+0xa4 mScrHitNo/
+  +0xac mStaminaRecoveryRate — 即 PlMotionCommon 采样值块。②plp (pl_param, 玩家参数)
+  有社区已命名表 **"Stamina Time Reduce mCore"** (17 行: Unk1-3/HammerBowCharge/Unk4-7/
+  **LancePowerGuard**/ClutchDrain/ClutchCounter/Unk9-14) = 掉耐力查表本体; 256 越界→不掉
+  (NFH 选 256 即为无掉耐力)。行值未读出 (本地提取的 plp 是 Iceborne 加密态) —
+  MHW Editor 打开 plp 读 mCore 块即可钉死每档数值; 二进制内无硬编码表 (值从 plp 加载)。
+- **GUI 工具增补 (FreeKinetics e2a48f1 之后未提交)**: `freehk.timl_stamina_set` 仅写耐力档
+  (不动位窗) + 面板现值标签 + describe_windows 耐力行; 自测全过。
+
+- **mCore 表真值 (2026-10-17 解密读出)**: plp 为 Iceborne 加密 (Blowfish ECB, key=
+  `j1P15gEkgVa7NdFxiqwCPitykHctY2nZPjSaElvqb0eSwcLO1cOlTqqv`, 4字节字序交换后解/解后换回,
+  上游 Synthlight/MHW-Editor Util/EncryptionHelper.cs 同款); 解密产物
+  `_pl_param_decrypted.plp`。Stamina_Time_Reduce_mCore @文件偏移 0x250 (1-based **18 行**, 行序以上游
+  Generated/Structs/PlData/PlPlayerParam.cs 为权威): 1:Unk1=8 / 2:Unk2=30 / 3:Unk3=50 /
+  4:HammerBowCharge=0(不掉) / 5:Unk4=0 / 6:Unk5=50 / 7:Unk6=70 / 8:Unk7=100 /
+  9:**LancePowerGuard=150(最快)** / 10:Unk8=50 / 11:ClutchDrain=50 / 12:ClutchCounter=10 /
+  13:Unk9=20 / 14:Unk10=40 / 15:Unk11=60 / 16:Unk12=1 / 17:Unk13=60 / 18:Unk14=100。
+  user A/B 大信号吻合 (9 最快=长枪强格挡档; 8>10; 1 慢; 256 越界不掉), 两处待复核:
+  表值 7(70)<8(100) 与 user 记的 7>8 相反 (体感误差?); 10/11 表值同为 50 而 user 记
+  11 慢 — 复测可用 12 (=10, 明显慢档) 做对照钉死基制。
+  chunk-extracted = 全 chunk 合并提取 (用户确认), 表值即当前冰原生效值。
+  解密脚本 = `plp_decrypt.py` (根目录)。
