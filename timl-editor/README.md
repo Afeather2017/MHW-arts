@@ -171,3 +171,21 @@ blend 侧定位: entry 的 PlMotionInput action 走节点树接线查 (106/110/1
 - `_verif_001/002.lmt`, `_verif_diff_001_002.txt`, `_acceptance.*` — 验证产物
 - `E:\MHW-arts\TIML-Studio\` — 二进制解析/序列化 + `timl-diff.js` 比对器
   (`npm test` 27 项: 解析/规范序列化字节对照 vanilla/回环/配方/保存校验)
+
+## TIML 声音/事件编辑器 (2026-10-17, timl_sound_editor.py, addon main 4cb534e)
+
+N 面板 FreeHK → **"TIML 声音/事件"** (与窗口编辑共用 action 选择器, 默认折叠)。
+编码 2026-10-17 声音专项的实证语义 (全文见 TIML_PARAM_REGISTRY.md):
+
+- **mTrigger 触发语义** (EG02 喊声 A/B 确证): 键帧=触发帧, 键值=ReqNo 行位掩码
+  (bit0=A..bit5=F), f0=0 基线键勿删。面板实时解码 "f130 → C(1019)"。
+- **操作**: 加/改触发 (帧+掩码)、删触发 (=删那次发声)、挪触发 (双通道同步,
+  保插值)、设 ReqNo 行值 (f0 常数键)。
+- **角色速查** (按 action 名显示): EG02=喊叫载体 / EG06=金属摩擦 ⚠触发语义未
+  isolated (收窗实验全灭, 慎删挪) / GameParameter=刀风=连续参数轨 (无 mTrigger,
+  改时机=PO 曲线编辑器动 GameParam A/B 键) / EffectParameter1=踏步 FX (KeyFrame
+  窗 + WorkNo id) / EG01=角色未 isolated。
+- **安全护栏**: 插值仅限 exporter 七种 (BEZIER 会崩导出, 面板操作全部自动设
+  SINE/LINEAR); 整数帧; bigflag 双通道自动同步。
+- 无头: `bpy.ops.freehk.timl_snd_list(action_name=...)` / `timl_snd_trig_add`
+  / `timl_snd_trig_del` / `timl_snd_trig_move` / `timl_snd_row_set`。

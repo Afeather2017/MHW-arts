@@ -92,22 +92,79 @@
 - [ ] mWeaponMotionNo/mWeaponMotionStartFrame 消费者追踪 → 接 09-20 纳刀合并研究
 - [ ] 类型码 6/10/12 与 TIML 值格式 (int/uint/float) 对应关系
 
-## nWwiseTimeline 类别 (无注册描述符, 轨值即载荷; 2026-10-17 经验破译)
+## nWwiseTimeline 类别 (无注册描述符, 轨值即载荷; 2026-10-17 经验破译, 当日晚触发语义定案)
 
 Wwise 系类别不出现在注册函数里 (描述符模式不适用) — 轨 hash 名 + 值 = 帧→请求号。
 部署 LMT 实测 (E106/E110/E140):
 
 | 类别 | 轨 | 值特征 | 推断 |
 |---|---|---|---|
-| **EventGroup01** | ReqNo A-E | **111/115/135/139/145, 全招共用同一组** | **猎人气合声 (挥砍"呵/哈") 请求号 — 删轨即灭喊叫 (user 实验)** |
-| EventGroup01 | mTrigger | 帧上小事件码 (1/2/4/8) | 伴随子事件, 待解 |
-| EventGroup02 | ReqNo | 每招不同 (1109/1129/1015) | 武器挥舞 SE |
+| **EventGroup02** | ReqNo A-C + mTrigger | 1119/1409/1019 (跨招部分共享) | **喊叫载体 (2026-10-17 晚 user A/B 翻案: 删 EG02.086 → 345 灭喊, 当时 EG01 完整在场)** |
+| EventGroup01 | ReqNo A-E | 111/115/135/139/145, 全招共用同一组 | **角色存疑** — 曾推断为气合声 (值像语音库), 但 345 上 EG01 在场无 EG02 时喊声全无; 单删 EG01 未干净测过 |
+| EventGroup01 | mTrigger | 帧上小事件码 (1/2/4/8/16) | 触发器: 值 = 行位掩码 (定案见下), 但其音频效果未isolated |
 | EventGroup03/05/09 | ReqNo | 543/902/7844 | 杂项 SE |
 | EventGroup06/07 | ReqNo + TargetUnitNo + mTrigger | 56xx | 落地/摩擦等音效 |
 | EventCollision00 | ReqNo(On) A/B + SkipTime + mFlag | 1/2 (= col bank 的 ReqNo) | **攻击窗** (col 已破译, 非声音) |
 
 - 原版基础攻击 (84 纵斩/79 突刺) **没有任何 TIML** 也有喊叫 → 那些是动作类代码层驱动;
   TIML 驱动的喊叫只存在于带 TIML 的 entry (106/110/140/306/345/…)。
-- EventGroup01 ReqNo 与 col 的 ReqNo 同名不同物 (声音请求 vs 碰撞 bank 请求)。
-- 确认路径: GUI 只删 EventGroup01 的 ReqNo 行 (留其他组) → 喊叫灭、SE 在 = 钉死;
-  或 ValorProbe WWISEEV 日志删前后对比。
+- EventGroup ReqNo 与 col 的 ReqNo 同名不同物 (声音请求 vs 碰撞 bank 请求)。
+
+### mTrigger 触发语义定案 (2026-10-17 晚, E170/E345 二进制+blend 双侧核对)
+
+- **mTrigger bigflag (m99897C43) 的键 = 触发事件: 键帧 = 触发帧, 键值 = 行位掩码**
+  (bit0=ReqNo A, bit1=B, bit2=C, bit3=D, bit4=E → 值 1/2/4/8/16)。f0=0 是基线键。
+- **行序 A~E = 二进制轨序 = blend fcurve 插入序** (patch_timl_defense.py dump 直接显示
+  "ReqNo A"~"ReqNo E" 轨名)。E170: A=115 B=145 C=135 D=111 E=139;
+  E345: A=115 B=145 C=135 D=111 E=155。
+- 交叉证据: EG02 里 E170/E345 的 code4 都命中 C 行 (1019 挥砍声); E170 EG01 的两声喊叫
+  = **B(145)@f6 + B(145)@f141** (user 听到的"两声"), A(115)@f182/f235 = 末尾气音,
+  C(135)@f98 一声。170 共 246 帧。
+- **E170 喊叫模式 = 3 段式: 起手喊 (2%) + 中段喊 (57%) + 收招气音 (74%/96%)**。
+- E345 (valor_1, 142 帧) 旧触发 {36:C 90:C 111:E(155) 131:B 155:A} 三病灶:
+  **f155 超出动作长永不触发; f111/f131 落在收招死区** (f100 后骨骼活动 <0.2 rad/帧,
+  主发力爆发在 f30-54); 与挥砍声 (EG02 f2/72/130) 全程错位 → "有两声但时机不对"。
+- **E345 终态 (2026-10-17 晚, user A/B 三轮定案)**:
+  - **喊声真载体 = EventGroup02.086** (翻案实验: user 删整个 EG02.086 → 灭喊,
+    EG01 完整在场; 撤销恢复)。行 A/B/C = 1119/1409/1019 = 真正的喊叫请求号
+    (4 位数库), 触发 {f2=2(B), f72=1(A), f130=4(C)}。
+  - **此前 v1/v2/v3 对 EG01 的改时机/删键全部无效** (用户听到的两声从未移动) —
+    教训: 类别角色未isolated前, 别拿"改了没反应"当语义否定。
+  - **"第二声" = f72 事件 (A 行/1119, 1.2s 主挥砍后)** — user 先说"应在 40 帧"
+    (主发力爆发 f30-54), 后裁定直接删除。v4 终版 EG02 mTrigger =
+    {f0=0, f2=2(B=1409 拔刀喊), f130=4(C=1019 二刀喊)}。
+  - EG01.207 保持 v3 状态 {36:C, 113:C, 122:B, 138:A} (5 键含基线), 其作用待isolated
+    (候选: 低音量气音层/语音变体选择/或对此 move 无音频效果)。
+  - **撤回**: 之前"155 可闻/C(135)@36 可闻"结论作废 — 那两声实为 EG02 的 f72/f130。
+  - 部署备份链: pre-345-shout-retime → pre-345-shout-f40 → pre-345-shout-del2nd
+    → pre-eg02-f72-del (= user 删 EG02 实验版, 现已恢复)。
+- 旁证: E170 的 EG02 触发 {f22, f84, f191} 与其"两声喊叫"同构 (3 触发 2 可闻),
+  EG01 角色对 170 同样存疑。
+
+### 345 声音组件全景 (2026-10-17 深夜 user 逐个删除辨认 + blend 数据定案; v5 重排已部署)
+
+| 组件 | 类别/轨 | 结构 | v5 终态数据 |
+|---|---|---|---|
+| 金属摩擦声 | **EventGroup06.182** | 同款 ReqNo 行 + 位掩码触发 | 6 行 56xx {A=5645, B=5616, C=5655, D=5620, E=5645, F=5660}; **v5 收 3 触发进 40-55 → 游戏内金属声全灭 (user 实测), v6 还原原版 8 键 {f1:4, f20:8, f31:32, f60:2, f148:16, f157:8, f176:0} 后恢复**。⚠EG06 触发语义存疑: 可能非行位掩码 (行序配对? 触发值=子事件码?), 或 A/B/C 行是哑行 — 再改前先做单触发 A/B |
+| **刀风声** | **GameParameter.206** | **无 mTrigger! 连续参数轨** (音频逐帧采样) | TargetReqNo A=1 / B=2 (dataType 1/0); 强度曲线 **GameParam A (dataType 2 float)** {f0=0, **f30=0, f31=30**, f45=30, f125=15} 与 **GameParam B** {f0=0, f30=0, f31=28, f38=30, f45=25, f155=15} — **v6 起音点提前到 f30** (user: 破空声音资源文件开头有几帧静音, 曲线窗提前补偿; 30 前硬静音, f31 瞬起) |
+| 踏步泥土 FX(自带声) | **EffectParameter1.106** | KeyFrame 使能窗 (dataType 4 bool) × 3 槽 + WorkNo FX id | KeyFrame00 {f5-20 拔刀步, **f50-55 (原 f60-65 挪入)**, f140-150 收招步} + WorkNo00 {3199→f130:3198}; KeyFrame01 f69 + 2018; KeyFrame02 f73 + 2019 未动 |
+
+- GameParameter 是第三种 TIML 形态 (触发式 EG / 位掩码 / **连续参数**) — "删触发帧"
+  的编辑模型对它不适用; 改曲线 = blend 里删 fcurve 重建 (keyframe_points.add 不返回
+  新键, 取 [-1]; remove 会使引用失效, 整条重建最稳)。
+- **工具坑**: patch_timl_defense.py dump 只显示 dataType=1 (uint) 轨 — float (2) /
+  bool (4) / raw (0) 轨全不可见 (GameParam 曲线/EP1 KeyFrame 都是)。看全量要用
+  struct 原始解析 (本节 dump 方法)。
+- 备忘: 重载工程后插件 grip-sync 会在 load 时重写 FK_grip_preview_auto (日志可证),
+  文件随即 dirty 属正常, 不是未保存的用户改动。撤销栈跨 MCP/GUI 共用, 改动频繁期
+  建议"以磁盘为准"重载 (open_mainfile) 而不是连续撤销。
+- **删键注意**: 删 TIML 键会让导出文件整体变短 (v3 比 v2 少 16 字节), 后续所有
+  entry 的文件偏移前移 → `cmp -l` 字节对比失效; 回归验证改用全 entry TIML 语义
+  diff (iter_tracks 快照对比, 464 entry 全过 = 只有 345 变化)。
+- 编辑手段: blend EG01 action 的 mTrigger **双通道键必须同步移动** (ix0=值/ix1=高位0),
+  键保持帧排序; 345 = `TIML::nTimelineParam::nWwiseTimeline::EventGroup01.207`,
+  170 = `...EventGroup01.224`。blend 已存
+  (`MHW-Valor-0.0.2-shout-config.blend.bak-20261017-pre-shout-retime`),
+  部署备份 `w03_00.lmt.bak-20261017-2100-pre-345-shout-retime`。
+- 语义留白: C(135) 在 170 里是否出声未定 (若出声 170 应有三声 — user 记两声,
+  故 135 疑似气音/不出声); 各 ReqNo 具体音色对照未做。
