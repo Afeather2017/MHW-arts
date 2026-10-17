@@ -91,3 +91,23 @@
 - [ ] mNoHitTime/mSuperArmorTime 消费者追踪 → 坐实"数值窗=位窗等价物" → 编辑器加时长模式
 - [ ] mWeaponMotionNo/mWeaponMotionStartFrame 消费者追踪 → 接 09-20 纳刀合并研究
 - [ ] 类型码 6/10/12 与 TIML 值格式 (int/uint/float) 对应关系
+
+## nWwiseTimeline 类别 (无注册描述符, 轨值即载荷; 2026-10-17 经验破译)
+
+Wwise 系类别不出现在注册函数里 (描述符模式不适用) — 轨 hash 名 + 值 = 帧→请求号。
+部署 LMT 实测 (E106/E110/E140):
+
+| 类别 | 轨 | 值特征 | 推断 |
+|---|---|---|---|
+| **EventGroup01** | ReqNo A-E | **111/115/135/139/145, 全招共用同一组** | **猎人气合声 (挥砍"呵/哈") 请求号 — 删轨即灭喊叫 (user 实验)** |
+| EventGroup01 | mTrigger | 帧上小事件码 (1/2/4/8) | 伴随子事件, 待解 |
+| EventGroup02 | ReqNo | 每招不同 (1109/1129/1015) | 武器挥舞 SE |
+| EventGroup03/05/09 | ReqNo | 543/902/7844 | 杂项 SE |
+| EventGroup06/07 | ReqNo + TargetUnitNo + mTrigger | 56xx | 落地/摩擦等音效 |
+| EventCollision00 | ReqNo(On) A/B + SkipTime + mFlag | 1/2 (= col bank 的 ReqNo) | **攻击窗** (col 已破译, 非声音) |
+
+- 原版基础攻击 (84 纵斩/79 突刺) **没有任何 TIML** 也有喊叫 → 那些是动作类代码层驱动;
+  TIML 驱动的喊叫只存在于带 TIML 的 entry (106/110/140/306/345/…)。
+- EventGroup01 ReqNo 与 col 的 ReqNo 同名不同物 (声音请求 vs 碰撞 bank 请求)。
+- 确认路径: GUI 只删 EventGroup01 的 ReqNo 行 (留其他组) → 喊叫灭、SE 在 = 钉死;
+  或 ValorProbe WWISEEV 日志删前后对比。
