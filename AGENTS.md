@@ -3306,3 +3306,24 @@ MHWNoChunk and MHWEditor
   11 慢 — 复测可用 12 (=10, 明显慢档) 做对照钉死基制。
   chunk-extracted = 全 chunk 合并提取 (用户确认), 表值即当前冰原生效值。
   解密脚本 = `plp_decrypt.py` (根目录)。
+
+- **加密逆向坐标 (2026-10-17 反推验证)**: plp 等 userdata 的解密 key 非破解所得 —
+  游戏资源字典明文携带。key 表 = .rdata **0x1431E0000** 起 (条目 = magic 4字符 +
+  RSZ 类型名 rXXXParam + 成员名 + 可选 key; plp 条目 = plp/mParam/<key>/rPlayerSkillParam,
+  34 处代码引用); Blowfish P 数组 (π 常量) = .data **0x144BE0580** (唯一份),
+  引用它的 key-schedule init @0x1421F81CE。同表可枚举全部加密类型与其 key
+  (plip/plsp/… 各有自己的条目)。BSwap = Blowfish 大端字序 vs LE 缓冲的适配。
+
+### 2026-10-17 (3) TIML 参数注册表破局: PlMotionCommon 全 65 项提取 (name→槽位→类型码)
+
+- **钥匙 = FUN_14191f7d0** (PlMotionCommon 注册函数, 反编译行 5174891-5176565): 每参数一条
+  描述项 {名字串VA(.rdata 明文), 类型码 6/10/12, owner, **owner+槽位**}。TIML 数值轨的值
+  动作期间被采样进运行时参数块槽位 — **名字即语义的一半, 槽位读者即另一半**。
+- 全 65 项 + 作用标注已入 **timl-editor/TIML_PARAM_REGISTRY.md** (含方法论:
+  数值轨=槽位读者追踪 / bigFlags 位轨=player+0x8938 事件位读者枚举 / mTrigger=事件码分发;
+  复现脚本 extract_timl_registry.py)。高价值自证名: mNoHitTime/mSuperArmorTime/
+  mHyperArmorTime (=b26/b24 位窗的数值版, 可直接填时长), mMotionSpeed (动画速度),
+  mWeaponMotionNo/StartFrame (武器动画覆盖/起始帧, 接 09-20 纳刀研究), mTurnSpeed (转身钳制)。
+- 其余类别 (PI/Visual/Collision/GameParameter) 注册函数待定位 (共用分配器
+  FUN_142171fe0, xref 可枚举); 加密 key 表 0x1431E0000 见上文加密逆向坐标。
+- mStaminaParamIndex 是本方法论首个全流程定案 (注册表→plp 查表→局内 A/B)。
