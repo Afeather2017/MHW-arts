@@ -7817,6 +7817,91 @@ void PollGaugeLock() {
         g_gaugeWatchFrames[1] = 0;
     }
 }
+
+// SHEATHWATCH (2026-10-18): edge logger for the special-sheathe sequence state
+// on the weapon object. Reverse findings: FUN_1421237B0 forces the sheathed
+// expectation (FUN_142150d10(td,0)) every frame while weapon+0x23C0 or
+// weapon+0xA50 is nonzero; +0x23C0 is set by the special-sheathe stage
+// machinery (stage handshake events land in +0x23B0/B4/B8; stage advance at
+// 0x142144E04 requires newStage > +0x23B4) and its only clear site is the
+// full weapon reset FUN_142124590 - so a custom valor chain that never
+// completes the vanilla sequence keeps the flag up forever. +0xC71 latch
+// polarity (09-25 live): 0 = sheathed, nonzero = drawn. Logs one line only
+// when a watched field or the current action changes.
+void PollSheathWatch() {
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller || !ModWeaponActive()) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon + 0x23C8, 8)) {
+        return;
+    }
+    struct Snap {
+        std::uint32_t actSet;
+        std::uint32_t actId;
+        std::uint8_t c71;
+        std::uint8_t a50;
+        std::uint8_t c0;
+        std::uint8_t c3;
+        std::uint8_t s68;
+        std::uint8_t ab8;
+        std::uint32_t b4;
+        bool operator==(const Snap& o) const {
+            return actSet == o.actSet && actId == o.actId && c71 == o.c71 &&
+                   a50 == o.a50 && c0 == o.c0 && c3 == o.c3 && b4 == o.b4 &&
+                   s68 == o.s68 && ab8 == o.ab8;
+        }
+    };
+    Snap snap{};
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            snap.actSet = g_lastLongSwordAction->actionSet;
+            snap.actId = g_lastLongSwordAction->actionId;
+        } else {
+            snap.actSet = 0xFFFFFFFFu;
+            snap.actId = 0xFFFFFFFFu;
+        }
+    }
+    snap.c71 = weapon[0xC71];
+    snap.a50 = weapon[0xA50];
+    snap.c0 = weapon[0x23C0];
+    snap.c3 = weapon[0x23C3];
+    snap.s68 = weapon[0x2368];
+    snap.ab8 = weapon[0xAB8];
+    snap.b4 = *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x23B4);
+
+    static Snap last{};
+    static bool have = false;
+    if (have && snap == last) {
+        return;
+    }
+    last = snap;
+    have = true;
+    std::ostringstream m;
+    if (snap.actSet == 0xFFFFFFFFu) {
+        m << "SHEATHWATCH act=-";
+    } else {
+        m << "SHEATHWATCH act=" << snap.actSet << ':' << snap.actId;
+    }
+    m << " c71=" << static_cast<int>(snap.c71)
+      << " a50=" << static_cast<int>(snap.a50)
+      << " 23c0=" << static_cast<int>(snap.c0)
+      << " 23b4=" << snap.b4
+      << " 23c3=" << static_cast<int>(snap.c3)
+      << " 2368=" << static_cast<int>(snap.s68)
+      << " ab8=" << static_cast<int>(snap.ab8);
+    Log(m.str());
+}
 #endif // !VALOR_PROBE (gauge-lock experiment = mod build only)
 
 void DrawGauge(IDXGISwapChain* swapChain) {
@@ -7877,6 +7962,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollSheatheCounter();
     PollSheatheBlueSim();
     PollGaugeLock();
+    PollSheathWatch();
     PollGuardWindow();
     PollHpLock();
     PollHpWatch();
