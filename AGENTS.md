@@ -253,6 +253,37 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   `col_research/mhw-editor-src/010 Templates/col.bt` (sparse clone of Synthlight/MHW-Editor; its
   CollisionTranslations/wp03.col.csv = move-name translations).
 
+### 2026-10-19 破坏值定案: ATK Part_Modifier = 每击部位(破坏)积累乘数 (A/B 实锤 + decompile 布局)
+
+- **部位破坏值在资源文件里, 不写死二进制**: 每击破坏积累 = 伤害 × ATK 行 `Part_Modifier`
+  (file +16)。证据: 大居合(308-311, node86-89→行46-49)/无双斩(node89→行49, MV39) 破坏恒 0 —
+  那 4 行是原版居合気刃1 無白黄赤的遗产, **原版 Part_Modifier 全 0.0** (原版居合气刃1 本就不破坏);
+  刚1(见切动作→node63→見切り攻撃 行25) Part_Modifier 1.0 → 能破坏 (user A/B 局内确认)。
+  原版旁证: 居合気刃2 (原版大居合, 毁部位出名) = **1.5**; 張り付き1/2 (柔化专用) = 0;
+  乗りチャンス1-3 = 0。伤害(MV)不受该字段影响 → 它只乘部位积累。
+- **修复 (2026-10-19 已做, user-verified 生效)**: 行46/47/48/49 Part_Modifier 0→1.0
+  (col_tool setval, auto .bak)。想还原原版大居合的破坏手感可自行调 1.5。
+- **⚠️ col 修复未生效的根因 (2026-10-19 定案)**: `nativePC/hm/wp/wp03/collisi on/` 带空格目录
+  (2026-10-07 03:41 建立, 与 pre343mv 备份同刻) = Windows 字面路径匹配不到 `collision` →
+  **nativePC col 自 10-07 起从未被加载, 游戏一直用 chunk 内 vanilla col**。当时所有 col 编辑
+  (343mv/行22/PartMod 修复) 全部未进游戏。旁证: 无双斩无破坏=vanilla 行49 PartMod 0;
+  一文字有破坏=vanilla 行17 PartMod 1; 伤害"正确"=挑的行 (17→30/49→39) vanilla 原值就是它。
+  同款 spacing=禁用 模式: `sh ell/`、`wp03_ a ction.fsm`。**改 col 后必须确认目录名无空格**。
+  激活前已还原隐患: 行10 突き MV 100→12 (旧测试残留, 否则激活后突刺 8 倍伤)。
+  行22 (node85, MV100/type1/HitLag0.1, 10-18 编辑) 会随激活开始生效。
+- **cAttackParamPl 运行时布局** (decompile: 类工厂跳表 0x143F949E0[type], 类名串
+  0x142F12DD0 "cAttackParamPl", Load FUN_14027d880 / Save FUN_14027dd20, 实例 0x270 字节,
+  行对象指针数组在 ATK section obj+0xC8): +0x08 Index, +0x18 Attack_Type, +0x20 MV,
+  +0x24 Fixed_Damage, **+0x28 Part_Modifier**, +0x68 Stun, +0x6c Exhaust, +0x1c8 Soften,
+  +0x1d0 Elem_Mod, +0x1d4 Status_Mod, +0x1d8 Mount, +0x232 MindsEye(bool), +0x240 Flinch(u32)。
+- **ValorProbe 新工具 (md5 359e0592)**: **Shift+F9** (裸 F9 与 CSharp loader 冲突) =
+  ATKSCAN (全堆扫 vtable +0x2F12DE0 找所有行对象, dump idx/MV/PartMod + 目标行 hex) +
+  ATKTRACE (目标行 0x270 字节 PAGE_GUARD 20s, VEH 记每次读写的 rw/off/rip/栈)。
+  配置 `nativePC/plugins/ValorProbe.atktrace.txt` = "<行号>" (默认 22 = 用户的自定义行,
+  node85)。作用: 确认某行是否真被加载 (MV 对不上=col 没加载) + 抓任意字段的消费 RIP 链。
+- LuaEngine (TCP 28991, luaL_dostring 逐行) 有 GetAddress/GetAddressData/SearchPattern,
+  但 SearchPattern 只扫主模块不扫堆, 标准 Lua 无 FFI → 堆扫描只能靠原生 DLL。
+
 ### 2026-09-15 Original ValorLS.dll mechanism (Reverse/ValorLS.dll.c — use it)
 
 - User's counter-evidence killed the "unbound = no clang" theory: vanilla iai/见切 still clang with the vanilla FSM. Conclusion: 0xDE/7C0 is ONE success candidate (likely tied to the extended-iframe iai mechanic), not THE clang presentation; other candidate evaluators (FUN_1411c2780/27c0/2800 family reading prop 0x35) exist.

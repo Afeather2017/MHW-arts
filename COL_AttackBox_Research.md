@@ -71,6 +71,21 @@ Elem_Modifier, Status_Modifier, Stun, Exhaust, Mount, Soften(软化), Flinch,
 **Energy_Gen(炼气增益)**, Cond_MV/Cond_Elem(条件动作值替换) 等。
 （ATK 还有 type 0/2/3：击退/防御条/异常状态值/贯通等，wp03 全是 type 1。）
 
+**Part_Modifier（+16）语义定案（2026-10-19，A/B 局内实锤）**：= **每击部位（破坏）积累乘数**，
+每击破坏积累 ≈ 伤害 × Part_Modifier（再乘 Partbreaker 技能/怪物侧系数）。资源字段，非二进制写死。
+证据：大居合 308-311（node86-89→行46-49）与无双斩（node89→行49）破坏恒 0——这 4 行继承原版
+居合気刃1無白黄赤，原版 Part_Modifier 全 0.0（原版居合气刃1 本就不破坏）；刚1（见切→node63→
+行25）Part_Modifier 1.0 → 能破坏。原版旁证：居合気刃2（原版大居合）= **1.5**、張り付き1/2（柔化）
+= 0、乗りチャンス1-3 = 0。MV（血伤）不受影响。修复：行46-49 → 1.0（col_tool setval，2026-10-19）。
+
+**cAttackParamPl 运行时布局**（decompile 2026-10-19；类工厂跳表 0x143F949E0[type]，类名串
+0x142F12DD0 "cAttackParamPl"，Load FUN_14027d880 / Save FUN_14027dd20，实例 0x270 字节，
+行对象指针数组在 ATK section obj+0xC8，count +0xB8/capacity +0xBC）：+0x08 Index、
++0x18 Attack_Type、+0x20 MV、+0x24 Fixed_Damage、**+0x28 Part_Modifier**、+0x68 Stun、
++0x6c Exhaust、+0x1c8 Soften、+0x1d0 Elem_Mod、+0x1d4 Status_Mod、+0x1d8 Mount、
++0x232 MindsEye(bool)、+0x240 Flinch(u32)。运行时字段偏移 ≠ 文件偏移（重新布局过），
+DLL 侧读写用运行时偏移。
+
 ### 打击停顿 HitLag 速查（2026-09-19 全表归纳，单位=秒，a/b 两级但原版恒同值）
 | 值 | 用在哪 |
 |---|---|
@@ -130,6 +145,7 @@ col/ATK   move 行                     伤害：动作值/部位/停顿/炼气/�
 | 2026-09-19 | 测后已还原 | 部署文件恢复为 SR 版（wp03.col.sr-backup 同 md5 8fa4f67e） |
 | 2026-09-19 | 用户互换突刺(3:79)与气刃斩1(3:11)的攻击箱 | **阳性**：判定跟武器动画走（戳=小前方、扫=180°），窗口不变 → 几何与时机解耦，位置无需数据 |
 | 2026-09-19 | 突刺 ATK[10] HitLag_a/b 0.06→0.40 | **阳性**：命中冻结明显 → 打击停顿=ATK HitLag 字段（秒），已实测闭环；测后还原 SR 版 |
+| 2026-10-19 | 行46-49（居合気刃1無白黄赤，现役=大居合/无双斩）Part_Modifier 0→1.0 | **阳性 user-verified**（改回 collision 目录后破坏恢复）；A/B 依据=刚1（行25, 1.0）能破坏 / 无双斩（行49, 0.0）破坏恒 0 |
 
 ---
 

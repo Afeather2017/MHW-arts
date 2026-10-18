@@ -7374,6 +7374,315 @@ void PollStateLogger() {
     }
 }
 
+// --- F9 ATK-row scan + guard-page access trace ------------------------------
+// Part-break (破坏值) question 2026-10-18: which cAttackParamPl field feeds the
+// per-hit part-break accumulation and whether anything reads it at all on the
+// custom row. cAttackParamPl = col ATK type-1 row object (0x270 bytes; factory
+// jump table 0x143F949E0[type], class name string at 0x142F12DD0); runtime
+// layout from Load FUN_14027d880 / Save FUN_14027dd20:
+//   +0x00 vtable(0x142F12DE0) +0x08 Index u32 +0x0c Index2 u32
+//   +0x18 Attack_Type u32 +0x20 Motion_Value +0x24 Fixed_Damage
+//   +0x28 Part_Modifier +0x68 Stun +0x6c Exhaust +0x1c8 Soften
+//   +0x1d0 Elem_Mod +0x1d4 Status_Mod +0x1d8 Mount +0x240 Flinch u32
+// F9 arms one session: background scan of private RW memory for the vtable
+// pointer, per-row dump, hex dump of the configured row, then a PAGE_GUARD
+// trace over that row for 20 s (VEH logs rw/offset/rip/stack per access).
+// Config nativePC/plugins/ValorProbe.atktrace.txt = "<rowIndex>" (default 22).
+static std::atomic<std::uintptr_t> g_atkRowTarget{0};
+static std::atomic<long long> g_atkTraceDeadline{0};
+static std::atomic<unsigned> g_atkTraceLines{0};
+static std::atomic<bool> g_atkReprotectPending{false};
+static std::atomic<bool> g_atkVehInstalled{false};
+static int g_atkRowCfg = 22;
+static bool g_atkKeyWasDown = false;
+
+struct AtkGuardedPage {
+    void* base;
+    SIZE_T size;
+    DWORD oldProtect;
+};
+static std::vector<AtkGuardedPage> g_atkGuardedPages;
+static std::mutex g_atkGuardMutex;
+
+static void AtkApplyGuard(std::uintptr_t target) {
+    if (!target) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(g_atkGuardMutex);
+    if (!g_atkGuardedPages.empty()) {
+        return;
+    }
+    const auto pageStart = target & ~static_cast<std::uintptr_t>(0xFFF);
+    const auto pageEnd = (target + 0x270 + 0xFFF) & ~static_cast<std::uintptr_t>(0xFFF);
+    for (auto page = pageStart; page < pageEnd; page += 0x1000) {
+        void* base = reinterpret_cast<void*>(page);
+        MEMORY_BASIC_INFORMATION info{};
+        if (!VirtualQuery(base, &info, sizeof(info)) || info.State != MEM_COMMIT) {
+            continue;
+        }
+        DWORD oldProtect = 0;
+        // Guard every page that overlaps the row; neighbouring rows on the same
+        // page also fault but the VEH filters them out by address range.
+        if (VirtualProtect(base, 0x1000,
+                           (info.Protect & ~PAGE_GUARD) | PAGE_GUARD, &oldProtect)) {
+            g_atkGuardedPages.push_back({base, 0x1000, oldProtect});
+        }
+    }
+}
+
+static void AtkRemoveGuard() {
+    std::lock_guard<std::mutex> lock(g_atkGuardMutex);
+    for (const auto& page : g_atkGuardedPages) {
+        DWORD dontCare = 0;
+        VirtualProtect(page.base, page.size, page.oldProtect, &dontCare);
+    }
+    g_atkGuardedPages.clear();
+}
+
+static LONG NTAPI AtkGuardVectored(PEXCEPTION_POINTERS info) {
+    const DWORD code = info->ExceptionRecord->ExceptionCode;
+    if (code != STATUS_GUARD_PAGE_VIOLATION) {
+        if (code == STATUS_SINGLE_STEP &&
+            g_atkReprotectPending.exchange(false, std::memory_order_relaxed)) {
+            // The faulting instruction finished; put the guard back.
+            info->ContextRecord->EFlags &= ~0x100;
+            AtkApplyGuard(g_atkRowTarget.load(std::memory_order_relaxed));
+            return EXCEPTION_CONTINUE_EXECUTION;
+        }
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    const auto target = g_atkRowTarget.load(std::memory_order_relaxed);
+    if (!target) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    const auto addr = static_cast<std::uintptr_t>(
+        info->ExceptionRecord->ExceptionInformation[1]);
+    if (addr < target || addr >= target + 0x270) {
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    // Re-run the faulting instruction, then restore the guard on the single step.
+    info->ContextRecord->EFlags |= 0x100;
+    g_atkReprotectPending.store(true, std::memory_order_relaxed);
+
+    const unsigned line = g_atkTraceLines.fetch_add(1, std::memory_order_relaxed);
+    if (line < 1500) {
+        const auto base = g_moduleBase.load(std::memory_order_relaxed);
+        const char* rw = info->ExceptionRecord->ExceptionInformation[0] == 0
+                             ? "R"
+                             : (info->ExceptionRecord->ExceptionInformation[0] == 1
+                                    ? "W"
+                                    : "X");
+        void* stack[10] = {};
+        USHORT frames = RtlCaptureStackBackTrace(0, 10, stack, nullptr);
+        std::ostringstream m;
+        m << "ATKACC " << rw << " off=0x" << std::hex << (addr - target)
+          << " rip=+0x" << (info->ContextRecord->Rip - base);
+        int printed = 0;
+        for (USHORT i = 0; i < frames && printed < 6; ++i) {
+            const auto pc = reinterpret_cast<std::uintptr_t>(stack[i]);
+            if (pc >= base && pc < base + 0x2000000) {
+                m << (printed == 0 ? " stk=" : ",") << "+0x" << (pc - base);
+                ++printed;
+            }
+        }
+        Log(m.str());
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+static void AtkScanThread(int wantIdx) {
+    const auto base = g_moduleBase.load(std::memory_order_relaxed);
+    if (!base) {
+        Log("ATKSCAN: no module base yet");
+        return;
+    }
+    const std::uintptr_t vtable = base + 0x2F12DE0;
+    std::uint8_t needle[8];
+    std::memcpy(needle, &vtable, sizeof(needle));
+
+    // Raw scans run under SEH: the game streams resources and can free a heap
+    // region between VirtualQuery and the read.
+    struct Row {
+        std::uintptr_t addr;
+        std::uint32_t idx;
+    };
+    std::vector<Row> rows;
+
+    auto scanRegion = [&](const std::uint8_t* start, std::size_t size) {
+        if (size < 0x270) {
+            return;
+        }
+        std::uintptr_t candidates[512];
+        std::size_t count = 0;
+        __try {
+            for (std::size_t i = 0; i + 8 <= size; ++i) {
+                if (start[i] != needle[0] ||
+                    std::memcmp(start + i, needle, 8) != 0) {
+                    continue;
+                }
+                if (count < 512) {
+                    candidates[count] =
+                        reinterpret_cast<std::uintptr_t>(start + i);
+                }
+                ++count;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+        for (std::size_t c = 0; c < count && c < 512; ++c) {
+            const auto a = candidates[c];
+            std::uint32_t idx = 0xFFFFFFFFu;
+            std::uint32_t type = 0xFFFFFFFFu;
+            float mv = 0.0f;
+            const auto* p = reinterpret_cast<const std::uint8_t*>(a);
+            __try {
+                idx = *reinterpret_cast<const std::uint32_t*>(p + 0x08);
+                type = *reinterpret_cast<const std::uint32_t*>(p + 0x18);
+                mv = *reinterpret_cast<const float*>(p + 0x20);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                continue;
+            }
+            if (idx < 1024 && type < 32 && std::isfinite(mv) &&
+                std::fabs(mv) < 100000.0f) {
+                rows.push_back({a, idx});
+            }
+        }
+    };
+
+    std::uintptr_t regionStart = 0;
+    while (regionStart < 0x7FFFFFFEFFFF) {
+        MEMORY_BASIC_INFORMATION info{};
+        if (!VirtualQuery(reinterpret_cast<void*>(regionStart), &info, sizeof(info))) {
+            break;
+        }
+        const auto next = regionStart + info.RegionSize;
+        if (info.State == MEM_COMMIT && info.Type == MEM_PRIVATE &&
+            (info.Protect & PAGE_READWRITE) != 0 &&
+            (info.Protect & (PAGE_GUARD | PAGE_NOACCESS)) == 0) {
+            scanRegion(reinterpret_cast<const std::uint8_t*>(info.BaseAddress),
+                       info.RegionSize);
+        }
+        if (next <= regionStart) {
+            break;
+        }
+        regionStart = next;
+    }
+
+    std::ostringstream summary;
+    summary << "ATKSCAN: " << rows.size() << " cAttackParamPl rows (vtable +0x2F12DE0)";
+    Log(summary.str());
+    if (rows.empty()) {
+        Log("ATKSCAN: no rows resident - load a quest first (col not parsed yet?)");
+        return;
+    }
+
+    unsigned dumped = 0;
+    Row target{0, 0};
+    for (const auto& row : rows) {
+        auto* p = reinterpret_cast<const std::uint8_t*>(row.addr);
+        auto u32 = [p](std::size_t off) {
+            return *reinterpret_cast<const std::uint32_t*>(p + off);
+        };
+        auto f32 = [p](std::size_t off) {
+            return *reinterpret_cast<const float*>(p + off);
+        };
+        if (static_cast<int>(row.idx) == wantIdx) {
+            target = row;
+        }
+        if (dumped++ < 120) {
+            std::ostringstream m;
+            m << "ATKROW ptr=0x" << std::hex << row.addr << std::dec
+              << " idx=" << row.idx << " type=" << u32(0x18)
+              << " mv=" << f32(0x20) << " fixed=" << f32(0x24)
+              << " part=" << f32(0x28) << " stun=" << f32(0x68)
+              << " exh=" << f32(0x6c) << " soft=" << f32(0x1c8)
+              << " mnt=" << f32(0x1d8) << " flinch=" << u32(0x240);
+            Log(m.str());
+        }
+    }
+
+    if (!target.addr) {
+        std::ostringstream m;
+        m << "ATKSCAN: row " << wantIdx
+          << " not found among resident rows (col without that row loaded?)";
+        Log(m.str());
+        return;
+    }
+
+    {
+        auto* p = reinterpret_cast<const std::uint8_t*>(target.addr);
+        std::ostringstream m;
+        m << "ATKHEX row " << target.idx << " @0x" << std::hex << target.addr
+          << std::dec << " (u32 view):";
+        for (std::size_t off = 0; off < 0x270; off += 64) {
+            m << "\n  +0x" << std::hex << off << std::dec << ":";
+            for (std::size_t w = off; w < off + 64 && w < 0x270; w += 4) {
+                m << ' ' << std::hex << std::setw(8) << std::setfill('0')
+                  << *reinterpret_cast<const std::uint32_t*>(p + w) << std::dec;
+            }
+        }
+        Log(m.str());
+    }
+
+    if (!g_atkVehInstalled.exchange(true, std::memory_order_relaxed)) {
+        AddVectoredExceptionHandler(1, AtkGuardVectored);
+        Log("ATKTRACE: VEH installed");
+    }
+    g_atkTraceLines.store(0, std::memory_order_relaxed);
+    AtkApplyGuard(target.addr);
+    g_atkRowTarget.store(target.addr, std::memory_order_relaxed);
+    g_atkTraceDeadline.store(
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+                .count() +
+            20,
+        std::memory_order_relaxed);
+    std::ostringstream m;
+    m << "ATKTRACE: guarding row " << target.idx << " @0x" << std::hex
+      << target.addr << std::dec << " for 20 s - land hits now";
+    Log(m.str());
+}
+
+static void AtkScanArm() {
+    std::ifstream input("nativePC/plugins/ValorProbe.atktrace.txt");
+    int idx = 0;
+    if (input >> idx) {
+        g_atkRowCfg = idx;
+    }
+    g_atkRowTarget.store(0, std::memory_order_relaxed);
+    g_atkTraceDeadline.store(0, std::memory_order_relaxed);
+    AtkRemoveGuard();
+    std::ostringstream m;
+    m << "ATKSCAN: arming for row " << g_atkRowCfg
+      << " (config ValorProbe.atktrace.txt)";
+    Log(m.str());
+    std::thread(AtkScanThread, g_atkRowCfg).detach();
+}
+
+static void PollAtkTrace() {
+    const auto target = g_atkRowTarget.load(std::memory_order_relaxed);
+    if (!target) {
+        return;
+    }
+    const long long deadline = g_atkTraceDeadline.load(std::memory_order_relaxed);
+    if (deadline == 0) {
+        return;  // scan still running
+    }
+    const long long now =
+        std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    if (now < deadline && g_atkTraceLines.load(std::memory_order_relaxed) < 1500) {
+        return;
+    }
+    g_atkRowTarget.store(0, std::memory_order_relaxed);
+    AtkRemoveGuard();
+    std::ostringstream m;
+    m << "ATKTRACE: session over, " << g_atkTraceLines.load()
+      << " accesses logged (cap 1500)";
+    Log(m.str());
+    g_atkTraceDeadline.store(0, std::memory_order_relaxed);
+}
+
 // --- F10 struct diff capture ----------------------------------------------
 // Two-phase capture for locating defense-timer fields empirically:
 //   baseline (5 s idle) learns which offsets move without input;
@@ -7945,7 +8254,16 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollPropHistogram();
     PollReactionWatch();
     PollPoolDiff();
+    PollAtkTrace();
     MinerCaptureFrame();
+    const bool atkKeyF9 =
+        ((GetAsyncKeyState(VK_F9) & 0x8000) != 0) &&
+        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);  // Shift+F9: bare F9 is
+                                                       // taken by CSharp loader
+    if (atkKeyF9 && !g_atkKeyWasDown) {
+        AtkScanArm();
+    }
+    g_atkKeyWasDown = atkKeyF9;
     const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
     if (f5Down && !g_f9WasDown) {
         MinerHandleF9();
