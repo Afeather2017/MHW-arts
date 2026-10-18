@@ -3474,3 +3474,43 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   **任何 TIML 窗都给不了 312 尾段走动** → DLL force 是唯一路线 (motion≥f96 + 按方向 →
   force {1,0}/{1,4}/{1,8}; 若要刀提前上背, 030 scaleY 台阶同步挪到 f96)。
   备选: {3,112} cWalkWpOff (类表实收刀走类)。
+
+### 2026-10-18 (2) 自定义招伤害引用定案 + col 路由工具化 (apply 脚本 + TIML 编辑器面板功能)
+
+- **伤害路由一句话**: CollisionTimelineObject ノードID 键值 → wp03.col names[unk4==值] →
+  {cgp=CLGM bank(判定盒), move=ATK 行(伤害)}。**改引用 = 伤害+判定几何一起换** (名称表
+  条目绑定两者); 只想换伤害需配 col 空闲名称条目 (未做)。EC00 mFlag 窗值: 2=伤害槽,
+  1=挥空槽 (apply_valor_attack_config 实证)。
+- **大居合 4 版本 = 气刃等级变体 (user 定案)**: 308=無/309=白/310=黄/311=赤 →
+  node 86/87/88/89 → ATK[46]/[47]/[48]/[49] = **MV 17/19/31/39**, 全 bank9。
+  每版单ノードID键 = 全部伤害窗共用一行; 308 的第二 EC 窗 [35,42] 是 g1 挥空,
+  "第一段/第二段"在数据上同伤。
+- **五招 MV 平衡定案 (user 局内验收)**: 刚1(156) node 60→89 (=居合赤 39; 原=跳2连二段
+  ATK[20]=16)。一文字三版 339/340(原見切り攻撃 node63 ATK[25]=12)/342(原斬り下がり
+  node56 ATK[14]=22) → node 54 **気刃斬り2(lmt106) ATK[17]=30**。无双斩(343) →
+  **双节点分段**: f0=88(黄31) + f58=89(赤39), 第二刀窗 [58,70], 第一刀窗 [31,39] —
+  多段不同伤的原版先例 = LMT155 (ノードID f0=48→f25=60 引擎逐帧采样自动切换)。
+  几何连带: 156/343 bank8/0→bank9 (居合盒变大), 339/340 bank8→bank0 (普通斩盒变小),
+  342 bank0→bank0 不变。
+- **`_dmg_task/apply_damage_refs.py` = 二进制幂等重放** (blend 每次导出后跑; 期望值
+  既收旧也收新=skip): 5 处ノードID u32 值改写 + **343 双键结构编辑** (2-key 数组
+  align16(EOF) 追加 + track xoff/xcount 重指, apply_valor CTO 克隆同款手法)。
+  自动 .bak + 回读验证。键记录 20B: value@0 / bounce@4,8 / frame f32@12 / interp+easing@16。
+- **blend 侧已入树**: MHW-Valor-0.0.2-damage-modify.blend 的 FreeKinetics fcurve 已带
+  5 处引用 (ノードID = `FreeHKTiml.mB296CA66`; バンク = `mBF9000B3` 仅记录不路由),
+  导出源头从此自带, 二进制脚本降级为一致性校验。TIML 轨道在 blend 里以哈希为 data_path,
+  编辑器 `_track_name` 只给 mFlag 族起名。
+- **FreeKinetics 新功能 timl_damage_editor.py** (live 于 Blender addons 目录
+  `.../4.3/scripts/addons/MHW-FreeKinetics/`, 仓库留档副本 `_dmg_task/`; window_editor
+  面板对 CollisionTimelineObject action 显示"伤害引用"分区; `__init__.py` 已挂载):
+  - `freehk.timl_dmgnode_set` (帧上有键改值/无键加键) / `freehk.timl_dmgnode_del`
+    (保底 1 键); scene props `freehk_timl_node` / `freehk_timl_col` (col 路径, 默认
+    部署 wp03.col, mtime 缓存解析 node→名称/bank/ATK→MV 实时预览)。
+  - 新键 interpolation/back/period 复制帧前最近键 — **BEZIER 会 ValueError 崩导出**
+    (interpolationMapping 只认 CONSTANT/LINEAR/QUAD/CUBIC/QUART/EXPO/SINE), 帧强制整数。
+  - 导出键序列化 = `[int(co.y), back, period, interpolationMapping.index(interp)]`
+    (freeHKActionNodes.frameParam); mFlag 族双通道 (array_index 0/1 = 低/高16位)
+    由 parseBigFlag 按整数帧合并。
+- **冒坑记录**: ops.report({'ERROR'}) 从脚本调用会抛 RuntimeError (守卫测试时中断脚本,
+  非缺陷); 热加载 = 反注册旧 _classes/_SCENE_PROPS → importlib.reload → 重注册,
+  重启 Blender 后经 __init__ 干净加载。
