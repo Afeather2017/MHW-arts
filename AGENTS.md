@@ -175,11 +175,13 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
     condEval-631) → counter window + no-hit injection + auto-force, F6 force,
     valor charge, overlay text. NO audio hooks, NO damage/hit-dispatch hooks.
     No-hit pool derived in-place: `mgr = *(player+0x7D20)`, `pool = mgr+0x28`.
-  - **`ValorProbe.dll` (`VALOR_PROBE=1`):** passive research build. Wwise (3 hooks),
-    damage calc, hit dispatcher, pool query (Aee050), condition-evaluator logging,
+  - **`ValorProbe.dll` (`VALOR_PROBE=1`):** passive research build. Damage calc,
+    hit dispatcher, pool query (Aee050), condition-evaluator logging,
     F5 miner, F11 property histogram, F7 state logger, F10 diff capture,
-    RXN/EPROBE watchers. Installs NO gameplay behavior. Logs to
-    `nativePC/plugins/ValorProbe.log`. Install ONLY while researching.
+    RXN/EPROBE watchers, Shift+F9 ATKSCAN/ATKTRACE. Installs NO gameplay
+    behavior. Logs to `nativePC/plugins/ValorProbe.log`. Install ONLY while
+    researching. (Wwise audio hooks removed 2026-10-19 — they caused sound
+    residue; see the 10-19 section. No audio hooks remain in either DLL.)
 - **NEVER install both DLLs at once**: separate MinHook instances double-hooking
   the same targets corrupts trampolines (crash). Both DLLs self-check at init and
   stand down if the sibling is loaded — but keep only one in `nativePC/plugins`.
@@ -283,6 +285,44 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   node85)。作用: 确认某行是否真被加载 (MV 对不上=col 没加载) + 抓任意字段的消费 RIP 链。
 - LuaEngine (TCP 28991, luaL_dostring 逐行) 有 GetAddress/GetAddressData/SearchPattern,
   但 SearchPattern 只扫主模块不扫堆, 标准 Lua 无 FFI → 堆扫描只能靠原生 DLL。
+- **(2026-10-19 晚) ValorProbe Wwise 音频钩子整体移除 (部署 md5 f2922cd8)**: 症状 = 切换声音后
+  旧声音残留 (A 起播→切 B, A 不停)。移除内容 = PostEventId/SoundPost(0x1426D4C50 wrapper)/
+  PostEventName 三个 MinHook + 死代码 ClangSoundVirtualHook/InstallClangSoundVirtualHook +
+  对应 HookId/签名表/名字表/装载块。理由: 叮检测早已定案走 event bit250(居合)/bit15(见切),
+  Wwise 路线 09-16 就判死 ("tooling kept" 的工具债现在还)。探测 RVAs (0x28B8DD0/0x28B8FE0/
+  0x26D4C50) 保留在本节与 09-16 章节备查; signatures.json 里的三条记录不再被源码引用。
+  g_addrAudioSingleton 仍解析 (MEMORYMAP 报告用, 纯被动读)。**probe 现在零音频钩子。**
+- **(2026-10-19 晚) 构建系统 /utf-8 定案**: dllmain.cpp 含大量中日注释, MSVC 默认按 ANSI
+  (GBK/936) 解码 → C4819 警告是烟雾报警, 实际危害 = 注释尾部多字节序列吞掉换行, 把下一行
+  声明并进注释 → 幽灵 C2065 (本次: g_forceCfgSet "未声明", 行号还错位 1)。HEAD 与工作副本
+  声明区逐字节相同却一个编过一个报错 = 解码状态对内容位置敏感, 别按行号排查。
+  修法 = 两个 target 都加 `target_compile_options(... /utf-8)` (CMakeLists.txt)。
+  教训: git stash push/pop 会触发 autocrlf 重写文件 (LF→CRLF), 复现/掩盖这类问题;
+  cmake -B 传 Windows 路径必须带引号, 裸 `ValorGauge\build` 的反斜杠被 Git Bash 吃掉
+  会建出 `ValorGaugebuild` 假目录。
+
+### 2026-10-19 (2) 无双斩专属伤害行 + 多段判定路由模式 + vanilla 大居合结构
+
+- **多段判定 = CollisionTimelineObject ノードID 轨道多键** (同一判定物体随时间换路由行):
+  小居合307 = f0:node84→f32:node101 (行43→行44); 无双斩343 = f0:node88→f58:node89。
+  mFlag 是窗口开关, ノードID 是"当前时刻用哪个行" — **第一段窗的节点键通常在 f0 而非窗口帧**
+  (改键时按轨道键帧找, 别按窗口帧)。
+- **无双斩 = LMT 343** 双窗: 窗1 f31-40、窗2 f58-71。原路由 行48(MV31≈158伤)/行49(MV39≈197伤);
+  用户配装 k≈5.05 伤害/MV。行48/49 与大居合310/311 共享 → 不能直接改。
+- **专属行改造 (2026-10-19, user-verified)**: names 空闲节点 node90(idx51)/node94(idx55) →
+  cgp=9, move=42/45 (手工偏移: names 表 walk o=0x18, entry=nul+1, cgp@+0 move@+4); 工具行 42/45 →
+  行42 = {type1, MV31, **PartMod0**, HitLag0.1} (无双斩第一段, 无破坏);
+  行45 = {type1, **MV150**, **PartMod2.0**, HitLag0.1} (第二段, 破坏×2, 伤害≈758);
+  LMT343 ノードID[0] 键 f0: 88→90, f58: 89→94 (patch_timl_defense setval, .bak 自动)。
+  **局内实测 (user)**: 单刀总伤 ≈1000 符合预期; **hit1 PartMod0 附带解决了诟病已久的问题 —
+  第一刀的部位积累会把怪头打断位移, 第二刀落空** → 佐证 Part_Modifier 喂的是"部位积累"
+  (破坏+部位踉跄共用的那条槽), 归零 = 该击完全不打部位槽。数值为占位, 后续按局内手感调。
+- **vanilla 大居合结构**: LMT 308-311 = 無白黄赤四色变体 (vanilla 原生就有!), 各**单窗**
+  f17-37 → node86/87/88/89 → 行46/47/48/49 (MV 17/19/31/39, vanilla PartMod=0 → 原版大居合
+  本来就不破坏)。用户实测 vanilla 红刃两刀 197/356: 197 = 行49(39MV)✓; 356≈MV70.5 ≈ 行52(黄72,
+  +2.2%) **但全 164 条 vanilla TIML 无任何节点路由 91/92/93** (行51-53 居合气刃2 已被开发组删除,
+  空挂) → 第二刀来源未钉死, 候选: 代码侧解放倍率(39×1.8=70.2→354.6 差 0.4%) / 运行时选行。
+  ATKTRACE 守卫行49 或行52 放一次 vanilla 大居合可钉死。
 
 ### 2026-09-15 Original ValorLS.dll mechanism (Reverse/ValorLS.dll.c — use it)
 

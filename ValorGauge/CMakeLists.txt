@@ -37,6 +37,11 @@ target_include_directories(ValorGauge PRIVATE
     "${ROOT}/external/imgui/backends"
 )
 
+# /utf-8: the source (and its Chinese/Japanese comments) is UTF-8; without
+# this MSVC decodes it as the ANSI codepage (936 here) and a mangled trailing
+# multibyte can swallow the next newline, hiding the following declaration
+# (phantom C2065) - the C4819 warnings were that hazard's smoke alarm.
+target_compile_options(ValorGauge PRIVATE /utf-8)
 target_compile_definitions(ValorGauge PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(ValorGauge PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorGauge PROPERTIES OUTPUT_NAME "ValorGauge")
@@ -71,6 +76,7 @@ target_include_directories(ValorProbe PRIVATE
     "${ROOT}/external/imgui/backends"
 )
 
+target_compile_options(ValorProbe PRIVATE /utf-8)
 target_compile_definitions(ValorProbe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX VALOR_PROBE=1)
 target_link_libraries(ValorProbe PRIVATE minhook d3d11 dxgi psapi)
 set_target_properties(ValorProbe PROPERTIES OUTPUT_NAME "ValorProbe")

@@ -516,8 +516,8 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 // are generated and verified offline against the unpacked dump exe:
 //   python Reverse/sig_check.py --emit && python Reverse/sig_check.py --verify
 enum HookId {
-    HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch, HkPostEventId,
-    HkSoundPost, HkPostEventName, HkPropInt, HkPropBool, HkPropFloat,
+    HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch,
+    HkPropInt, HkPropBool, HkPropFloat,
     HkGaugeAdd, HkFxNotify, HkNegrEvent, HkTurnSet, HkHpDelta, HkStamDelta,
     HkVitSet, HkVitAdd, HkCount
 };
@@ -553,24 +553,6 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x83, 0xF8, 0x6A, 0x0F, 0x87, 0xF2, 0x08, 0x00, 0x00, 0x48, 0x89, 0x74, 0x24, 0x70, 0x48,
       0x8D, 0x15, 0x6D},
      "xxxxxxxxxxxxxx????xxxxxxxxxxxxxxxxx????xxxxxxxxx", 0x1F71960},
-    // postEventId = AK::SoundEngine::PostEvent (id)
-    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
-      0x4C, 0x89, 0x74, 0x24, 0x20, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x44, 0x8B, 0xF9, 0x49,
-      0x8B, 0xF1, 0x48, 0x8D, 0x0D, 0x8F, 0xAE, 0xCA, 0x02, 0x41, 0x8B, 0xE8, 0x4C, 0x8B, 0xF2,
-      0xE8, 0x1A, 0x55},
-     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxxx", 0x28B8DD0},
-    // soundPost = game audio wrapper FUN_1426D4C50
-    {{0x48, 0x83, 0xEC, 0x48, 0x8B, 0xC2, 0x45, 0x8B, 0xD1, 0x41, 0x8B, 0xD0, 0x4C, 0x8D, 0x0D,
-      0x8D, 0xF7, 0xFF, 0xFF, 0x45, 0x33, 0xC0, 0x44, 0x89, 0x44, 0x24, 0x38, 0x4C, 0x89, 0x44,
-      0x24, 0x30, 0x44, 0x89, 0x44, 0x24, 0x28, 0x45, 0x8B, 0xC2, 0x48, 0x89, 0x4C, 0x24, 0x20,
-      0x8B, 0xC8, 0xE8},
-     "xxxxxxxxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x26D4C50},
-    // postEventName = AK::SoundEngine::PostEvent (string)
-    {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x7C, 0x24, 0x18,
-      0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xEC, 0x60, 0x4C, 0x8B, 0xE1, 0x49, 0x8B,
-      0xE9, 0x48, 0x8D, 0x0D, 0x80, 0xAC, 0xCA, 0x02, 0x45, 0x8B, 0xF0, 0x4C, 0x8B, 0xFA, 0xE8,
-      0x0B, 0x53, 0x3C},
-     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx????xxxxxxxxxx", 0x28B8FE0},
     // propInt = FUN_141922190 FSM property int getter
     {{0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x41, 0x8B, 0xF8, 0x41, 0x8B,
       0xD9, 0x48, 0x85, 0xC9, 0x74, 0x34, 0xF6, 0x41, 0x60, 0x01, 0x74, 0x2E, 0x48, 0x8B, 0x89,
@@ -658,8 +640,8 @@ constexpr HookSig kHookSigs[HkCount] = {
 };
 
 const char* const kHookNames[HkCount] = {
-    "condEval", "poolQuery", "dmgCalc", "hitDispatch", "postEventId",
-    "soundPost", "postEventName", "propInt", "propBool", "propFloat",
+    "condEval", "poolQuery", "dmgCalc", "hitDispatch",
+    "propInt", "propBool", "propFloat",
     "gaugeAdd", "fxNotify", "negrEvent", "turnSet", "hpDelta", "stamDelta",
     "vitSet", "vitAdd",
 };
@@ -3014,155 +2996,6 @@ bool InstallCondEvalHook() {
 }
 #endif // !VALOR_PROBE (condition evaluator = mod trigger path)
 
-// --- Wwise sound-event logging (叮 source hunt) --------------------------------
-#ifdef VALOR_PROBE
-// AK::SoundEngine::PostEvent wrappers in the current build. Log every posted
-// event (id + name) during 见切 so a clang run vs a whiff run reveals the
-// deflect sound's event id and its posting code path.
-std::atomic_uint32_t g_wwiseLogCount{0};
-
-using PostEventIdFn = unsigned long long(__fastcall*)(unsigned int, unsigned long long,
-                                                      unsigned int, void*, void*,
-                                                      int, void*);
-PostEventIdFn g_originalPostEventId = nullptr;
-
-unsigned long long __fastcall PostEventIdHook(unsigned int eventId, unsigned long long objId,
-                                              unsigned int flags, void* callback,
-                                              void* cookie, int extCount, void* extSrc) {
-    if (ActionIsForesightSlash() && g_wwiseLogCount.load() < 512) {
-        ++g_wwiseLogCount;
-        std::ostringstream m;
-        m << "WWISEEV id=" << eventId << std::hex << std::uppercase << " obj=0x"
-          << objId << " caller=0x"
-          << reinterpret_cast<std::uintptr_t>(_ReturnAddress()) - g_moduleBase.load();
-        Log(m.str());
-    }
-    return g_originalPostEventId(eventId, objId, flags, callback, cookie, extCount, extSrc);
-}
-
-using PostEventNameFn = unsigned long long(__fastcall*)(const char*, unsigned long long,
-                                                        unsigned int, void*, void*,
-                                                        int, void*);
-PostEventNameFn g_originalPostEventName = nullptr;
-
-// The game's own sound-post wrapper (FUN_1426d4c50): (entity, eventId,
-// gameObjectId, flags) -> AK::SoundEngine::PostEvent. Event 1086158451 is the
-// 见切 deflect clang (whiff-vs-clang diff, log-verified). Logging its direct
-// caller pinpoints the success-detection code.
-constexpr unsigned int kClangSoundEvent = 1086158451u;
-using SoundPostFn = unsigned long long(__fastcall*)(void*, unsigned int,
-                                                    unsigned int, unsigned int);
-SoundPostFn g_originalSoundPost = nullptr;
-std::atomic_uint32_t g_clangSoundLogCount{0};
-
-unsigned long long __fastcall SoundPostHook(void* a1, unsigned int eventId,
-                                            unsigned int gameObjectId, unsigned int flags);
-
-unsigned long long __fastcall SoundPostHook(void* a1, unsigned int eventId,
-                                            unsigned int gameObjectId, unsigned int flags);
-
-// The concrete "post sound" virtual (audio singleton vtable slot 0x150),
-// resolved at first clang and MinHooked. Its edx == the sound event id, so
-// filtering on 1086158451 gives an exact, game-thread clang detector.
-using ClangSoundVirtualFn = void* (__fastcall*)(void* audio, unsigned int eventId,
-                                                unsigned int a3, unsigned int a4);
-ClangSoundVirtualFn g_originalClangSoundVirtual = nullptr;
-bool g_clangSoundVirtualInstalled = false;
-
-void* __fastcall ClangSoundVirtualHook(void* audio, unsigned int eventId,
-                                       unsigned int a3, unsigned int a4) {
-    if (eventId == kClangSoundEvent && !g_clangLatch) {
-        g_clangLatch = true;
-        auto pool = g_lastPlayerPool.load();
-        if (pool != 0 && g_forceInvulnSec > 0.0f) {
-            auto* window = reinterpret_cast<float*>(pool + 0xE4);
-            if (IsWritable(window, sizeof(float))) {
-                *window = *window > g_forceInvulnSec ? *window : g_forceInvulnSec;
-            }
-        }
-        if (!g_forceArmed.exchange(true)) {
-            std::ostringstream m;
-            m << "CLANG DETECTED (sound post, event " << std::dec << eventId
-              << ") - counter force armed, no-hit window extended";
-            Log(m.str());
-        }
-    }
-    return g_originalClangSoundVirtual(audio, eventId, a3, a4);
-}
-
-bool InstallClangSoundVirtualHook() {
-    auto* singletonPtr = reinterpret_cast<std::uint8_t**>(g_addrAudioSingleton);
-    if (!IsReadable(singletonPtr, sizeof(void*)) || !*singletonPtr) {
-        Log("CLANG hook: audio singleton unavailable");
-        return false;
-    }
-    auto** vtable = *reinterpret_cast<void***>(*singletonPtr);
-    if (!IsReadable(vtable, 0x158)) {
-        Log("CLANG hook: audio vtable unreadable");
-        return false;
-    }
-    void* target = vtable[0x150 / sizeof(void*)];
-    if (!target) {
-        Log("CLANG hook: vtable slot empty");
-        return false;
-    }
-    if (MH_CreateHook(target, reinterpret_cast<void*>(&ClangSoundVirtualHook),
-                      reinterpret_cast<void**>(&g_originalClangSoundVirtual)) != MH_OK ||
-        MH_EnableHook(target) != MH_OK) {
-        Log("CLANG hook: MH_CreateHook failed");
-        return false;
-    }
-    g_clangSoundVirtualInstalled = true;
-    std::ostringstream m;
-    m << "CLANG hook installed on audio vtable+0x150 at 0x" << std::hex << std::uppercase
-      << reinterpret_cast<std::uintptr_t>(target);
-    Log(m.str());
-    return true;
-}
-
-unsigned long long __fastcall SoundPostHook(void* a1, unsigned int eventId,
-                                            unsigned int gameObjectId, unsigned int flags) {
-    if (eventId == kClangSoundEvent) {
-        if (g_clangSoundLogCount.load() < 8) {
-            ++g_clangSoundLogCount;
-            std::ostringstream m;
-            m << "CLANGSOUND #" << std::dec << g_clangSoundLogCount.load()
-              << std::hex << std::uppercase << " caller=0x"
-              << reinterpret_cast<std::uintptr_t>(_ReturnAddress()) - g_moduleBase.load()
-              << " a1=0x" << reinterpret_cast<std::uintptr_t>(a1)
-              << " obj=0x" << gameObjectId;
-            Log(m.str());
-        }
-        // NOTE: event 1086158451 turned out to be a shared "metal blade ring"
-        // sound (draw attacks post it too), NOT clang-exclusive. No triggering
-        // from audio. The counter window comes from the hit dispatcher instead.
-    }
-    return g_originalSoundPost(a1, eventId, gameObjectId, flags);
-}
-
-unsigned long long __fastcall PostEventNameHook(const char* name, unsigned long long objId,
-                                                unsigned int flags, void* callback,
-                                                void* cookie, int extCount, void* extSrc) {
-    if (ActionIsForesightSlash() && g_wwiseLogCount.load() < 512) {
-        ++g_wwiseLogCount;
-        char nameBuf[64] = {};
-        if (name && IsReadable(name, 1)) {
-            size_t n = 0;
-            while (n < sizeof(nameBuf) - 1 && IsReadable(name + n, 1) && name[n]) {
-                nameBuf[n] = name[n];
-                ++n;
-            }
-        }
-        std::ostringstream m;
-        m << "WWISEEV name='" << nameBuf << "'" << std::hex << std::uppercase
-          << " obj=0x" << objId << " caller=0x"
-          << reinterpret_cast<std::uintptr_t>(_ReturnAddress()) - g_moduleBase.load();
-        Log(m.str());
-    }
-    return g_originalPostEventName(name, objId, flags, callback, cookie, extCount, extSrc);
-}
-
-#endif // VALOR_PROBE (wwise diagnostics)
 
 // MOTIONCOND (mod): conditional motion swap for one action (valor design:
 // qi-blade-3 action 68 -> LMT 142 with W held, 141 without, vanilla 108
@@ -3337,30 +3170,6 @@ bool InstallPoolQueryHook() {
         Log("Hit dispatcher hook failed");
     } else {
         Log("Hit dispatcher hook installed");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventId]),
-                      reinterpret_cast<void*>(&PostEventIdHook),
-                      reinterpret_cast<void**>(&g_originalPostEventId)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventId])) != MH_OK) {
-        Log("Wwise PostEvent(id) hook failed");
-    } else {
-        Log("Wwise PostEvent(id) hook installed");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkSoundPost]),
-                      reinterpret_cast<void*>(&SoundPostHook),
-                      reinterpret_cast<void**>(&g_originalSoundPost)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkSoundPost])) != MH_OK) {
-        Log("Sound post hook failed");
-    } else {
-        Log("Sound post hook installed");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventName]),
-                      reinterpret_cast<void*>(&PostEventNameHook),
-                      reinterpret_cast<void**>(&g_originalPostEventName)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkPostEventName])) != MH_OK) {
-        Log("Wwise PostEvent(name) hook failed");
-    } else {
-        Log("Wwise PostEvent(name) hook installed");
     }
     std::ostringstream m;
     m << "Pool query hook installed at 0x" << std::hex << std::uppercase
