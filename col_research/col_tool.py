@@ -74,8 +74,13 @@ def parse(path):
     return d,info
 
 def pack_val(t,v):
-    return {'f':struct.pack('<f',float(v)),'B':struct.pack('<B',int(v)),'H':struct.pack('<H',int(v)),
-            'I':struct.pack('<I',int(v)),'h':struct.pack('<h',int(v)),'S':struct.pack('<H',int(v)),'u':struct.pack('<I',int(v))}[t]
+    # lazy: only pack the requested type (eager dict build made values >255
+    # raise on unrelated 'B' entries and corrupted files via short slice writes)
+    if t=='f': return struct.pack('<f',float(v))
+    if t=='B': return struct.pack('<B',int(v))
+    if t in ('H','S'): return struct.pack('<H',int(v))
+    if t=='h': return struct.pack('<h',int(v))
+    return struct.pack('<I',int(v))
 
 def show_field(v,t):
     return f"{v:.4f}" if t=='f' else str(v)
@@ -123,7 +128,7 @@ def cmd_setval(path,rest):
                 old = bytes(d[o:o+4]); new = pack_val(t,val)
                 print(f"ATK[{mv}].{fn} @0x{o:04x}: {f32(old,0) if t=='f' else u32(old,0)} -> {val}")
                 shutil.copy2(path,path+'.bak')
-                d[o:o+4] = new
+                d[o:o+len(new)] = new
                 open(path,'wb').write(d)
                 return
         raise SystemExit(f"no ATK field named {fn}")
@@ -135,7 +140,7 @@ def cmd_setval(path,rest):
                 o = i['clnd']['banks'][bk]['inners'][rc]['off']+off
                 print(f"bank{bk}[{rc}].{nm} @0x{o:04x}: {f32(d,o)} -> {val}")
                 shutil.copy2(path,path+'.bak')
-                d[o:o+4] = pack_val(t,val)
+                d[o:o+len(pack_val(t,val))] = pack_val(t,val)
                 open(path,'wb').write(d)
                 return
         raise SystemExit(f"no record field named {fn} (have: {', '.join(n for _,(n,_) in REC_FIELDS.items())})")

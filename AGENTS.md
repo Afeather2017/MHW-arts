@@ -323,6 +323,15 @@ MHWNoChunk.exe "E:\SteamLibrary\steamapps\common\Monster Hunter World\chunk\chun
   +2.2%) **但全 164 条 vanilla TIML 无任何节点路由 91/92/93** (行51-53 居合气刃2 已被开发组删除,
   空挂) → 第二刀来源未钉死, 候选: 代码侧解放倍率(39×1.8=70.2→354.6 差 0.4%) / 运行时选行。
   ATKTRACE 守卫行49 或行52 放一次 vanilla 大居合可钉死。
+- **Blend 侧同步 (2026-10-19 晚, 导出对照验证通过)**: 新工作文件 =
+  `MHW-valor-blender/MHW-Valor-0.0.2-damage-modify.blend` (FreeHKNodeTree "w03_00",
+  LMTEntryNode.entryNum=343 → TIML Data Node → 9×TIMLActionNode, CollisionTimelineObject 轨道
+  = action `TIML::nTimelineParam::CollisionTimelineObject.083` 的 fcurve, 轨道名是哈希
+  `FreeHKTiml.mB296CA66` = ノードID[0], m08FD20A6×2 = mFlag 位包)。改 fcurve 键值
+  (f0:88→90, f58:89→94, handles 同步) 后, 用 export_ops.exportNodeToFile 现场导出到临时文件,
+  patch_timl_defense 逐轨 diff entry 343 = **与二进制修改版完全一致**。此后再导出 LMT343
+  自动携带 node90/94, 无需重打补丁。注意: blend 当时未保存 (改在内存), 用户需自行 Ctrl+S;
+  导出对照产物 `_e343_check_export.lmt` 是含全部 WIP 的临时文件, 不可直接部署。
 
 ### 2026-09-15 Original ValorLS.dll mechanism (Reverse/ValorLS.dll.c — use it)
 
@@ -3585,3 +3594,209 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - **冒坑记录**: ops.report({'ERROR'}) 从脚本调用会抛 RuntimeError (守卫测试时中断脚本,
   非缺陷); 热加载 = 反注册旧 _classes/_SCENE_PROPS → importlib.reload → 重注册,
   重启 Blender 后经 __init__ 干净加载。
+
+### 2026-10-19 (3) 卡肉(hitstop)完整定案: ATK 行 HitLag_a/b 是本体, GS wp00.col 实测 (user 的 128↔277 交换实验解释)
+
+- **卡肉 = 当前判定路由到的 ATK 行 `HitLag_a`/`HitLag_b` (秒, 成对设, HitLagSpd 保持 1.0)**。
+  LMT 动作曲线本身不携带卡肉; LMT entry 里"相关的配置" = TIML CollisionTimelineObject 的
+  ノードID 路由 (blend fcurve `FreeHKTiml.mB296CA66`) → col names node → move → ATK 行。
+  **交换 LMT entry = 连 TIML 一起换 → 路由落到别的 ATK 行 → 卡肉/伤害/窗全变** —
+  user 交换 GS entry 128↔277 后"卡肉基本没了"的完整机理。
+- **GS wp00.col 实测梯度** (chunk-extracted/chunk/hm/wp/wp00/collision/wp00.col,
+  79 names/5 banks/77 ATK; 至今未部署 — nativePC/hm/wp/wp00/ 只有 mot/): 普通连段
+  0.15-0.18 / 溜め斬りLv1/2/3 = 0.15/0.20/0.40 / 強溜め斬りLv3 0.50 / 強なぎ払いLv3 0.70 /
+  **闘魂斬りFinish Lv1/2/3 (node79/80/81 → ATK71/72/73) = 0.60/0.70/0.85** (网传"真蓄卡
+  0.2s"严重低估; 满蓄 0.85s ≈ 全游戏顶配; MV 144/210/264, PartMod 1.1/1.2/1.3)。
+  Finish 多段行 74-76 = Lingering1+Frame_Delay4+HitLag0.1 (尘土小判定走多段配方, 非主卡)。
+- **两 entry 定位** (MHW-greatsword.blend live 内省): entry 277 = 真蓄族 ~300f
+  (CollisionTimelineObject.060 ノードID[0]=81 单键 + obj 窗 f46-58 + EC00 ReqNo 窗
+  f19-25/94-108/277-283/295-301) → Finish Lv3 行 = 0.85s; entry 128 = ~150f 縦斬り族
+  (ノードID=1, obj 窗 f36-46, EC00 窗 f37-43/111-117/143-149) → ATK0 = MV48/0.15s。
+  交换后 277 槽 = 0.85→0.15 且 MV 264→48。注: blend 里 entry 277 的 motion action 名带
+  `::272` 历史标签 (工作副本有改动史), 身份以 TIML 路由为准。
+- **实用**: 调卡肉不用动 LMT — col_tool setval 目标行 HitLag_a/b; 或改 names 表该招的
+  move 指针借别的行 (cgp 不动 = 几何不变)。GS 要改先把 wp00.col 拷到
+  nativePC/hm/wp/wp00/collision/ (目录名严禁空格)。LS 自定义行现值: 行22(node85)/
+  行42(无双斩一段)/行45(二段) 全 0.1s — 想要力量感可提 0.15-0.4 (LS 原版上限 =
+  空中气刃突刺 0.40)。
+- **Blender live 内省法** (本次全程走 MCP): TIMLActionNode 无 animation_data, 轨道在
+  `node.input_action` (bpy action, 名 = `TIML::nTimelineParam::<track>.NNN`) 的 fcurves,
+  data_path 哈希: ノードID=mB296CA66 / mFlag 位包=m08FD20A6 / EC00 ReqNo 也在 m08FD20A6。
+
+### 2026-10-19 (4) 卡肉引用链深挖: "如何引用 HitLag" 定案 + 运行时布局 + 消费方静态负结果
+
+- **A/B 实验定案 (user)**: LMT 还原 (动作/窗/路由全原样) + 仅把 GS 真蓄 Finish 三行
+  HitLag 0.6/0.7/0.85→0.1 (nativePC/hm/wp/wp00/collision/wp00.col 行71/72/73, 首次部署
+  GS col) → 局内真蓄卡肉消失、伤害不变 → **卡肉消费点 = 行数据本身**。回答"如何引用":
+  **TIML 只负责选行+开窗** (CollisionTimelineObject ノードID 逐帧选行, EventCollision00
+  开窗), 命中层在打中瞬间从"当前行"取 HitLag — 它不是 TIML 字段, 是行属性。
+- **HitLag 运行时偏移 (Load 反编译推定, 未消费验证)**: cAttackParamPl Load
+  FUN_14027d880 = 逐字段流式反序列化, 读入顺序=文件字节顺序。用 MV+0x20/PartMod+0x28/
+  Stun+0x68/Exhaust+0x6c/Soften+0x1c8/Elem+0x1d0/Status+0x1d4/Mount+0x1d8/Flinch+0x240/
+  MindsEye+0x232 十锚点对齐 → **HitLag_a=+0x1F0, HitLag_b=+0x210, Spd_a=+0x1EC,
+  Spd_b=+0x20C** (文件侧 0x6F/0x83 与 setval 地址精确吻合)。+0x1FC..0x207 是 8 字节洞
+  (fUnk18 直跳 fUnk19), 尾部疑似两组子结构 (+0x1E8 / +0x208 各含 {?,Spd,Lag,?,?}) —
+  消费方可能持子结构指针读 disp8。
+- **静态负结果 (强)**: 全 .text 扫描 (Reverse/scan_hitlag.py; movss/movups/movaps/VEX/
+  整型 mov/lea, disp32+SIB 两形态) = **+0x1F0/+0x210 零内存读取** (0x1F0 的 6637 处字节
+  匹配全是 `mov r,0x1F0` 立即数); disp8 文件布局假说 (+6F/+83 双读) 11 个候选全被反编译
+  排除 → **消费方不直接按已知偏移读行**: 块拷贝进命中上下文 / 子结构指针 / 另有布局。
+  行 vtable 0x142F12DE0 仅被 0x14027D3xx-0x14027D7xx 构造器簇引用; col ATK 节解析器
+  (标签 "ATK\0" @0x14019b5265 → FUN_14019b5220) **不在 9-08 反编译导出里** (区段未分析,
+  要看它只能 capstone 裸拆)。
+- **下一步 = ATKTRACE 一枪定案** (ValorProbe 已装, ValorProbe.atktrace.txt 已设 73):
+  GS 装备 → Shift+F9 → 全堆扫 vtable 找行 (多武器同 idx 取最后一个, **用 ATKHEX 行73
+  +0x20 = 0x43840000 (264.0f) 验 GS 身份**) → PAGE_GUARD 20s → 打一发真蓄 →
+  ValorProbe.log 的 RIP+偏移就是真消费链 (大怪/小怪各一发可顺带钉死 a/b 槽选择条件)。
+  拿到消费函数后, DLL 强制卡肉 (自定义招免 col 行直接注入 hitstop) 就有了落点。
+- **工具注**: Reverse/scan_hitlag.py — 从 .c 抽的 FUN_ 名是**完整 VA 不是 RVA**, 比较前
+  先统一单位 (此前一轮"零命中"全是单位错位假阴性); disp32 扫描必须过滤立即数假阳性;
+  lea rip-rel 按 [REX]8D[modrm&0xC7==0x05][disp32] 解码, 目标=下条指令地址+disp。
+- **row 73 ATKHEX 局内实锤 (同晚)**: 守卫会话的 hex dump 显示 +0x1F0/+0x210 =
+  0x3DCCCCCD (**0.1 = 当时部署的 HitLag 改值** ✓), +0x1EC/+0x20C = 0x3FC00000
+  (**1.5 = HitLagSpd, 真蓄行不是 1.0**), +0x1E8/+0x208 = 0.02 — **REM Load 布局 =
+  运行时布局定案** (MV@+0x20 等 ATKSCAN 读数随之可信)。静态"零读取"悖论加深: 数据
+  确在 +0x1F0/+0x210, 但标量扫描零命中 → 消费方读法在已扫编码之外 (66/F2 前缀 SIMD、
+  间接寻址、块拷贝) — 等局内 RIP 定案。
+- **ATKTRACE 首轮 0 访问复盘 + 修复**: ① **VEH 自拆漏洞** — PAGE_GUARD 被 OS 在任意
+  异常时自动清位, 旧代码对同页邻居行异常 (行 stride 0x2D0, 一页 ~5 行) 直接
+  CONTINUE_SEARCH 不恢复 → 游戏读任何邻居行、甚至第二轮 ATKSCAN 的全行 dump 都会
+  拆掉守卫; ② 双击两轮扫描叠跑, 第二轮重扫时行 73 已被流送释放 (148→143 行) 守卫
+  落空。修复: 邻居异常也走单步恢复 + 计数 (session over 行报 neighbor faults)、
+  会话窗 20→30s、扫描中/会话中重按拒绝、**热键 Shift+F9→F12** (裸 F9=CSharp loader,
+  F10/F11=probe 自用 diff capture/直方图; F12=Steam 截图键, 附带截图无害)。
+  新 probe 构建成功; 游戏运行中 DLL 被锁无法覆盖, 退出后拷
+  ValorGauge/build/Release/ValorProbe.dll → nativePC/plugins/。
+- **第二轮 ATKTRACE 复盘 (md5 6ab30d8f)**: 0 访问 + neighbor faults=1 → ① 守卫机制
+  实际是**一次性**的: AtkApplyGuard 开头 `if (!g_atkGuardedPages.empty()) return;`
+  让单步恢复永远空操作 — 任何第一条异常之后 guard 位 (OS 异常即自动清位) 永不回来,
+  这工具从出生起就只可能记到第一条访问; ② 守卫着的行 73 在 30s 大剑战斗 (87/88/73
+  TCS 连段, tracker 的 "Long Sword action changed" 标签是写死的, 门控只是结构判定,
+  GS 动作照记) 中**零被读** → 命中路径不读行对象本体 (烘焙副本假说加强)。
+- **ATKTRACE 重构 (md5 79bd84b4)**: ① AtkGuardRowPages 真正恢复 guard 位 (修 one-shot
+  bug, VirtualProtect 失败也记日志); ② **多实例守卫** — idx 全部匹配实例 (≤8) 全部
+  武装, arming 行逐实例报 mv (区分 LS/GS 同 idx 副本); ③ 邻居异常记 **ATKNEI**
+  (rw/rel/rip/stk, cap 200) — 邻居 reader 的 RIP 是消费方线索; ④ **自检读** — arm 后
+  自读 +0x20/+0x1F0, 应出现 2 条 ATKACC i0, 没有即机制坏 (SEH 独立函数防 C2712);
+  ⑤ 单步恢复改 AtkReprotectAll (全部受守页重打 PAGE_GUARD)。
+- **第三轮判读表**: 自检 2 条 ATKACC 出现 = 机制通; TCS 时出 ATKACC = 行就是命中期
+  被读, RIP 直接定案; 只有 ATKNEI = 通用行遍历者 (loader/烘焙), 顺 RIP 挖; 全零 =
+  命中读的是加载期副本 → 下一招 = 区加载前武装抓 bake 读。
+
+### 2026-10-19 (5) 卡肉消费链全闭环: HitLag 行 → 实体字段 → 动作慢放 (全函数+偏移定案)
+
+- **第四轮 ATKTRACE (md5 9ccf4aa6, HEX 扩到 +0xE00) 命中**: 327 条 ATKACC。行 73 运行时
+  真被读, 但卡肉槽的读者是:
+  - **安装器 = 0x141f75530** (未命名叶子函数, 紧贴 FUN_141f755c0 前, 跳表后;
+    `InstallHitstop(rcx=实体, rdx=卡肉块指针)`, rdx = **row+0x1E0(a块) 或 row+0x200(b块)**,
+    两块结构对称: +0x08=冻结倍率(a:fUnk16/b:fUnk19), +0x0C=HitLagSpd(a/b 同名),
+    **+0x10=HitLag_a/b(秒)**, +0x14=fUnk17/20, +0x18=fUnk18/21。写入:
+    实体+0xB2F8/+0xB2FC = 冻结倍率 (movss ×2), +0xB300 = HitLagSpd, +0xB304 = 0,
+    +0xB308 = fUnk20, **+0xB310 = HitLag(主倒计时)**, +0xB314 = fUnk21(副倒计时),
+    +0xB30C(byte) = 0。
+  - **分发器 = FUN_142035720(实体, 行, kind)**: kind=1 → plVar6+0x3C(a块), kind=2 →
+    plVar6+0x40(b块), kind=1/2/3 另调 **FUN_142039010(实体, row+0x228, row+0x230)**
+    (uUnk22 + No_Sharpness 第二参数组)。kind 由消息发送方定: 玩家反应消息分发器
+    **FUN_142042140 case 0x2B / 0x70** 转 {行=param_2[2], kind=param_2[3]};
+    FUN_142033570 硬编码 kind=1。**a/b 业务语义未钉死** (大/小怪?) — 实用上无所谓:
+    vanilla 两块恒等值, 自定义行两块都设即可。a/b 判别实验 = 一局内大怪小怪各打几发,
+    看 ATKACC 出 off=0x1f0(a) 还是 off=0x210(b)。
+  - **整行复制器 = FUN_14027d4d0** (经 FUN_1412da870 → 0x12DF537 → 0x1FBD244 调用),
+    逐字段通读全行 (命中结算前打包工作副本)。
+- **实体字段语义 (反编译定案)**:
+  - **FUN_142131cc0 (动作步进)**: `步长 = dt × [实体+0xB2F8]` — **慢放本体**;
+    +0xB2F8 = row+0x208 (TCS=0.02 → 2% 爬行, 普通招=0.0 → 全冻结)。
+    **col 模板字段名纠正: fUnk16/fUnk19 = 卡肉冻结倍率; "HitLagSpd"(1.0/1.5) =
+    +0xB300, 疑似收招追赶速度, 不是冻结倍率**。
+  - **FUN_141f5f340 (tick)**: +0xB310/-=dt、+0xB314/-=dt (+0x68=dt), 归零 →
+    +0xB2F8 复位 1.0。
+  - FUN_1417c4090 (实体 ctor): +0xB310=0, +0xB2F8=1.0 初始化。
+- **DLL 注入卡肉的路** (自定义招免 col): 直接写实体字段即可 —
+  `实体+0xB2F8 = 冻结倍率(0=全冻), +0xB2FC 同值, +0xB310 = 秒数`, 结束由原生 tick
+  自动复位。attacker/victim 双方实体都有这套字段 (玩家攻击时双方都卡)。
+- 工具注: 该叶子函数 Ghidra 未命名 (.c 无 FUN 定义), bisect 归属会错标成前面的
+  FUN_141f752d0 (它 0x141f75517 就 ret 了, 0x75518-0x7552F 是 switch 跳表数据);
+  落在"未分析区域"的 RIP 要 disasm 裸验证。
+
+### 2026-10-19 (6) 刚1 卡肉 0.6s 定案 + LS col 空闲资源表 + 无双斩弱命中音问题挂起
+
+- **刚1(LMT 156)卡肉 = wp03.col ATK 行 49 HitLag_a/b → 0.4** (0.6 试过一版, user 判定
+  太夸张 = 缺特效托底, 定稿 0.4 = 原版 LS 最高值/空中气刃突刺档; MHGU 逐帧参考 18帧
+  /30fps = 0.6 仅作上限参考)。路由链 156 → node 89 → names[50] move=49 (居合赤) 不变,
+  blend/LMT 零改动。**行 49 与 vanilla 大居合红 (311) 共享 — user 判定大居合红不在
+  勇气太刀出招表里 = 事实上刚1 专用**。冻结倍率 fUnk16/fUnk19 = 0.0 (全冻结),
+  MV 39/PartMod 1.0/MindsEye 1 保持。
+- **LS wp03.col 空闲资源表** (61 names / 13 banks / 59 ATK, 后续加招用):
+  空闲 names 节点 = **98 (names[56]) / 99 (names[60]) / 100 (names[46])** (90/94 已被
+  无双斩占用); 空闲 ATK 行 = **31 / 50 / 54 / 58**。克隆模板 = 行 49 (居合赤,
+  MV39/PartMod1/MindsEye1/fUnk14=50/uUnk12=5/bUnk23=43/fUnk26=270)。
+- **待办: 无双斩两刀的"弱命中音 + 无卡肉"问题** — user 报告 42/45 两行的命中音是
+  低伤害档音效, 且触发该音效的命中不发生卡肉。下轮对比 42/45 vs 49 的全字段
+  (重点 fUnk13/fUnk14/uUnk12/Attack_Type/bUnk23 一类疑似音效/反应分级的字段),
+  以及 fUnk16/19 冻结倍率 (0.1s HitLag 本身只有 3 帧, 可能"感觉不到"与"没有"并存)。
+
+### 2026-10-19 (7) 无双斩迁入削除居合行: 弱音修复 + 卡肉 (user 方案: 居合出招表已废, 直接占用)
+
+- **改法**: 343 路由 f0: 90→**91** / f58: 94→**92** (patch_timl_defense setval —
+  setval 子命令仍在只是用法文本未列; expect_old 防呆)。node91/92 = names[52]/[53]
+  "削除：居合気刃2白/黄" (开发组废弃空挂, vanilla 164 条 TIML 零引用, blend 扫描
+  同样零引用)。**names[52]/[53] cgp 10→9** (保住无双斩调好的居合大判定盒; 手工
+  偏移字节补丁: walk 0x18, name nul+1, 19B 定长块 cgp@+0, unk4@+15 做 assert 防呆)。
+- **行 51 = hit1**: MV 31 / PartMod 0 / HitLag 0.2 (继承); **行 52 = hit2**: MV 150 /
+  PartMod 2.0 / HitLag **0.35**。冻结倍率 fUnk16/19 = 0 全冻。
+- **弱音根因候选 (42/45 vs 51/52 diff)**: 42/45 独有 **bUnk23=255** (真招全 40/43/44,
+  疑似命中反应/音效表索引, 255=无效→回退弱音) + Flinch=0 + fUnk14=0 + MindsEye=0 +
+  bUnk15=0/uUnk25=0。迁入居合行后全部继承强打击值 (Flinch7/fUnk14=50/MindsEye1/
+  bUnk23=40)。若局内弱音依旧, 下一步对比 fUnk7(0 vs 100)/No_Sharpness。
+- **⚠️ blend 警告**: MHW-Valor-0.0.2-hitlag.blend 的 entry343 **没有 CollisionTimelineObject
+  轨道** (老血统副本; 343 的 CTO 当初做在 damage-modify blend + 部署二进制) —
+  **从该 blend 导出会丢 343 路由**。343 的 TIML 一律以部署二进制 + patch_timl_defense
+  为准, 或先把 CTO 轨道移植进 blend 再导出。
+- 剩余空闲: node 93(行53)/98(行-1)/99(行-1)/100(行-1), 行 31/50/54/58。
+
+### 2026-10-20 col_tool 写坏 col 事故 + 修复 + 无双斩终版 (hit1 気刃斬り声纹/hit2 居合)
+
+- **⚠️ col_tool.py 两个写毁文件的 bug (已修, 用前确认已含修复)**:
+  ① `cmd_setval` 的 `d[o:o+4] = new` — 对 u16('S'/'H') 字段 new 只有 2 字节, Python
+  切片赋值**把文件删短 2 字节**且后续全部左移 (u8 会删 3 字节); 本轮 3 次 u16 写 =
+  行 51 区域共丢 6 字节, 行 52+ 全错位。修 = `d[o:o+len(new)]` (两处)。
+  ② `pack_val` 急切构建全类型字典 — float 字段写 >255 的值 (fUnk26=260) 会在无关的
+  'B' 条目上 struct.error。修 = 按需打包。
+  事故证据链: 字节 diff vs `wp03.col.bak-20261007-pre343mv` (每次改 col 前先 diff 这个
+  基准可立刻发现同类事故); 坏档留证 = `wp03.col.corrupt-20261020`。
+- **修复方式**: 行 0-50 (含全部 10-19 编辑 + 行 49 刚1 0.4) 从坏文件头部截取完好;
+  行 51 起 (含 OAP) 整段取自 10-07 备份 (该区间无 10-19 编辑, 数据完好只是移位);
+  拼接回 20408 后用修好的工具重打目标字段。
+- **无双斩终版**: 路由 343 f0→91(行51)/f58→92(行52), 两 node cgp=9 (居合大判定盒)。
+  **hit1 = 行51: 気刃斬り1(row15) 全字段声纹克隆** (fUnk13=2/fUnk14=6/bUnk23=12/
+  fUnk26=260/Flinch=0/bUnk15=0/uUnk25=1/No_Sharpness=0/uUnk12=0/Cond_MV=26) +
+  {MV31, PartMod0, HitLag 0.15, Energy_Gen=0 不加气刃}。**hit2 = 行52: 居合黄声纹**
+  (fUnk14=50/bUnk23=40/Flinch7) + {MV150, PartMod2.0, HitLag 0.4}。
+  声纹指纹表: 気刃斬り1=bUnk23:12/fUnk13:2/fUnk14:6/fUnk26:260; 居合気刃2系=40/0/50/-1;
+  居合気刃1赤(刚1行49)=43/0/50/270; 削除居合気刃2赤(行53)=44。bUnk23 = 命中反应/音效
+  表索引 (255=无效, 旧行42/45 携带 255 + 全零反应字段 = 弱音根因候选)。
+  **user 局内确认: 42/45 版卡肉已生效但音仍弱 → 换行 51/52 后待复测**。
+  行 22 (node85) 也是 bUnk23=255 — 若 bUnk23 定罪, 该行同样要换签名。
+- **备份纪律**: 改 col 前先 `cp wp03.col wp03.col.bak-<日期>-<用途>`; col_tool 的自动
+  .bak 每次覆盖, 事故后不可依赖; 10-07 的 `pre343mv` 备份这次救了命。
+
+### 2026-10-20 (2) 343 路由入 blend + 一次二进制回退复盘 + FreeKinetics 链式结构教训
+
+- **FreeKinetics 结构教训**: TIML Action Node 在树里是**链式串联** (动作节点互相串,
+  只有链头直连 TIML Data Node) — 只扫直接连线会漏掉整条链 (本轮误判"343 缺 CTO"。
+  正确遍历 = 从 Data Node 出发沿 input links 递归 BFS; 343 链上 9 节点含 CTO.083,
+  156 链上 13 节点)。
+- **blend 现状**: damage-modify 与 hitlag 两文件字节相同 (互相覆盖过); 用户认定的
+  shout-config.blend **未验证/未编辑** (Blender 实际开着的是 hitlag)。343 路由
+  91/92 已写入 **hitlag.blend** 的 CTO.083 (mB296CA66 双键, 把手同步) 并保存;
+  shout-config 若是主本需开它重打同款两键。
+- **二进制回退复盘**: 我 patch 部署 LMT (90→91/94→92) 之后, user 从 hitlag.blend
+  (当时还是 90/94) 导出并部署 → 覆盖回 90/94。教训: **blend 导出部署会覆盖二进制
+  patch; 两边改动要么同步进 blend 再导出, 要么导出后重跑 patch_timl_defense**。
+- **闭环验证 (金标准)**: blend 全树导出 (`_e343_hitlag_export.lmt`, 临时件可删) →
+  patch_timl_defense dump 逐轨 diff 343 = 与部署二进制**完全一致** (唯一历史差异即
+  两个路由键, 重 patch 后 diff 零行)。343 全链 (col 行51/52 + names cgp + LMT 双键 +
+  blend fcurve) 四层一致。
+- **路线决定 (user 定案)**: **col 编辑保持独立工具路线** (col_research/col_tool.py,
+  两个写毁 bug 已修), **不并入 FreeKinetics** — 插件专职 LMT/TIML; 卡肉/声纹编辑
+  继续走 col_tool setval, 字段语义表见 (5)/(6)/(7) 各节。

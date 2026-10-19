@@ -7183,25 +7183,34 @@ void PollStateLogger() {
     }
 }
 
-// --- F9 ATK-row scan + guard-page access trace ------------------------------
+// --- F12 ATK-row scan + guard-page access trace ------------------------------
 // Part-break (破坏值) question 2026-10-18: which cAttackParamPl field feeds the
 // per-hit part-break accumulation and whether anything reads it at all on the
 // custom row. cAttackParamPl = col ATK type-1 row object (0x270 bytes; factory
 // jump table 0x143F949E0[type], class name string at 0x142F12DD0); runtime
-// layout from Load FUN_14027d880 / Save FUN_14027dd20:
+// layout from Load FUN_14027d880 / Save FUN_14027dd20 (row 73 live-confirmed
+// 2026-10-19 via ATKHEX: +0x1F0/+0x210 mirrored the deployed HitLag edit):
 //   +0x00 vtable(0x142F12DE0) +0x08 Index u32 +0x0c Index2 u32
 //   +0x18 Attack_Type u32 +0x20 Motion_Value +0x24 Fixed_Damage
 //   +0x28 Part_Modifier +0x68 Stun +0x6c Exhaust +0x1c8 Soften
 //   +0x1d0 Elem_Mod +0x1d4 Status_Mod +0x1d8 Mount +0x240 Flinch u32
-// F9 arms one session: background scan of private RW memory for the vtable
+//   +0x1ec HitLagSpd_a +0x1f0 HitLag_a +0x20c HitLagSpd_b +0x210 HitLag_b
+// F12 arms one session: background scan of private RW memory for the vtable
 // pointer, per-row dump, hex dump of the configured row, then a PAGE_GUARD
-// trace over that row for 20 s (VEH logs rw/offset/rip/stack per access).
+// trace over that row for 30 s (VEH logs rw/offset/rip/stack per access;
+// neighbour-row faults on the same page restore the guard instead of
+// disarming it - they are counted and reported in the session-over line).
 // Config nativePC/plugins/ValorProbe.atktrace.txt = "<rowIndex>" (default 22).
 static std::atomic<std::uintptr_t> g_atkRowTarget{0};
 static std::atomic<long long> g_atkTraceDeadline{0};
 static std::atomic<unsigned> g_atkTraceLines{0};
+static std::atomic<unsigned> g_atkNeighborFaults{0};
+static std::atomic<unsigned> g_atkNeiLines{0};
 static std::atomic<bool> g_atkReprotectPending{false};
 static std::atomic<bool> g_atkVehInstalled{false};
+static std::atomic<bool> g_atkScanRunning{false};
+static std::atomic<std::uintptr_t> g_atkGuardedRows[8] = {};
+static std::atomic<unsigned> g_atkGuardedRowCount{0};
 static int g_atkRowCfg = 22;
 static bool g_atkKeyWasDown = false;
 
@@ -7213,29 +7222,52 @@ struct AtkGuardedPage {
 static std::vector<AtkGuardedPage> g_atkGuardedPages;
 static std::mutex g_atkGuardMutex;
 
-static void AtkApplyGuard(std::uintptr_t target) {
+// (Re)arm PAGE_GUARD on every page overlapping one row. Safe to call again
+// after a fault consumed the guard bit - that is exactly how the single-step
+// handler restores it. A previous build skipped re-arming whenever the page
+// list was non-empty, which silently turned the whole trace one-shot.
+static void AtkGuardRowPages(std::uintptr_t target) {
     if (!target) {
         return;
     }
     std::lock_guard<std::mutex> lock(g_atkGuardMutex);
-    if (!g_atkGuardedPages.empty()) {
-        return;
-    }
     const auto pageStart = target & ~static_cast<std::uintptr_t>(0xFFF);
     const auto pageEnd = (target + 0x270 + 0xFFF) & ~static_cast<std::uintptr_t>(0xFFF);
     for (auto page = pageStart; page < pageEnd; page += 0x1000) {
-        void* base = reinterpret_cast<void*>(page);
         MEMORY_BASIC_INFORMATION info{};
-        if (!VirtualQuery(base, &info, sizeof(info)) || info.State != MEM_COMMIT) {
+        if (!VirtualQuery(reinterpret_cast<void*>(page), &info, sizeof(info)) ||
+            info.State != MEM_COMMIT) {
             continue;
         }
         DWORD oldProtect = 0;
-        // Guard every page that overlaps the row; neighbouring rows on the same
-        // page also fault but the VEH filters them out by address range.
-        if (VirtualProtect(base, 0x1000,
+        if (VirtualProtect(reinterpret_cast<void*>(page), 0x1000,
                            (info.Protect & ~PAGE_GUARD) | PAGE_GUARD, &oldProtect)) {
-            g_atkGuardedPages.push_back({base, 0x1000, oldProtect});
+            bool known = false;
+            for (const auto& pg : g_atkGuardedPages) {
+                known |= (pg.base == reinterpret_cast<void*>(page));
+            }
+            if (!known) {
+                g_atkGuardedPages.push_back(
+                    {reinterpret_cast<void*>(page), 0x1000, oldProtect});
+            }
+        } else {
+            static std::atomic<unsigned> guardFails{0};
+            if (guardFails.fetch_add(1, std::memory_order_relaxed) < 3) {
+                std::ostringstream m;
+                m << "ATKTRACE: VirtualProtect(guard) FAILED page=0x" << std::hex
+                  << page << " err=" << std::dec << GetLastError();
+                Log(m.str());
+            }
         }
+    }
+}
+
+static void AtkReprotectAll() {
+    std::lock_guard<std::mutex> lock(g_atkGuardMutex);
+    for (auto& pg : g_atkGuardedPages) {
+        DWORD dontCare = 0;
+        VirtualProtect(pg.base, pg.size,
+                       (pg.oldProtect & ~PAGE_GUARD) | PAGE_GUARD, &dontCare);
     }
 }
 
@@ -7246,6 +7278,10 @@ static void AtkRemoveGuard() {
         VirtualProtect(page.base, page.size, page.oldProtect, &dontCare);
     }
     g_atkGuardedPages.clear();
+    g_atkGuardedRowCount.store(0, std::memory_order_relaxed);
+    for (auto& r : g_atkGuardedRows) {
+        r.store(0, std::memory_order_relaxed);
+    }
 }
 
 static LONG NTAPI AtkGuardVectored(PEXCEPTION_POINTERS info) {
@@ -7253,56 +7289,123 @@ static LONG NTAPI AtkGuardVectored(PEXCEPTION_POINTERS info) {
     if (code != STATUS_GUARD_PAGE_VIOLATION) {
         if (code == STATUS_SINGLE_STEP &&
             g_atkReprotectPending.exchange(false, std::memory_order_relaxed)) {
-            // The faulting instruction finished; put the guard back.
+            // The faulting instruction finished; put the guards back.
             info->ContextRecord->EFlags &= ~0x100;
-            AtkApplyGuard(g_atkRowTarget.load(std::memory_order_relaxed));
+            AtkReprotectAll();
             return EXCEPTION_CONTINUE_EXECUTION;
         }
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    const auto target = g_atkRowTarget.load(std::memory_order_relaxed);
-    if (!target) {
+    const int rowCount = static_cast<int>(
+        g_atkGuardedRowCount.load(std::memory_order_relaxed));
+    if (rowCount <= 0) {
         return EXCEPTION_CONTINUE_SEARCH;
     }
     const auto addr = static_cast<std::uintptr_t>(
         info->ExceptionRecord->ExceptionInformation[1]);
-    if (addr < target || addr >= target + 0x270) {
-        return EXCEPTION_CONTINUE_SEARCH;
-    }
-    // Re-run the faulting instruction, then restore the guard on the single step.
-    info->ContextRecord->EFlags |= 0x100;
-    g_atkReprotectPending.store(true, std::memory_order_relaxed);
+    const auto base = g_moduleBase.load(std::memory_order_relaxed);
+    for (int i = 0; i < rowCount; ++i) {
+        const auto target = g_atkGuardedRows[i].load(std::memory_order_relaxed);
+        if (!target) {
+            continue;
+        }
+        const bool inRow = addr >= target && addr < target + 0x270;
+        const auto page = addr & ~static_cast<std::uintptr_t>(0xFFF);
+        const bool onPage = page >= (target & ~static_cast<std::uintptr_t>(0xFFF)) &&
+                            page <= ((target + 0x270 - 1) & ~static_cast<std::uintptr_t>(0xFFF));
+        if (!inRow && !onPage) {
+            continue;
+        }
+        // Re-run the faulting instruction, then restore the guard on the
+        // single step. Without this the OS-cleared PAGE_GUARD bit never comes
+        // back and the whole session dies on the first touch.
+        info->ContextRecord->EFlags |= 0x100;
+        g_atkReprotectPending.store(true, std::memory_order_relaxed);
 
-    const unsigned line = g_atkTraceLines.fetch_add(1, std::memory_order_relaxed);
-    if (line < 1500) {
-        const auto base = g_moduleBase.load(std::memory_order_relaxed);
-        const char* rw = info->ExceptionRecord->ExceptionInformation[0] == 0
-                             ? "R"
-                             : (info->ExceptionRecord->ExceptionInformation[0] == 1
-                                    ? "W"
-                                    : "X");
-        void* stack[10] = {};
-        USHORT frames = RtlCaptureStackBackTrace(0, 10, stack, nullptr);
-        std::ostringstream m;
-        m << "ATKACC " << rw << " off=0x" << std::hex << (addr - target)
-          << " rip=+0x" << (info->ContextRecord->Rip - base);
-        int printed = 0;
-        for (USHORT i = 0; i < frames && printed < 6; ++i) {
-            const auto pc = reinterpret_cast<std::uintptr_t>(stack[i]);
-            if (pc >= base && pc < base + 0x2000000) {
-                m << (printed == 0 ? " stk=" : ",") << "+0x" << (pc - base);
-                ++printed;
+        if (inRow) {
+            const unsigned line =
+                g_atkTraceLines.fetch_add(1, std::memory_order_relaxed);
+            if (line < 1500) {
+                const char* rw =
+                    info->ExceptionRecord->ExceptionInformation[0] == 0
+                        ? "R"
+                        : (info->ExceptionRecord->ExceptionInformation[0] == 1
+                               ? "W"
+                               : "X");
+                void* stack[10] = {};
+                USHORT frames = RtlCaptureStackBackTrace(0, 10, stack, nullptr);
+                std::ostringstream m;
+                m << "ATKACC i" << std::dec << i << " " << rw << " off=0x"
+                  << std::hex << (addr - target) << " rip=+0x"
+                  << (info->ContextRecord->Rip - base);
+                int printed = 0;
+                for (USHORT f = 0; f < frames && printed < 6; ++f) {
+                    const auto pc = reinterpret_cast<std::uintptr_t>(stack[f]);
+                    if (pc >= base && pc < base + 0x2000000) {
+                        m << (printed == 0 ? " stk=" : ",") << "+0x" << (pc - base);
+                        ++printed;
+                    }
+                }
+                Log(m.str());
+            }
+        } else {
+            // Neighbouring allocation on a guarded page: count it, and log
+            // the first ones - the reader RIP is the breadcrumb to whoever
+            // walks these rows at runtime.
+            g_atkNeighborFaults.fetch_add(1, std::memory_order_relaxed);
+            const unsigned nl = g_atkNeiLines.fetch_add(1, std::memory_order_relaxed);
+            if (nl < 200) {
+                const char* rw =
+                    info->ExceptionRecord->ExceptionInformation[0] == 0
+                        ? "R"
+                        : (info->ExceptionRecord->ExceptionInformation[0] == 1
+                               ? "W"
+                               : "X");
+                void* stack[10] = {};
+                USHORT frames = RtlCaptureStackBackTrace(0, 10, stack, nullptr);
+                std::ostringstream m;
+                m << "ATKNEI i" << std::dec << i << " " << rw << " rel="
+                  << static_cast<long long>(addr) -
+                         static_cast<long long>(target)
+                  << " rip=+0x" << std::hex
+                  << (info->ContextRecord->Rip - base);
+                int printed = 0;
+                for (USHORT f = 0; f < frames && printed < 4; ++f) {
+                    const auto pc = reinterpret_cast<std::uintptr_t>(stack[f]);
+                    if (pc >= base && pc < base + 0x2000000) {
+                        m << (printed == 0 ? " stk=" : ",") << "+0x" << (pc - base);
+                        ++printed;
+                    }
+                }
+                Log(m.str());
             }
         }
-        Log(m.str());
+        return EXCEPTION_CONTINUE_EXECUTION;
     }
-    return EXCEPTION_CONTINUE_EXECUTION;
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+// SEH can't live in a function with unwinding objects - keep the guard-page
+// self-test reads in their own no-throw helper.
+static bool AtkSelftestRead(std::uintptr_t addr, std::uint32_t* mv,
+                            std::uint32_t* lag) {
+    __try {
+        const auto* p = reinterpret_cast<const std::uint8_t*>(addr);
+        *mv = *reinterpret_cast<const std::uint32_t*>(p + 0x20);
+        *lag = *reinterpret_cast<const std::uint32_t*>(p + 0x1F0);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        *mv = 0xDEADBEEFu;
+        *lag = 0xDEADBEEFu;
+        return false;
+    }
 }
 
 static void AtkScanThread(int wantIdx) {
     const auto base = g_moduleBase.load(std::memory_order_relaxed);
     if (!base) {
         Log("ATKSCAN: no module base yet");
+        g_atkScanRunning.store(false, std::memory_order_relaxed);
         return;
     }
     const std::uintptr_t vtable = base + 0x2F12DE0;
@@ -7381,11 +7484,12 @@ static void AtkScanThread(int wantIdx) {
     Log(summary.str());
     if (rows.empty()) {
         Log("ATKSCAN: no rows resident - load a quest first (col not parsed yet?)");
+        g_atkScanRunning.store(false, std::memory_order_relaxed);
         return;
     }
 
     unsigned dumped = 0;
-    Row target{0, 0};
+    std::vector<Row> matches;
     for (const auto& row : rows) {
         auto* p = reinterpret_cast<const std::uint8_t*>(row.addr);
         auto u32 = [p](std::size_t off) {
@@ -7395,7 +7499,7 @@ static void AtkScanThread(int wantIdx) {
             return *reinterpret_cast<const float*>(p + off);
         };
         if (static_cast<int>(row.idx) == wantIdx) {
-            target = row;
+            matches.push_back(row);
         }
         if (dumped++ < 120) {
             std::ostringstream m;
@@ -7409,22 +7513,31 @@ static void AtkScanThread(int wantIdx) {
         }
     }
 
-    if (!target.addr) {
+    if (matches.empty()) {
         std::ostringstream m;
         m << "ATKSCAN: row " << wantIdx
           << " not found among resident rows (col without that row loaded?)";
         Log(m.str());
+        g_atkScanRunning.store(false, std::memory_order_relaxed);
         return;
+    }
+    if (matches.size() > 8) {
+        matches.resize(8);
     }
 
     {
-        auto* p = reinterpret_cast<const std::uint8_t*>(target.addr);
+        auto* p = reinterpret_cast<const std::uint8_t*>(matches[0].addr);
         std::ostringstream m;
-        m << "ATKHEX row " << target.idx << " @0x" << std::hex << target.addr
-          << std::dec << " (u32 view):";
-        for (std::size_t off = 0; off < 0x270; off += 64) {
+        m << "ATKHEX row " << matches[0].idx << " @0x" << std::hex
+          << matches[0].addr << std::dec << " (u32 view):";
+        // 0x270 = the row itself; the tail up to 0xE00 covers the runtime
+        // neighbours that ATKNEI showed being read at hit time (row+0xB40..).
+        for (std::size_t off = 0; off < 0xE00; off += 64) {
+            if (off == 0x270) {
+                m << "\n  ---- beyond row: neighbour/context region ----";
+            }
             m << "\n  +0x" << std::hex << off << std::dec << ":";
-            for (std::size_t w = off; w < off + 64 && w < 0x270; w += 4) {
+            for (std::size_t w = off; w < off + 64 && w < 0xE00; w += 4) {
                 m << ' ' << std::hex << std::setw(8) << std::setfill('0')
                   << *reinterpret_cast<const std::uint32_t*>(p + w) << std::dec;
             }
@@ -7437,21 +7550,59 @@ static void AtkScanThread(int wantIdx) {
         Log("ATKTRACE: VEH installed");
     }
     g_atkTraceLines.store(0, std::memory_order_relaxed);
-    AtkApplyGuard(target.addr);
-    g_atkRowTarget.store(target.addr, std::memory_order_relaxed);
+    g_atkNeighborFaults.store(0, std::memory_order_relaxed);
+    g_atkNeiLines.store(0, std::memory_order_relaxed);
+    for (std::size_t k = 0; k < matches.size(); ++k) {
+        g_atkGuardedRows[k].store(matches[k].addr, std::memory_order_relaxed);
+        AtkGuardRowPages(matches[k].addr);
+    }
+    g_atkGuardedRowCount.store(
+        static_cast<unsigned>(matches.size()), std::memory_order_relaxed);
+    g_atkRowTarget.store(matches[0].addr, std::memory_order_relaxed);
     g_atkTraceDeadline.store(
         std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now().time_since_epoch())
                 .count() +
-            20,
+            30,
         std::memory_order_relaxed);
-    std::ostringstream m;
-    m << "ATKTRACE: guarding row " << target.idx << " @0x" << std::hex
-      << target.addr << std::dec << " for 20 s - land hits now";
-    Log(m.str());
+    {
+        std::ostringstream m;
+        m << "ATKTRACE: guarding row " << matches[0].idx << ": "
+          << matches.size() << " instance(s) for 30 s - land hits now";
+        for (std::size_t k = 0; k < matches.size(); ++k) {
+            auto* p = reinterpret_cast<const std::uint8_t*>(matches[k].addr);
+            const float mv = *reinterpret_cast<const float*>(p + 0x20);
+            m << " [i" << k << " @0x" << std::hex << matches[k].addr << std::dec
+              << " mv=" << mv << "]";
+        }
+        Log(m.str());
+    }
+    // Self-test: these two reads must each produce one ATKACC line right
+    // below. No lines = the guard mechanism itself is broken, not the game.
+    {
+        std::uint32_t mv = 0;
+        std::uint32_t lag = 0;
+        const bool ok = AtkSelftestRead(matches[0].addr, &mv, &lag);
+        std::ostringstream m;
+        m << "ATKTRACE: selftest " << (ok ? "ok" : "FAULTED")
+          << " mv=0x" << std::hex << mv << " hitlag_a=0x" << lag
+          << " (expect 2 ATKACC lines above)";
+        Log(m.str());
+    }
+    g_atkScanRunning.store(false, std::memory_order_relaxed);
 }
 
 static void AtkScanArm() {
+    if (g_atkScanRunning.exchange(true, std::memory_order_relaxed)) {
+        Log("ATKSCAN: previous scan still running - wait for it to finish");
+        return;
+    }
+    if (g_atkTraceDeadline.load(std::memory_order_relaxed) != 0 ||
+        g_atkRowTarget.load(std::memory_order_relaxed) != 0) {
+        g_atkScanRunning.store(false, std::memory_order_relaxed);
+        Log("ATKTRACE: session still live - wait for 'session over' first");
+        return;
+    }
     std::ifstream input("nativePC/plugins/ValorProbe.atktrace.txt");
     int idx = 0;
     if (input >> idx) {
@@ -7487,7 +7638,8 @@ static void PollAtkTrace() {
     AtkRemoveGuard();
     std::ostringstream m;
     m << "ATKTRACE: session over, " << g_atkTraceLines.load()
-      << " accesses logged (cap 1500)";
+      << " accesses logged (cap 1500, neighbor faults "
+      << g_atkNeighborFaults.load() << ")";
     Log(m.str());
     g_atkTraceDeadline.store(0, std::memory_order_relaxed);
 }
@@ -8065,14 +8217,15 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollPoolDiff();
     PollAtkTrace();
     MinerCaptureFrame();
-    const bool atkKeyF9 =
-        ((GetAsyncKeyState(VK_F9) & 0x8000) != 0) &&
-        ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0);  // Shift+F9: bare F9 is
-                                                       // taken by CSharp loader
-    if (atkKeyF9 && !g_atkKeyWasDown) {
+    // F12 arms ATKSCAN/ATKTRACE. Bare F9 is taken by the CSharp loader and
+    // Shift+F9 missed presses in the field too; F10/F11 are diff capture and
+    // the property histogram. Note: F12 is Steam's default screenshot key -
+    // a capture popup alongside the arm is expected and harmless.
+    const bool atkKey = (GetAsyncKeyState(VK_F12) & 0x8000) != 0;
+    if (atkKey && !g_atkKeyWasDown) {
         AtkScanArm();
     }
-    g_atkKeyWasDown = atkKeyF9;
+    g_atkKeyWasDown = atkKey;
     const bool f5Down = (GetAsyncKeyState(VK_F5) & 0x8000) != 0;
     if (f5Down && !g_f9WasDown) {
         MinerHandleF9();
