@@ -112,8 +112,17 @@ void* (*g_originalFxNotify)(void* emitter, std::uint32_t id,
 //   0x7D7         via FUN_140ADD670   (gated: +0x2398 stance flag)
 // Config nativePC/plugins/ValorGauge.fx-test.txt = "<func> <id>" (func 0 =
 // ADD670, 1 = AE0D70; id accepts 0x prefix). F7 fires once, Shift+F7 reloads.
+// 2026-10-21 red-glow chain test funcs (RVA 0x21224D0 = FUN_1421224d0, the
+// generic emitter; weapon+0x2398 = "spirit gauge cost paid" arm flag):
+//   2 = call native emitter (fires only if +0x2398 armed, or action 87/102
+//       with level != 0 — the native gates run as-is)
+//   3 = write weapon+0x2398 = 1 (arm; next native emitter call glows)
+//   4 = arm + call native emitter (decisive: manual glow bypassing cost/bit0)
+//   5 = write weapon+0x2398 = 0 (clear)
+// <id> is unused by funcs 2-5 (keep a 0 in the file).
 void* (__fastcall* g_fxNotifyA)(void*, std::uint32_t, std::uint32_t) = nullptr;
 void* (__fastcall* g_fxNotifyB)(void*, std::uint32_t, std::uint32_t) = nullptr;
+void (__fastcall* g_glowEmit)(void* weapon) = nullptr;
 std::atomic_int g_fxFireFunc{-1};
 std::atomic<std::uint32_t> g_fxFireId{0};
 int g_fxCfgFunc = 0;
@@ -148,7 +157,7 @@ bool g_fxKeyWasDown = false;
 //       Both convert seconds with the live w03p Gauge_Duration of the current
 //       level - the same primitive as the vanilla 见切-success extension.
 struct GaugeRule {
-    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx };
+    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail };
     Type type = Type::Rewrite;
     std::int32_t set = 3;
     std::int32_t id = 0;
@@ -2056,6 +2065,17 @@ void LoadGaugeRulesConfig() {
             }
             rule.fxId = static_cast<std::uint32_t>(
                 std::strtoul(fxToken.c_str(), nullptr, 0));
+        } else if (kind == "trail") {
+            // 2026-10-21: hold weapon+0x2398 = 1 every frame while <set> <id>
+            // is the current action. The flag means "spirit gauge cost paid"
+            // and gates both the generic red-glow emitter and the per-frame
+            // weapon trail; native arming only happens inside the kijin move
+            // begin handlers (cost>0 && gauge pays), so custom/imported moves
+            // never arm it on their own.
+            rule.type = GaugeRule::Type::Trail;
+            if (!(ss >> rule.set >> rule.id)) {
+                continue;
+            }
         } else if (kind == "option") {
             std::string key;
             float v = 0.0f;
@@ -3726,6 +3746,36 @@ void TryQueuedFx(const void* entity) {
     } else if (func == 1 && g_fxNotifyB) {
         g_fxNotifyB(emitter, id, 0);
         m << " via AE0D70";
+    } else if (func >= 2 && func <= 5) {
+        void* weapon = *reinterpret_cast<void**>(player + 0x76B0);
+        if (!weapon || !IsReadable(weapon, 0x2400)) {
+            m << " <no weapon>";
+        } else {
+            auto* wbytes = static_cast<std::uint8_t*>(weapon);
+            const std::int32_t wtype =
+                *reinterpret_cast<std::int32_t*>(wbytes + 0x9F8);
+            auto* flag = wbytes + 0x2398;
+            m << " wtype=" << wtype << " arm2398="
+              << static_cast<int>(*flag);
+            if (wtype != 3) {
+                m << " <not long sword, skip>";
+            } else if (!g_glowEmit) {
+                m << " <glowEmit unresolved>";
+            } else if (func == 2) {
+                g_glowEmit(weapon);
+                m << " -> glowEmit (native gates decide)";
+            } else if (func == 3) {
+                *flag = 1;
+                m << " -> armed (next native emitter call glows)";
+            } else if (func == 4) {
+                *flag = 1;
+                g_glowEmit(weapon);
+                m << " -> armed + glowEmit fired";
+            } else {
+                *flag = 0;
+                m << " -> cleared";
+            }
+        }
     } else {
         m << " <unresolved func>";
     }
@@ -4094,6 +4144,46 @@ void PollGaugeBeginRules(const void* entity) {
     }
 }
 
+// TRAIL rule per-tick (2026-10-21): hold weapon+0x2398 = 1 while a configured
+// action is the current one. The flag means "this move's spirit gauge cost was
+// paid" — it gates the generic red-glow emitter (FUN_1421224d0) and the
+// per-frame weapon trail; native arming only happens in the kijin move begin
+// handlers (cost>0 && gauge pays), so custom/imported moves never arm it.
+void PollTrailRules(const void* entity) {
+    if (g_gaugeRules.empty()) {
+        return;
+    }
+    const GaugeRule* rule = nullptr;
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lastLongSwordAction) {
+            rule = FindGaugeRule(GaugeRule::Type::Trail,
+                                 g_lastLongSwordAction->actionSet,
+                                 g_lastLongSwordAction->actionId);
+        }
+        ctrl = g_lockedPlayerController;
+    }
+    if (!rule || !ctrl || !ModWeaponActive()) {
+        return;
+    }
+    auto* player = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    if (entity != player) {
+        return;
+    }
+    void* weapon = *reinterpret_cast<void**>(player + 0x76B0);
+    if (!weapon || !IsReadable(weapon, 0x2400)) {
+        return;
+    }
+    auto* wbytes = static_cast<std::uint8_t*>(weapon);
+    if (*reinterpret_cast<std::int32_t*>(wbytes + 0x9F8) != 3) {
+        return;
+    }
+    if (wbytes[0x2398] == 0) {
+        wbytes[0x2398] = 1;
+    }
+}
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
@@ -4102,6 +4192,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     PollMotionBind(entity);
     MotionTraceTick(entity);
     PollGaugeBeginRules(entity);
+    PollTrailRules(entity);
     PollGang1GaugeScope();
     PollGaugeWatch();
 #endif
@@ -8461,14 +8552,21 @@ DWORD WINAPI InitializePlugin(void*) {
                         OverrideOrZero("fxNotifyB") != 0
                             ? OverrideOrZero("fxNotifyB")
                             : 0xAE0D70;
+                    const std::uintptr_t rvaGlow =
+                        OverrideOrZero("glowEmit") != 0
+                            ? OverrideOrZero("glowEmit")
+                            : 0x21224D0;
                     g_fxNotifyA = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaA);
                     g_fxNotifyB = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaB);
+                    g_glowEmit = reinterpret_cast<void (__fastcall*)(void*)>(
+                        base + rvaGlow);
                     std::ostringstream fxm;
                     fxm << "FX test notify resolved: ADD670="
                         << (g_fxNotifyA ? "ok" : "null") << " AE0D70="
-                        << (g_fxNotifyB ? "ok" : "null");
+                        << (g_fxNotifyB ? "ok" : "null") << " glowEmit="
+                        << (g_glowEmit ? "ok" : "null");
                     Log(fxm.str());
                 }
                 LoadFxTestConfig();
