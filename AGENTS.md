@@ -4038,3 +4038,22 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - **(续) 无双斩双段窗 (user 定帧 24-38/58-72)**: 多段挥砍 = 多对独立 (起,8)(止,0) 键,
   CONSTANT 插值下段间自动断开, 无需段间基线键。MCP 导出已加 stdout 静音
   (io.StringIO 捕获, 错误日志仍写 _fx_export.txt), 输出不再刷屏。
+
+### 2026-10-21 (7) FreeKinetics 新增 TIML 拖尾编辑器 (timl_trail_editor.py)
+
+- **位置**: 插件目录 timl_trail_editor.py (照 timl_sound_editor.py 模子), __init__.py
+  modules 表注册。面板: N栏 FreeHK → "TIML 拖尾" (3D/Dopesheet 双挂)。
+- **UX = entry 驱动** (拖尾是 entry 级配置且 PMV 参数可能不存在, 与窗口/声音编辑器的
+  action 驱动互补): entry 号 → 状态显示 (动作/254-252轨/PMV/bit3段列表) →
+  **一键配置** (找/建 PlMotionVisual 参数含 freehk 元数据 + 补 254/252 恒等轨) →
+  起/止帧加段 / 按序号删段 (多段支持, 无双斩双段模式)。
+- **实现要点**: bit3 位平面编辑 = 保留其他位 (2048 等) 只动 8 位 (base(f)=v&~8 按
+  片段取值), 双通道 ix0/ix1 同步 CONSTANT; 新建 PMV = 复刻 freehk 元数据配方
+  (starType/timelineParam=m46F3E901/timl_reorder, 缺它 A_TIML_INVALID_ACTION_TYPE
+  静默剔除); 树遍历 = LMTEntryNode→TIMLDataNode→BFS。
+- **热加载**: 运行中的 Blender 用 spec_from_file_location 挂载 + 模块级 register()
+  (包属性挂 sys.modules 包对象), 无需整包 reload; 重启后自动加载。
+- **无头**: bpy.ops.freehk.timl_trail_setup/seg_add/seg_del/list(entry_num=...,
+  seg_add 另有 frame_start/frame_end)。
+- **DLL 侧不在本编辑器范围**: gauge-rules.txt 仍需手工加 'trail 3 <请求id>'
+  (面板有提示行)。
