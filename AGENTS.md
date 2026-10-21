@@ -4057,3 +4057,5 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   seg_add 另有 frame_start/frame_end)。
 - **DLL 侧不在本编辑器范围**: gauge-rules.txt 仍需手工加 'trail 3 <请求id>'
   (面板有提示行)。
+- **(续) 工具 user-verified**: user 把 timl_trail_editor.py 复制到另一 Blender 实例
+  (备份工程) 实际使用, 界面/操作/产物符合预期 — 编辑器在干净环境即装即用确认。
