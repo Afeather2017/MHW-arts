@@ -4059,3 +4059,151 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   (面板有提示行)。
 - **(续) 工具 user-verified**: user 把 timl_trail_editor.py 复制到另一 Blender 实例
   (备份工程) 实际使用, 界面/操作/产物符合预期 — 编辑器在干净环境即装即用确认。
+
+### 2026-10-21 (8) 屏幕震动机制定案: TIML PlMotionCommon 的 mCameraShakeIndex (+mViewParamId) — 大剑真蓄 A/B + 全表普查
+
+- **定案 (user 删轨 A/B: 删 LMT190 的 PlMotionCommon 块 → 真蓄震动消失)**: 相机震动
+  住在 TIML 的 `PlMotionCommon` 参数块 (类型 hash m48D6114F), 字段
+  **`m252961CD` = mCameraShakeIndex** (震动档位), 次要 **`mF4D12F36` = mViewParamId**
+  (视角/FOV punch)。字段名来自 FreeKinetics `blender/timl_controller.py` 的反射注册表
+  (~line 593-870, 全字段可查)。**注意删整块会连带删掉同块里的 mFlag/mTrigger 窗**
+  (190 的同块还带 mFlag=6/576→512 + mTrigger 2048 键) — 改震动只动 CameraShakeIndex
+  键值, 别删块。
+- **大剑真蓄 (w00 LMT entry 190) 配方 = 全库最猛**: shake 键 (LINEAR)
+  `0@f0 → 43@f27(打击帧) → 32@f67 → 20@f95` + view `0@f0 → 14@f6 → 2@f108 → 0@f160 → -1@f291`。
+  相邻档 41/42/43 = 同款渐强家族 (蓄力斩系 146/189 用 41@f0→18@f80 滑降) —
+  **index 是"强度档", 曲线在档间线性滑降 = authored 的衰减**, 不是离散预设切换。
+- **档位表 = csk 文件 (16B 头: "CSK\0" @4 + u32 数量 @12; 每条 120B)**:
+  每武器一张 `hm/wp/wpNN/wpNN_shake.csk` (GS wp00=80 条, LS wp03=**56 条**),
+  全局 `common/camera/shake_pl.csk` = 112 条。**索引超出武器表范围落全局表**
+  (99 两个武器都在用且 > 各自表长)。档 43 在 wp00/wp03/shake_pl 三张表都存在但
+  字节不同 → 分表解析 (局部 A/B 未做); 实用路线: LS 先直接用 43 (表内, vanilla
+  从未用过 = 原生存在的强档), 观感不对再移植 `wp00_shake.csk[41-43] → wp03_shake.csk`
+  同槽 (120B 条目跨武器同构, 可直接字节复制) 部署 `nativePC/hm/wp/wp03/wp03_shake.csk`。
+- **LS (w03_00.lmt) 震动现状普查** (FreeKinetics struct 解析器, PLMC=0x48D6114F/
+  CAM=0x252961CD/VIEW=0xF4D12F36): vanilla 居合系 306=30/307=32/308,309,311=36/310=15,
+  気刃系 200-202=8/221=10; **valor 自定义 (332-334/343/345/347-349) 全是 99** (全局表
+  环境档, 弱) — 这就是"当前招式没震动"的原因。view punch: LS 原生大居合 309/311 用
+  `10@f0→11@f12→-1@f130`, 346 用 10→19 — LS 侧要 punch 优先复用自家 10→11。
+- **落地配方 (待做)**: LS blend 里目标招 PlMotionCommon 块的 m252961CD 键值 99→43
+  (起点放打击帧, 可复刻 43→32→20 滑降), view 可选加 10→11。无需动 csk。
+- **FreeKinetics 节点图坑 (本轮踩坑)**: 全部 227 个 TIMLDataNode **同名**
+  "TIML Data Node" (插件不加唯一名) — `nt.nodes[name]` 永远返回第一个, 遍历必须
+  `bl_idname` 过滤 + 走连线 (`as_pointer()` 去重); **动作名后缀 (.179/.030...) 是
+  Blender 数据块去重序号, 无语义**, 参数身份只看 fcurve data_path 尾部的字段 hash。
+  LMT 二进制侧: action.timl 即 TIML_Data (有 .types); TIML_Type.timelineParameterHash /
+  TIML_Transform.datatypeHash 定位字段; LMT() 解析需 `__len__` 的流
+  (BytesIO 子类), 用 marshallHeader+marshallBody (parseFile 走文件路径且不填 timl)。
+
+### 2026-10-21 (9) 343 屏幕震动落地 + blend 分叉事故复盘 (拖尾窗差点被洗)
+
+- **343 震动已部署 (待局内验证)**: `m252961CD` 键 `(0,0),(68,0),(69,36→43),(90,36→43),(91,0)`
+  全 LINEAR (1 帧沿=等效硬窗; guard 键防从头滑升)。
+  档位 36 试过偏保守 → 已升 **43** (43 部署 md5 **88a85542**, 字节 diff 仅 2 处键值;
+  36 版备份 `w03_00.lmt.bak-20261021-shake36`, 产物 `_shake343_export2.lmt`)。
+  部署三处一致 (游戏 nativePC + 工作区 MHW-valor/nativePC + 导出产物);
+  初版备份 `w03_00.lmt.bak-20261021-prescreenshake`。
+- **(续) 机制修正: CameraShakeIndex = 命中打击档位; 挥空震的真凶 = mViewParamId**
+  (user 局内观察: ①大剑真蓄**挥空也震** ②343 命中点在 f69 前也照震 ③自疑"命中震是
+  这类攻击默认的" — 三条全对): 命中震 = 所有攻击自带的默认打击反馈 (与本曲线无关,
+  所以 index 36/43 都"感觉没效果"); 挥空震来源 = 同块另一字段 **`mF4D12F36`
+  mViewParamId** (真蓄 14@6→2@108→0@160→-1@291 挂满挥剑段, 删整块时被一并删掉
+  才误判成 shake index)。view param id 跨武器共用 (大剑 275/276 与太刀 309/311
+  都用 10→11) → 343 直接借真蓄 id 14。**已部署 (待验证)**: `mF4D12F36` 键
+  `(0,0),(24,14),(95,2),(130,0),(165,-1)` 全 CONSTANT (166 帧 anim 缩放, 14 号
+  相机状态挂 24-95), md5 **582191ba**, 备份 `w03_00.lmt.bak-20261021-shake43-noview`。
+  若挥空仍不震 → 移植 `wp00_shake.csk[41-43] → wp03_shake.csk` 同槽 (120B 条目跨
+  武器同构) 再测; 还不行 → view id 挂载期与动作状态的耦合需逆向 (mViewParamId 消费方)。
+- **(续2) mViewParamId 14 = 相机距离状态, 非震动 (user 局内确认: 无双斩时相机移远了,
+  无震)** — 真蓄的"拉镜头"配套效果, 保留在 343 上。挥空震嫌疑收敛到 csk 预设本身:
+  **wp03_shake.csk 43 号槽 vanilla 从未被 LS 用过 = 大概率无调校的弱预设** (wp03[43]
+  有内容但 ≠ wp00[43])。**已移植部署**: 工作区 csk (valor 作者改过: 原版 56 条 +
+  追加 56/57 两条 = 本表 33/34 的原样复制品, 原 56 条未动; 游戏目录此前从未部署过
+  csk, 一直吃 chunk 原版) 为底, wp00[41-43] 覆盖 wp03 同槽 (三槽 LS 无招引用, 41/42
+  且 wp00 内本身同字节), 部署 md5 **7b304e5c** (游戏 + 工作区)。
+- **(续3) csk 移植后挥空仍不震 → 数据逆向 + mTrigger 假说 (当前主嫌疑)**:
+  二进制全镜像扫描: 0x252961CD/0xF4D12F36 **零引用** (引擎不按哈希消费字段, TIML 加载
+  后按位置进运行时结构体); 0x48D6114F 仅 .data 注册表 0x145000ff4 一处 (行 = {name1,
+  name2, id 0x0600005a, typehash, ptr1=0x1433C6B10 (4 函数指针 0x14023D590/
+  0x141921E80/0x141921F20/0x141921F80), ptr2, default 0x144F7FD10}, 行长 0x30);
+  CSK 魔数引用 = FUN_1419bd950 (序列化方向, count@+0xB0/条目数组@+0xC0,
+  FUN_14028c2e0=单条目写), cCameraShakeManager 单例访问器 FUN_140289a30
+  (vtable+0x38, edx=0xC40)。**mCamShakeTiming/Type/Index 三元组 (0x14324dae8/b08)
+  邻居是 mIsHitWall/mIsHitGround = 命中反应相机震配置, 与挥空震无关**。
+  **假说: 震动由 mTrigger 触发位点燃, CameraShakeIndex 只提供当时档位** —
+  GS190 mTrigger = `2048@0 → 1024@44 → 16384@49 → 1024@104` (有位事件; 2048=无敌
+  族别碰), **LS343 全零 = 从未点火** → 解释全部观察 (删块=删触发大剑没震; 只抄索引
+  曲线=有强度没点火太刀没震)。**已原位补丁部署 (md5 2b91842d, 备份
+  .bak-20261022-pretrigger)**: 343 mTrigger 键2个原位改写 f34→f69 val0→1024,
+  f36→f74 (bit10 在 69-74 点火, 与 43 索引窗 69-90 重叠; 未动 blend — Blender 断连,
+  定案后回填; 无效则试 bit14=16384, 再无效 → cCameraShakeManager 深挖 + 给 ValorProbe
+  加手动点火热键)。
+  **TIML 键帧文件布局 (原位补丁用)**: transform 结构在 types 数组顺序位置
+  ({offset,count,datatypeHash,dataType} 24B), tr.offset 字段 = 键帧数组**直接起点**
+  (无头!), 每键 20B = {value:i32, controlL:i32, controlR:i32, frameTiming:f32,
+  transition:i16, dataType:i16}; bigflag 双通道在二进制合并为单 u32 = `(ix1<<16)|ix0`
+  (0x02400006 = mFlag[1]=576,ix0=6 实证); transition 6 = CONSTANT。
+- **(续4) mTrigger 假说 user-verified: 挥空震成功!** 343 的 `bit10@69-74 点火 +
+  CameraShakeIndex 43@69-90` 组合挥空也震。**屏幕震动配方定稿 (可复制到任意招)**:
+  ① `m252961CD` 键窗 (LINEAR, guard 键 1 帧沿): `(0,0),(窗起-1,0),(窗起,档位),(窗止,档位),(窗止+1,0)`;
+  ② `mTrigger`(m99897C43, bigFlag 双通道) bit10=1024 点火 5 帧爆窗: ix0=`(0,0),(窗起,1024),(窗起+5,0)`,
+  ix1 同帧全零镜像; ③ 不碰 bit11=2048 (无敌/no-hit 族)。档位表按武器 = `wpNN_shake.csk`
+  (LS 表 43 号槽原生弱 → 已移植 wp00[41-43] 入 wp03 同槽, csk md5 7b304e5c)。
+  **343 触发键已回填 blend** (mTrigger ix0/ix1 = SINE, 与二进制 transition 6 一致 —
+  interpolationMapping[6]='SINE'; blend 原有键删除时 remove() 偶发静默失败, 改后必须
+  重查键列)。**156 同配方已部署 (user 指定窗 6-16, 动作全长 70f)**: shake
+  `(0,0),(5,0),(6,43),(16,43),(17,0)` + mTrigger ix0 `(0,0),(6,1024),(11,0)`,
+  导出对照 diff vs 部署 = 仅 156, md5 **c7ad5ee1**, 备份 `.bak-20261022-pre156`,
+  blend 已存 (= 拖尾 + 震动的完整真相)。
+- **(续5) 343 拉镜头收窄到攻击窗 (user: 效果好但要在两刀攻击时才移远)**: mViewParamId
+  键改为 `(0,0),(30,0),(31,14),(72,14),(73,0),(165,-1)` 全 CONSTANT (覆盖两攻击窗
+  31-40/58-71, 73 回正) — md5 **3e717e76**, 备份 `.bak-20261022-viewfullswing`。
+  ⚠️ 惯性坑再现: FCurve 键 remove() 静默失败率极高 (本会话第三次), **每次重写键列后
+  必须重查并补删残键** (本次 f18/f95 残留, f95 的 2 号状态会污染收势段)。
+- **(续6) 成果工具化: `timl_shake_editor.py` (FreeKinetics 新模块, 已注册 __init__.py)**:
+  N栏 FreeHK → "TIML 震动" (3D/Dopesheet 双挂), entry 驱动。**一键配方** =
+  ① shake 强度窗 (LINEAR+guard) ② mTrigger bit10 点火爆窗 (默认 5 帧) ③ 可选拉镜头
+  (ViewParam 窗 + animLength-1 处 -1 标记; 起/止=0 跟随震动窗)。无头:
+  `bpy.ops.freehk.timl_shake_setup('EXEC_DEFAULT', entry_num=..., frame_start=,
+  frame_end=, grade=, burst=, view_on=, view_start=, view_end=, view_id=)` + `_list`。
+  **验证闭环**: 编辑器重放 343/156 手工配方 → 导出 vs 部署 = 全文件**语义零差异**
+  (字节差异仅 156 块内变换顺序 — 见下)。**实现要点**: 键列重写用**整条 FCurve
+  remove+new** (逐键 remove 静默失败, 且成功 remove 后旧引用已死不可复用 — 首版即栽
+  在这); 新建 PM 块沿用 trail 编辑器 freehk 元数据配方 (classid=m48D6114F);
+  多 PM 块 entry (如 156 的 .365/.366) 优先选带 shake 通道的。
+  **变换顺序与引擎映射定案**: 引擎按 datatypeHash 哈希映射 transform (顺序无关) —
+  证据: vanilla 各 entry 顺序本就不一致 + 本编辑器重建后 156 块内顺序打乱仍语义等价
+  (已部署验证过的配置不受影响)。**字节级 md5 对照从此只适用于未重排的 entry**,
+  跨 entry 比对用语义 snapshot (排序归一)。
+- **(续7) 工具干净环境验证 PASS (user 在旧工程 `fx-edit - 副本.blend` 实测)**:
+  老工程 343 带遗留全零触发键 (f0/34/36)、156 无触发通道的初始状态下, 两发
+  `freehk.timl_shake_setup` 全部命中: 遗留键正确清除、缺失通道正确新建,
+  导出后 343/156 的 shake/trigger/view 六通道与部署金标准**逐键一致**。
+  注意: 旧工程谱系不含拖尾窗 — **从旧工程部署前必须先过拖尾 diff**
+  (见 (9) blend 分叉事故); 工具验证用的导出只做比对不部署。
+- **⚠️ FreeKinetics 导出坑 (Blender 4.3)**: 含负值的通道被编码为 SINT,
+  `checkControlTypes` 要求 controlL/R (= `Keyframe.back`/`.period`, Blender 4.3 新增
+  逐键插值参数) 为 0 — **`insert()` 建的键带默认值 back=1.70158/period=4.1 直接导出
+  报错**, 且报错本身在 errorController 里二次崩 ('ExportTIMLTypesNode' has no name),
+  真实错误码 K_TIML_INVALID_CONTROL_VALUE_SINT 被吞。修法: 逐键 `k.back=0;
+  k.period=0` (手柄类型/位置无关)。`.add()` 批量建的键恰好默认 0 所以 shake 通道没踩到。
+  SINT 通道安全配方 = CONSTANT 插值 + back/period 归零。
+- **⚠️ blend 分叉事故**: `MHW-Valor-0.0.2-screen-shake.blend` 分支自**拖尾部署前**的状态 —
+  339/340/343 无 PMV 块、342/345 是旧窗; 直接导出部署会把 10-21 验证过的五招拖尾全洗掉
+  (导出对照 diff 抓获)。**修复 = 把现网验证状态移植回 blend**: 339/340/343 用
+  timl_trail_editor.ensure_pmv (含 freehk 元数据配方) 建 PMV + 全部五招 mFlag[0] 键值
+  逐键刷成现网值 (339: 8@12-28 / 340: 8@24-40 / 342: 8@30-46+2048@26 / 343: 8@24-38+58-72 /
+  345: 8@8-40+2048@72-80), 复导出 diff vs 现网 = **仅剩 343 shake 一处** 后才部署。
+  **教训: 部署前必须做"导出 vs 现网"逐 entry TIML diff, diff 不干净不许覆盖**;
+  另一实例里拖尾工具改完的工程 (fx-edit-with-tool 谱系) 才是含拖尾窗的最新真相,
+  从旧谱系开新工作文件前先查 PMV 在不在。
+- **导出流程定稿 (MCP 路线)**: 直接调
+  `sys.modules['MHW-FreeKinetics.operators.export_ops'].exportNodeToFile(node, addon)`
+  (绕过 freehk.export 操作符的 node-editor poll); 导出前 `globalCacheClear()` 已内建;
+  node.filepath 设临时路径后还原; 每次导出必 Fresh 路径 (inject=True 时旧文件会合并)。
+  导出日志 3MB [FIXED] 警告为历次常态 (valor_sheath_to_evade 等), 无害。
+  大文件 diff 别在 Blender 里两文件同跑 (30s MCP 超时), 分两次 snapshot 存 JSON 再比。
+  struct 包可独立 python 跑但 LmtBuffers 依赖 mathutils → 只能 Blender 内解析。
+- **PMV 通道结构**: 现网五招 PMV 块都只有 `m08FD20A6` 单 transform (ix0); blend 侧的
+  全零 mFlag[1] 通道导出时被丢弃 (tmp/现网一致), 镜像零键写法安全。
+  TIML keyframe 的 transition 由 Blender interpolation 映射 (CONSTANT/LINEAR 均可导)。
