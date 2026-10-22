@@ -1162,6 +1162,32 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         g_modWeaponType.load(std::memory_order_relaxed)) {
         return;
     }
+    const auto c71 = static_cast<int>(*(weapon + 0xC71));
+    const auto level = *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
+    const auto gauge = *reinterpret_cast<const volatile float*>(weapon + 0x2368);
+    // DRAWGANG1 bootstrap (user design 2026-10-23): ANY 気刃斬り1-family
+    // request + red level + gauge >= threshold becomes the gang move,
+    // regardless of the action history - no sheathed-state set is consulted.
+    // Standing (3:11) and walking (3:12) draws, drawn-idle R2, all funnel
+    // here; 気刃斬り1 itself stays reachable whenever the level/gauge gates
+    // fail. The sheathed-state test below only governs the legacy in-place
+    // rewrite path (draw-gang1.txt frames=0).
+    if (g_drawGang1Frames.load(std::memory_order_relaxed) > 0.0f) {
+        // Bootstrap mode: no in-place rewrite - arm the per-frame poll to
+        // interrupt the draw attack into the gang move after the configured
+        // frames. One motion frame of the native draw attack completes the
+        // sheathed->drawn carry-state flip (its action class owns it).
+        const float frames = g_drawGang1Frames.load(std::memory_order_relaxed);
+        g_drawGang1FireAt.store(frames, std::memory_order_release);
+        g_drawGang1FromId.store(static_cast<std::uint32_t>(fromId),
+                                std::memory_order_relaxed);
+        g_drawGang1Diag.store(0, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "DRAWGANG1 arm: 3:" << fromId << " x" << frames << "f -> 3:"
+          << toId << " (level=" << level << " gauge=" << gauge << ")";
+        Log(m.str());
+        return;
+    }
     // Sheathed test via the action tracker: set-1 requests are the sheathed
     // locomotion family only (1:0 idle / 1:4 walk / 1:8 run / 1:5 draw-prep);
     // drawn-state locomotion never emits DoAction requests, so a set-1
@@ -1174,6 +1200,8 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
     // feel), 6 = the valor-hold release sheathe. Deliberately NOT 3:0/3:1/3:2
     // (drawn idle/walk/run: 3:0 -> 3:11 x347 is the drawn R2, correct vanilla)
     // and not 3:5 (rare, semantics unpinned - SHEATHSEEN watches it).
+    // DRAWGANG1 mode never reaches this - the history heuristic exists only
+    // for the legacy in-place rewrite now.
     static constexpr std::uint32_t kSheatheActionIds[] = {9, 6};
     std::int32_t lastSet = -1;
     std::int32_t lastId = -1;
@@ -1184,9 +1212,6 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
             lastId = g_lastLongSwordAction->actionId;
         }
     }
-    const auto c71 = static_cast<int>(*(weapon + 0xC71));
-    const auto level = *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
-    const auto gauge = *reinterpret_cast<const volatile float*>(weapon + 0x2368);
     const bool sheathed =
         lastSet == 1 ||
         (lastSet == 3 &&
@@ -1244,20 +1269,6 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
               << " gauge=" << gauge << " (need > " << minGauge << ")";
             Log(m.str());
         }
-        return;
-    }
-    if (g_drawGang1Frames.load(std::memory_order_relaxed) > 0.0f) {
-        // Bootstrap mode: no in-place rewrite - arm the per-frame poll to
-        // interrupt 3:11 into the gang move after the configured frames.
-        const float frames = g_drawGang1Frames.load(std::memory_order_relaxed);
-        g_drawGang1FireAt.store(frames, std::memory_order_release);
-        g_drawGang1FromId.store(static_cast<std::uint32_t>(fromId),
-                                std::memory_order_relaxed);
-        g_drawGang1Diag.store(0, std::memory_order_relaxed);
-        std::ostringstream m;
-        m << "DRAWGANG1 arm: 3:" << fromId << " x" << frames << "f -> 3:"
-          << toId << " (level=" << level << " gauge=" << gauge << ")";
-        Log(m.str());
         return;
     }
     const auto nohitSec = g_sheathRewriteNohitSec.load(std::memory_order_relaxed);
