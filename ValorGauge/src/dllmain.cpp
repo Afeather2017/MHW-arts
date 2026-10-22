@@ -2515,6 +2515,17 @@ void NotifyPlayerHitConnected(long long attacker) {
                     const float before = *reinterpret_cast<volatile float*>(
                         weapon + 0x2368);
                     g_originalGaugeAdd(weapon, gain->a);
+                    // The 刚1 guard tail reverts ANY drift from its expected
+                    // gauge - including accumulator-confirmed positives (that
+                    // policy is what suppresses the 见切 refill). Account for
+                    // our own addition so counter-chain hits keep their gain.
+                    if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
+                        const float e =
+                            g_gang1Expected.load(std::memory_order_relaxed);
+                        g_gang1Expected.store(
+                            std::clamp(e + gain->a, 0.0f, 1.0f),
+                            std::memory_order_relaxed);
+                    }
                     const float after = *reinterpret_cast<volatile float*>(
                         weapon + 0x2368);
                     std::ostringstream m;

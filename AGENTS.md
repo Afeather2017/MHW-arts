@@ -4295,8 +4295,14 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   (75 不在 action-list, 按同族 id+同款 -0.2 判定为一段目第三变体; 有异议删该行)。
   二段 77 的原生命中增益 (+0.1~0.22, TIML type-7) 不动 = 打中才加。遗留: 若局内发现
   挥空也涨条 (type-7 增益的命中门控 FUN_14210d350 只查实体+0x60 bit1/bit3, 非严格
-  命中判定), 备选已就绪: `rewrite 3 77 0` 吞原生增益 + `gainhit 3 77 0.2`
-  (**gainhit 规则 2026-10-22 已实装并部署 md5 6c75f379**: NotifyPlayerHitConnected
-  内 timerhit 同块, DmgCalcHook 连击门控, 走累加器 clamp 0..1, 日志
-  `GAUGERULE gainhit act=.. +.. gauge=..->..`; 挥空永不触发, id 0=通配)。
-  Shift+F6 热重载生效, 日志看 `GAUGERULE rewrite act=3:7x`。
+  **局内实测 (2026-10-22): 无消耗 ✓ 但原生增益两路都不发** (空中落地/弹反 77 均
+  零增益; 日志里 3:77 名下历史正值系链式施放误标/旧数据, 不足为凭) → 已切换
+  确定性方案: `rewrite 3 76/77 0` + `gainhit 3 76/77 0.2` (76=二段另一变体, 与
+  77 同播 156, 一并覆盖)。gainhit = NotifyPlayerHitConnected 内 timerhit 同块,
+  DmgCalcHook 连击门控, 挥空永不触发, 走累加器 clamp 0..1, 日志
+  `GAUGERULE gainhit act=.. +.. gauge=..->..`, id 0=通配。
+  **gang1 干涉已修 (部署 md5 cf83213e)**: 弹反链 112→77 切换触发
+  settle(left112, 绝对写 gauge=snapshot-0.15), 其后 1s phase-2 guard 对**双向**
+  漂移都回退 — gainhit 增量会被吃。修法 = gainhit 落地时若 phase==2 同步上移
+  g_gang1Expected (与 GaugeAddHook 负值记账镜像, 声明合法增量)。配置数值 0.2
+  可按手感调; 一段目也要加气刃照抄 gainhit 换 73/74。Shift+F6 热重载生效。
