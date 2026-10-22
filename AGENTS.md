@@ -4207,3 +4207,32 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - **PMV 通道结构**: 现网五招 PMV 块都只有 `m08FD20A6` 单 transform (ix0); blend 侧的
   全零 mFlag[1] 通道导出时被丢弃 (tmp/现网一致), 镜像零键写法安全。
   TIML keyframe 的 transition 由 Blender interpolation 映射 (CONSTANT/LINEAR 均可导)。
+
+### 2026-10-22 动作音效 ACTIONSND: 在动作的指定帧播自定义 WAV (无双斩 50 帧首例)
+
+- **需求**: 气刃无双斩 (set 3, fsm id **108**, user 2026-10-22 钉死; gauge-rules 注释里
+  "107=无双斩" 是陈旧信息) 使出后第 50 TIML 帧 (5/6 s) 播 `swo_fx.wav`, 且**触发那一刻
+  玩家可能已被打飞 — 播放前必须确认仍在该动作中**。
+- **实现 (mod build, 部署 md5 351e295e)**: `PollActionSounds` 挂 PropIntHook 每帧轮询
+  (PollTrailRules 同款模式)。时间线 = **motion 时钟 `*(float*)(*(player+0x468)+0x10C)`**
+  (TIML 60fps 帧, 动作/动作重启归零 — 与"第 n 帧"语义直接对应, 比 instance+8 秒线更贴):
+  - **武装**: 当前动作 == 规则 && phase==2 && mot <= cue 帧 (迟到的首次观察不补播旧音);
+    **mot 倒退 >1 帧 = 同动作再施放 (motion 重启) → 重新武装**。
+  - **触发**: mot >= cue 帧 → 检查 set/id/phase 仍是规则目标 (被打飞=动作已换 → 取消,
+    日志 `ACTIONSND cancel ... cue not reached`), 仍命中则 `PlaySoundA` + 日志
+    `ACTIONSND fire act=.. mot=..`。
+  - **播放 = winmm PlaySound (SND_FILENAME|SND_ASYNC|SND_NODEFAULT)**, 不碰 Wwise
+    (10-19 残留教训 = 钩 Wwise 函数, 与播自定义 wav 无关)。路径经 StableActionSoundPath
+    给进程级副本 (防 reload 换 vector 时 winmm 还在读路径)。CMake 两 target 加 `winmm`。
+  - wav 预检: PlaySound 只吃 PCM (swo_fx.wav = 16bit/48kHz/mono/1.664s ✓); loader 对
+    每条规则 `filesystem::exists` 检查, 缺文件在启动日志标 MISSING (播放时静默)。
+- **配置 `nativePC/plugins/ValorGauge.action-sound.txt`** 每行一条:
+  `<set> <id> <frame60> <wavPath>` (帧=TIML 60fps; 路径相对游戏根); `#` 注释。
+  **文件缺失 = 内置默认规则 `3 108 50 nativePC/plugins/ValorGauge.sounds/swo_fx.wav`**
+  (sheath-rewrite 惯例: 部署 wav 本身即启用)。Shift+F6 随全量配置链热重载。
+- **部署物**: `nativePC/plugins/ValorGauge.sounds/swo_fx.wav` (源
+  `sound-work/mhgu/wav/LS_common/swo_fx.wav`), 配置文件已写 (显式一条 3:108 规则)。
+- **已知限制**: PlaySound 无音量参数 (响度不合适改 wav 本身); 单声道输出走 Windows
+  混音器, 无 3D 定位/游戏内混音; 多条规则同时到点只有一个出声 (互斥打断, winmm 语义)。
+  若 108 存在中途 LinkMotion 切换导致 motion 时钟在 50 帧前重置 (MOTIONTRACE 可查),
+  武装检测会把切换当作重启、以切换后第 50 帧触发 — 局内 fire 日志的 mot 值可诊断。

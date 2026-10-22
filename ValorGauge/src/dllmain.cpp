@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <mmsystem.h>
 #include <d3d11.h>
 #include <dxgi.h>
 #include <Psapi.h>
@@ -18,6 +19,7 @@
 #include <intrin.h>
 #include <mutex>
 #include <map>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -4184,6 +4186,149 @@ void PollTrailRules(const void* entity) {
     }
 }
 
+// ACTIONSND (2026-10-22): play a custom WAV (winmm PlaySound) at a configured
+// TIML frame of a configured action. Timeline = the motion clock (anim+0x10C,
+// TIML 60fps frames, resets to 0 on every motion restart): arming happens
+// while the clock is still before the cue point, the clock going backwards
+// means the same action re-cast (re-arm), and the sound fires only if the
+// action is STILL the current one at the cue frame - a knockback/flinch out
+// of the move cancels it (无双斩 can be interrupted mid-swing).
+// Config nativePC/plugins/ValorGauge.action-sound.txt, one rule per line:
+//   <set> <id> <frame60> <wavPath>
+// frame60 = TIML frames at 60fps (50 = 5/6 s). Path relative to the game
+// root (the DLL's CWD). Missing file = the built-in default (3:108 @ 50, the
+// 气刃无双斩 MHGU swoosh; user pinned fsm id 108 2026-10-22 - the gauge-rules
+// comment that calls 107 无双斩 is stale) so deploying the wav alone works.
+struct ActionSoundRule {
+    std::int32_t set = 0;
+    std::int32_t id = 0;
+    float frame = 0.0f;      // TIML frames (60fps)
+    std::string path;
+    bool armed = false;      // armed for the current occurrence of the action
+    bool fired = false;
+    float armMot = 0.0f;     // motion-clock snapshot taken at arm time
+};
+std::atomic<std::shared_ptr<std::vector<ActionSoundRule>>> g_actionSounds;
+
+// SND_FILENAME|SND_ASYNC: winmm copies the name internally (only SND_MEMORY
+// buffers must outlive playback), but a config reload can swap the rules
+// vector while the play call runs - hand it a process-lifetime copy instead.
+const char* StableActionSoundPath(const std::string& path) {
+    static std::mutex mutex;
+    static std::unordered_set<std::string> keep;
+    std::scoped_lock lock(mutex);
+    return keep.insert(path).first->c_str();
+}
+
+void LoadActionSoundConfig() {
+    auto rules = std::make_shared<std::vector<ActionSoundRule>>();
+    bool filePresent = false;
+    std::ifstream input("nativePC/plugins/ValorGauge.action-sound.txt");
+    std::string line;
+    while (std::getline(input, line)) {
+        filePresent = true;
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        ActionSoundRule rule;
+        std::string path;
+        if (!(ss >> rule.set >> rule.id >> rule.frame >> path)) {
+            continue;
+        }
+        rule.path = path;
+        rules->push_back(std::move(rule));
+    }
+    if (!filePresent) {
+        ActionSoundRule def;
+        def.set = 3;
+        def.id = 108;
+        def.frame = 50.0f;
+        def.path = "nativePC/plugins/ValorGauge.sounds/swo_fx.wav";
+        rules->push_back(def);
+    }
+    std::ostringstream msg;
+    msg << "Action sounds: " << rules->size() << " rule(s)";
+    for (const auto& rule : *rules) {
+        msg << " [" << rule.set << ':' << rule.id << " @" << rule.frame
+            << "f " << rule.path
+            << (std::filesystem::exists(rule.path) ? "" : " MISSING") << "]";
+    }
+    g_actionSounds.store(rules);
+    Log(msg.str());
+}
+
+void PollActionSounds(const void* entity) {
+    const auto rules = g_actionSounds.load();
+    if (!rules || rules->empty()) {
+        return;
+    }
+    void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (!ctrl || !ModWeaponActive()) {
+        return;
+    }
+    if (entity != static_cast<const void*>(static_cast<std::uint8_t*>(ctrl) - 0x61C8)) {
+        return;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(ctrl);
+    const std::int32_t phase = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xA8);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    float mot = -1.0f;
+    const auto player = static_cast<std::uint8_t*>(ctrl) - 0x61C8;
+    if (IsReadable(player + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(player + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            mot = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    for (auto& rule : *rules) {
+        const bool matches =
+            set == rule.set && id == rule.id && phase == 2 && mot >= 0.0f;
+        if (!matches) {
+            if (rule.armed && !rule.fired) {
+                std::ostringstream m;
+                m << "ACTIONSND cancel act=" << rule.set << ':' << rule.id
+                  << " left the action at mot=" << mot << " (cue "
+                  << rule.frame << "f not reached)";
+                Log(m.str());
+            }
+            rule.armed = false;
+            rule.fired = false;
+            continue;
+        }
+        if (!rule.armed) {
+            // arm only while the clock is still before the cue so a poll that
+            // first observes the action late cannot fire a stale sound
+            if (mot <= rule.frame) {
+                rule.armed = true;
+                rule.fired = false;
+                rule.armMot = mot;
+            }
+            continue;
+        }
+        if (mot < rule.armMot - 1.0f) {
+            // same action re-cast: the motion clock restarted from 0
+            rule.armMot = mot;
+            rule.fired = false;
+        }
+        if (!rule.fired && mot >= rule.frame) {
+            rule.fired = true;
+            PlaySoundA(StableActionSoundPath(rule.path), nullptr,
+                       SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+            std::ostringstream m;
+            m << "ACTIONSND fire act=" << set << ':' << id << " mot=" << mot
+              << " -> " << rule.path;
+            Log(m.str());
+        }
+    }
+}
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
@@ -4193,6 +4338,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     MotionTraceTick(entity);
     PollGaugeBeginRules(entity);
     PollTrailRules(entity);
+    PollActionSounds(entity);
     PollGang1GaugeScope();
     PollGaugeWatch();
 #endif
@@ -5825,6 +5971,7 @@ void LoadForceActionConfig() {
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
     LoadSheathRewriteConfig();
+    LoadActionSoundConfig();
     LoadSheathCounterConfig();
     LoadVitalsConfig();
     LoadGuardConfig();
