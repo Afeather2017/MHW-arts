@@ -158,8 +158,13 @@ bool g_fxKeyWasDown = false;
 //       the action (per hit; multi-hit moves stack). id 0 = any set-3 action.
 //       Both convert seconds with the live w03p Gauge_Duration of the current
 //       level - the same primitive as the vanilla 见切-success extension.
+//   gainhit <set> <id> <amount>           - add <amount> gauge on CONNECTED
+//       hits of the action (same hit gate as timerhit; whiffs never gain).
+//       Goes through the accumulator, so it is clamped and regen/HUD stay
+//       consistent. For moves whose native per-hit gain must be replaced
+//       deterministically (pair with rewrite <set> <id> 0).
 struct GaugeRule {
-    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail };
+    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail, GainHit };
     Type type = Type::Rewrite;
     std::int32_t set = 3;
     std::int32_t id = 0;
@@ -2056,6 +2061,11 @@ void LoadGaugeRulesConfig() {
             if (!(ss >> rule.set >> rule.id >> rule.a)) {
                 continue;
             }
+        } else if (kind == "gainhit") {
+            rule.type = GaugeRule::Type::GainHit;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
         } else if (kind == "fx") {
             rule.type = GaugeRule::Type::Fx;
             if (!(ss >> rule.set >> rule.id)) {
@@ -2492,6 +2502,26 @@ void NotifyPlayerHitConnected(long long attacker) {
                 ExtendLevelDropTimer(
                     static_cast<std::uint8_t*>(controller) - 0x61C8, rule->a,
                     actSet, actId, true);
+            }
+            // gainhit: the connected-hit gate is upstream (this only runs for
+            // the local player's landed hits), so the amount goes straight
+            // through the accumulator.
+            if (const auto* gain =
+                    FindGaugeRuleLoose(GaugeRule::Type::GainHit, actSet, actId)) {
+                auto* weapon = *reinterpret_cast<std::uint8_t**>(
+                    static_cast<std::uint8_t*>(controller) - 0x61C8 + 0x76B0);
+                if (weapon && g_originalGaugeAdd &&
+                    IsReadable(weapon + 0x2368, sizeof(float))) {
+                    const float before = *reinterpret_cast<volatile float*>(
+                        weapon + 0x2368);
+                    g_originalGaugeAdd(weapon, gain->a);
+                    const float after = *reinterpret_cast<volatile float*>(
+                        weapon + 0x2368);
+                    std::ostringstream m;
+                    m << "GAUGERULE gainhit act=" << actSet << ':' << actId
+                      << " +" << gain->a << " gauge=" << before << "->" << after;
+                    Log(m.str());
+                }
             }
         }
     }

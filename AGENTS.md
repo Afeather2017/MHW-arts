@@ -4295,6 +4295,8 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   (75 不在 action-list, 按同族 id+同款 -0.2 判定为一段目第三变体; 有异议删该行)。
   二段 77 的原生命中增益 (+0.1~0.22, TIML type-7) 不动 = 打中才加。遗留: 若局内发现
   挥空也涨条 (type-7 增益的命中门控 FUN_14210d350 只查实体+0x60 bit1/bit3, 非严格
-  命中判定), 备选 = `rewrite 3 77 0` 吞掉原生增益 + 新增 DmgCalcHook 门控的
-  `gainhit` 规则 (timerhit 同款路径, 未实现)。Shift+F6 热重载生效, 日志看
-  `GAUGERULE rewrite act=3:7x`。
+  命中判定), 备选已就绪: `rewrite 3 77 0` 吞原生增益 + `gainhit 3 77 0.2`
+  (**gainhit 规则 2026-10-22 已实装并部署 md5 6c75f379**: NotifyPlayerHitConnected
+  内 timerhit 同块, DmgCalcHook 连击门控, 走累加器 clamp 0..1, 日志
+  `GAUGERULE gainhit act=.. +.. gauge=..->..`; 挥空永不触发, id 0=通配)。
+  Shift+F6 热重载生效, 日志看 `GAUGERULE rewrite act=3:7x`。
