@@ -991,6 +991,19 @@ constexpr float kGang1GaugeCost = 0.15f;
 // out, the cost is owed), (4) the 5s deadline. The 1s guard tail then
 // reverts any straggler direct writes (the whiff clear).
 constexpr float kGang1RestoreFrame = 56.0f;
+// DRAWGANG1 (2026-10-22, user design): sheathed draw bootstrap. Forcing the
+// gang move from sheathed never flips the carry-state machinery - the 030/047
+// attach pair is table selection only (vanilla DRAWN moves like 104/105 carry
+// CONSTANT pairs, so no channel value can express the flip). The native draw
+// attack 3:11 is the only reliable flip: its action class owns the whole
+// sheathed->drawn transition. Mode: let 3:11 play for N motion frames, then
+// interrupt into the gang move from the per-frame poll. 1 frame already
+// beats MHGU's own A+B+X timing window (user).
+static std::atomic<float> g_drawGang1Frames{0.0f};   // <=0 = mode off
+static std::atomic<float> g_drawGang1Nohit{0.0f};
+static std::atomic<float> g_drawGang1FireAt{-1.0f};  // >=0: bootstrap armed
+static std::atomic<std::uint32_t> g_drawGang1FromId{11};
+static std::atomic<std::uint32_t> g_drawGang1Diag{0}; // pending-window tick log
 
 void InjectNoHitLocked(float seconds);
 
@@ -1073,6 +1086,34 @@ bool IsLocalPlayerActionController(void* controller) {
     return chainPlayer && chainPlayer == static_cast<std::uint8_t*>(controller) - 0x61C8;
 }
 
+// DRAWGANG1 config: nativePC/plugins/ValorGauge.draw-gang1.txt
+//   <frames> [nohitSec]
+// frames = TIML 60fps frames of the native draw attack (3:11) to let play
+// before interrupting into the gang move; <=0 or missing file = mode off and
+// the in-place 3:11 -> 3:toId rewrite runs instead. Shift+F6 reloads.
+void LoadDrawGang1Config() {
+    float frames = 0.0f;
+    float nohit = 0.0f;
+    std::ifstream input("nativePC/plugins/ValorGauge.draw-gang1.txt");
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        if (ss >> frames) {
+            ss >> nohit;
+        }
+    }
+    g_drawGang1Frames.store(frames, std::memory_order_relaxed);
+    g_drawGang1Nohit.store(nohit, std::memory_order_relaxed);
+    std::ostringstream m;
+    m << "DrawGang1 bootstrap: " << (frames > 0.0f ? "ON" : "off")
+      << " frames=" << frames << " nohit=" << nohit << "s";
+    Log(m.str());
+}
+
 void ApplySheathRewrite(void* controller, ActionInfo* action) {
     const auto toId = g_sheathRewriteToId.load(std::memory_order_relaxed);
     if (!toId) {
@@ -1114,7 +1155,7 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         return;
     }
     auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-    if (!weapon || !IsReadable(weapon, 0x2378)) {
+    if (!weapon || !IsReadable(weapon, 0x2400)) {
         return;
     }
     if (*reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
@@ -1164,6 +1205,27 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
     }
     const auto reqLevel = g_sheathRewriteReqLevel.load(std::memory_order_relaxed);
     const auto minGauge = g_sheathRewriteMinGauge.load(std::memory_order_relaxed);
+    // "Only once" per draw: DoAction also carries buffered presses, so a
+    // double-tap during the sheathe delivers a second 3:11 while the tracker
+    // still shows the sheathe (the tracker only updates at action begin).
+    // The controller's CURRENT action says toId the instant the first
+    // rewrite is accepted (DoAction phase-0 direct write) - that is the
+    // exact once-per-draw signal.
+    {
+        auto* ctrlBytes = static_cast<std::uint8_t*>(controller);
+        const std::int32_t curSet = *reinterpret_cast<volatile std::int32_t*>(ctrlBytes + 0xAC);
+        const std::int32_t curId = *reinterpret_cast<volatile std::int32_t*>(ctrlBytes + 0xB0);
+        if (curSet == 3 && static_cast<std::uint32_t>(curId) == toId) {
+            static std::atomic_uint32_t onceLogs{0};
+            if (onceLogs.fetch_add(1, std::memory_order_relaxed) < 8) {
+                std::ostringstream m;
+                m << "SHEATHREWRITE once: buffered 3:" << fromId
+                  << " dropped (current=3:" << curId << ")";
+                Log(m.str());
+            }
+            return;
+        }
+    }
     if (reqLevel && level < static_cast<std::int32_t>(reqLevel)) {
         static std::atomic_uint32_t rejectLogs{0};
         if (rejectLogs.fetch_add(1, std::memory_order_relaxed) < 12) {
@@ -1184,6 +1246,20 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
         }
         return;
     }
+    if (g_drawGang1Frames.load(std::memory_order_relaxed) > 0.0f) {
+        // Bootstrap mode: no in-place rewrite - arm the per-frame poll to
+        // interrupt 3:11 into the gang move after the configured frames.
+        const float frames = g_drawGang1Frames.load(std::memory_order_relaxed);
+        g_drawGang1FireAt.store(frames, std::memory_order_release);
+        g_drawGang1FromId.store(static_cast<std::uint32_t>(fromId),
+                                std::memory_order_relaxed);
+        g_drawGang1Diag.store(0, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "DRAWGANG1 arm: 3:" << fromId << " x" << frames << "f -> 3:"
+          << toId << " (level=" << level << " gauge=" << gauge << ")";
+        Log(m.str());
+        return;
+    }
     const auto nohitSec = g_sheathRewriteNohitSec.load(std::memory_order_relaxed);
     if (nohitSec > 0.0f) {
         // The FSM never left 待機(1000), so no vanilla defense window opens
@@ -1192,7 +1268,17 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
     }
     std::ostringstream m;
     m << "SHEATHREWRITE: 3:" << fromId << " -> 3:" << toId
-      << " (level=" << level << " gauge=" << gauge << " nohit=" << nohitSec << "s)";
+      << " (level=" << level << " gauge=" << gauge << " nohit=" << nohitSec << "s)"
+      // sheath-state snapshot for the drawn-state bug: +0xC71 latch (polarity
+      // unproven), +0xA50/+0x23C0 = 030/047 motion sample destinations the
+      // per-frame sheath decider also reads, +0x2D0 bits 5/6 = 納刀中/拔刀中.
+      << " c71=" << static_cast<int>(*(weapon + 0xC71))
+      << " a50=0x" << std::hex
+      << *reinterpret_cast<volatile std::uint32_t*>(weapon + 0xA50) << std::dec
+      << " a23c0=0x" << std::hex
+      << *reinterpret_cast<volatile std::uint32_t*>(weapon + 0x23C0) << std::dec
+      << " 2d0=0x" << std::hex
+      << *reinterpret_cast<volatile std::uint32_t*>(weapon + 0x2D0) << std::dec;
     Log(m.str());
     action->actionId = static_cast<std::int32_t>(toId);
 }
@@ -4370,6 +4456,104 @@ void PollActionSounds(const void* entity) {
     }
 }
 
+// DRAWGANG1 per-frame consumer: while the armed bootstrap has the native
+// draw attack (3:11) as the current action and its motion clock reached the
+// configured frame, interrupt into the gang move (TryQueuedForceWrite
+// pattern: trampoline call + manual tracker sync, because the forced call
+// never passes through DoActionHook). Leaving 3:11 early (knockback, cancel)
+// disarms without firing.
+void PollDrawGang1(const void* entity) {
+    if (g_drawGang1FireAt.load(std::memory_order_acquire) < 0.0f) {
+        return;
+    }
+    void* controller = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        controller = g_lockedPlayerController;
+    }
+    if (!controller || !ModWeaponActive() || g_insideDoAction.load()) {
+        return;
+    }
+    const auto* player = static_cast<const std::uint8_t*>(controller) - 0x61C8;
+    if (entity != static_cast<const void*>(player)) {
+        return;
+    }
+    auto* bytes = static_cast<std::uint8_t*>(controller);
+    const std::int32_t phase = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xA8);
+    const std::int32_t set = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
+    const std::int32_t id = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
+    // pending-window diagnostics: the first 12 poll ticks per arm show the
+    // exact phase/action/motion-clock timeline of a failed bootstrap.
+    float motNow = -1.0f;
+    if (IsReadable(player + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(player + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            motNow = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    const std::uint32_t tick = g_drawGang1Diag.fetch_add(1, std::memory_order_relaxed);
+    if (tick < 12) {
+        std::ostringstream m;
+        m << "DRAWGANG1 tick " << tick << ": phase=" << phase << " cur=3:" << id
+          << " mot=" << motNow;
+        Log(m.str());
+    }
+    // Disarm ONLY on a genuinely different current action (phase 2 = begun).
+    // Two non-fire states are legitimate and must keep the pending alive:
+    //   phase 0/1 with the draw id = accept->begin pipeline;
+    //   current still showing the stale pre-draw action (e.g. the drawn idle
+    //   3:0 keeps phase=2 on the controller while sheathed-standing) with the
+    //   draw request QUEUED in the buffer (+0xBC/+0xC0) - sheathed-standing
+    //   R2 goes through that buffer, so fire only once the draw attack really
+    //   becomes current and its motion clock reaches the configured frame.
+    const std::int32_t bufSet = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xBC);
+    const std::int32_t bufId = *reinterpret_cast<volatile std::int32_t*>(bytes + 0xC0);
+    const std::int32_t fromId = static_cast<std::int32_t>(g_drawGang1FromId.load(std::memory_order_relaxed));
+    const bool curMatch = (set == 3 && id == fromId);
+    const bool bufMatch = (bufSet == 3 && bufId == fromId);
+    if (!curMatch && !bufMatch) {
+        if (phase == 2) {
+            g_drawGang1FireAt.store(-1.0f, std::memory_order_release);
+        }
+        return;
+    }
+    if (!curMatch || phase != 2) {
+        return;
+    }
+    float mot = -1.0f;
+    if (IsReadable(player + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(player + 0x468);
+        if (anim && IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            mot = *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+        }
+    }
+    const float fireAt = g_drawGang1FireAt.load(std::memory_order_relaxed);
+    if (mot < fireAt) {
+        return;
+    }
+    g_drawGang1FireAt.store(-1.0f, std::memory_order_release);
+    const auto toId = g_sheathRewriteToId.load(std::memory_order_relaxed);
+    ActionInfo force{};
+    force.actionSet = 3;
+    force.actionId = static_cast<std::int32_t>(toId);
+    const bool ok = g_originalDoAction(controller, &force) != 0;
+    std::ostringstream m;
+    m << "DRAWGANG1 fire: 3:11@" << mot << "f -> 3:" << toId
+      << " result=" << (ok ? "accepted" : "rejected");
+    Log(m.str());
+    if (ok) {
+        std::scoped_lock lock(g_actionMutex);
+        ActionInfo forced{};
+        forced.actionSet = 3;
+        forced.actionId = static_cast<std::int32_t>(toId);
+        g_lastLongSwordAction = forced;
+        const float nohit = g_drawGang1Nohit.load(std::memory_order_relaxed);
+        if (nohit > 0.0f) {
+            InjectNoHitLocked(nohit);
+        }
+    }
+}
+
 int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defaultValue) {
     TryQueuedForceWrite(entity);
     TryQueuedFx(entity);
@@ -4380,6 +4564,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     PollGaugeBeginRules(entity);
     PollTrailRules(entity);
     PollActionSounds(entity);
+    PollDrawGang1(entity);
     PollGang1GaugeScope();
     PollGaugeWatch();
 #endif
@@ -6012,6 +6197,7 @@ void LoadForceActionConfig() {
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
     LoadSheathRewriteConfig();
+    LoadDrawGang1Config();
     LoadActionSoundConfig();
     LoadSheathCounterConfig();
     LoadVitalsConfig();
