@@ -4363,3 +4363,66 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 部署 ValorGauge.dll md5 **b3975fa4ebec4bd142faf2386ac77711** (两 target 编译零警告
   一次通过)。guard.txt/sheath-counter.txt 部署文件已成死配置 (无加载器), 留在磁盘上
   未删; SheathCounterRule 时代的 .bak 同理。
+
+### 2026-10-24 无双斩343/刚一156 玩家"哈"喊声落地 (EG02 语音请求号定案 + blend/部署漂移修复)
+
+- **配方 (依据 timl-editor/TIML_PARAM_REGISTRY.md 的 E345 三轮 A/B 终态, 全部 user 听过认证)**:
+  **1409 = 拔刀起手喊** (345 f2 同款), **1019 = 挥砍/二刀喊** (345 f130 同款), 1119 = 中段喊
+  (user 曾裁定删除的那声)。载体仍是 EventGroup02 (mTrigger 键帧=触发帧, 键值=ReqNo 行位掩码)。
+- **落地**: 343 (无双斩) 新建 `EventGroup02.133` 行A=1019 + 触发 f56=1 (第二刀窗 f58-71 前夜);
+  156 (刚一) 复用已有 `EventGroup02.095`: 新增行B=1409, 触发 f1(值1,1119) → **f4(值2,B=1409)**,
+  行A=1119 保留不触发 (345 终态同构)。行轨 f0 单键 LINEAR/back=0, 触发轨 SINE (基线 f0 back=1,
+  脉冲 back=0), 整数帧 — 复制 156 现成 EG02 action 再改键是最稳的新建路径 (freehk ID 属性自动继承)。
+- **部署** w03_00.lmt md5 **46ff5e5da1407e6e9443c597069682b7** (3995604B, 整文件 blend 导出),
+  备份 `w03_00.lmt.bak-20261024-0046-pre-shout`; blend=shoutout2 已保存。
+  局内验证待 user (343 第二刀喊/156 起手喊)。
+- **⚠️ blend/部署漂移陷阱 (本次差点翻车)**: shoutout2.blend 的 345 `PlMotionVisual mFlag`
+  是 10-22 draw345 会话**二进制调参前**的旧值 (部署侧: f8=8/f16=2056/f40=8 + f70 归零键,
+  blend 侧还多出 ix1 冗余 f24/f38 零键) — 直接整文件导出部署会**静默回退用户的震屏调参**。
+  已把 blend 345 对齐到部署值。**铁律: 整文件 blend 导出部署前必跑全 entry TIML 语义 diff**
+  (`timl-editor/_shout_semantic_diff.py`, 泛化自 patch_timl_defense.iter_tracks, 464 entry
+  全对比; 433/435/437 两侧同样解析失败=历史盲区, 无害)。
+- **坑**: blend fcurve 删键 `int(kf.co.x) in (24,38)` 首轮没删掉 f38 (co.x 明明=38.0, 原因
+  未明), 换 `abs(kf.co.x-38)<0.5` 容差一次成功 — **删键一律用容差匹配**。
+- **行序实证**: 新建 EG02 只追加 rowB fcurve (插入序在 A 后), 导出后 patch_timl_defense dump
+  显示 ReqNo B=1409 + trigger f4=2 → **导出器按 hash 权威序 (A..F) 落位, 与 blend fcurve
+  插入序无关**, 位掩码语义不受追加顺序影响。
+- 本次 343/156 的两个自定义音效 = 10-22 ACTIONSND (WAV) 路线, 与本节 EG02 (游戏语音库)
+  是两条独立通道, 互不影响。
+
+### 2026-10-24 (2) 喊声 id 语义翻案 (user 听音辨认) + EG02 在自定义槽位可用定案
+
+- **机制定案**: EG02 喊声在 156/343 这类自定义槽位**完全可用** — 二分实验 (把 345 的
+  EG02.086 原块连行带触发整体拷到 156/343, f2 触发) 两个动作都出声了。
+- **id 语义翻案**: 上一节"1409=拔刀起手喊(想要的那声)"是错的。user 局内听音辨认:
+  **1409 = 前摇较劲声 ("哦", 拖重物那类)**, **1309 = 爆发"哈"** — 307 (小居合) 的 EG02
+  就是单行 A=1309 双触发 {f7, f31} = user 听到的两声。1119/1019 语义未变 (345 时代结论),
+  但本轮未重验。选声先对照 307。
+- **第一版静默根因 (推定, 高置信)**: 当时的 156 EG02 是在已有 [行A, mTrigger] 后面追加
+  行B → 二进制轨序变 [A, mTrigger, B], 位掩码若按 transform 序取行, 值 2 (bit1) 选中了
+  **mTrigger 轨本身** → 无声。**铁律: EG02 的 ReqNo 行 fcurve 必须全部先于 mTrigger 存在
+  (规范序 = 行A..F 然后 mTrigger); 给已有事件后补行 = 整个 action 从规范 donor 重建**。
+- **终态**: 156/343 的 EG02 = 单行 A=1309 + mTrigger {f0=0, f4 / f56 = 1} (307 同款结构),
+  blend 里动作名 EventGroup02.086.e156 / .e343 (拷自 345 donor)。部署 w03_00.lmt
+  md5 **74f66412c4b1079faf5bdaf7123df90d**; 备份链 bak-20261024-0046-pre-shout →
+  -shout-bisect → -shout-1309-final。
+- 新工具: `timl-editor/_shout_semantic_diff.py <a.lmt> <b.lmt>` (全 entry TIML 语义 diff,
+  dataType=1 轨), `timl-editor/_shout_eg02_compare.py <lmt> <entry>...` (EG 类原始结构对比,
+  含 transition/easing 字节)。
+
+### 2026-10-24 (3) FreeKinetics 声音编辑器升级 (喊声工作流沉淀进插件)
+
+- **新能力** (timl_sound_editor.py, 活会话热重载已验证: 幂等/重排/新建三路径全绿):
+  - `freehk.timl_snd_voice_add(entry, frame, voice_id)` = 一键给 LMT entry 的 EG02 加
+    一次发声: 无 EG02 → 从 blend 现成单行规范 donor 拷 ID 属性新建事件并自动挂
+    TIMLActionNode 进 entry 的 data node; 有 → 用承载该语音号的行加触发 (行缺失自动
+    set_row + 规范化, 六行全满覆盖A行), 同帧同值幂等跳过。面板 "喊声快捷" 盒 = entry/
+    语音号/帧 + 按钮, 不依赖 action 选择器。
+  - `freehk.timl_snd_canon` = 规范化行序 (ReqNo 行A..F → mTrigger ix0/ix1 → 其余保序),
+    键值/帧/插值/back/period 全保留; 行序非规范时面板 row_set 旁自动亮 ERROR 图标按钮。
+  - `set_row` 新建行时自动调用规范化 (堵死"后补行落在触发轨后"的静默坑); voice_add
+    在算掩码前也先规范化。
+  - 语音号速查表 VOICE_ID_HINTS (1309=爆发哈/1409=前摇哦/1119=中段喊/1019=挥砍喊),
+    行表/触发解码/报告全程带人话标签。
+- 部署状态: 装机目录直接改源码并已热重载生效; `MHW-FreeKinetics.zip` 已重打包
+  (旧包留 `MHW-FreeKinetics.zip.bak-20261024`)。Blender 重启后自动加载新版。
