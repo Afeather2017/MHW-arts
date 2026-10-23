@@ -4426,3 +4426,59 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
     行表/触发解码/报告全程带人话标签。
 - 部署状态: 装机目录直接改源码并已热重载生效; `MHW-FreeKinetics.zip` 已重打包
   (旧包留 `MHW-FreeKinetics.zip.bak-20261024`)。Blender 重启后自动加载新版。
+
+### 2026-10-24 (4) 无双斩343 第二段拖尾延长至 f100 + "FreeHK 只能加不能改/删"定案否定
+
+- **变更**: blend (当前工作文件 = `MHW-valor-blender/MHW-Valor-0.0.2-efx-edit2.blend`, 比
+  damage-modify 新) entry 343 `PlMotionVisual.144` 的 mFlag (FreeHKTiml.m08FD20A6) 双通道
+  末键 f72→f100, 第二段拖尾窗 58-72 → **58-100** (段1 24-38 不动; 动作本体 166 帧, f100 在界内)。
+- **能力定案 (user 问 "FreeHK 是不是只支持加?")**: 不是。三层都能删/改:
+  ① 拖尾编辑器 GUI 本身就有**按序号删段** (timl_trail_seg_del, 见 10-21 (7)), "编辑" = 删了重加;
+  ② 无头 op 同样齐: `bpy.ops.freehk.timl_trail_seg_add/seg_del/list`;
+  ③ 最底层 TIML 轨就是普通 Blender fcurve (`FreeHKTiml.m<hash>`), 任意增删键/挪帧可直接
+  bpy 编辑 (本次 = 直接挪 `keyframe_points[-1].co[0]` 72→100, 双通道同步, CONSTANT 保持),
+  导出器按 fcurve 现状导出 — **UI 没暴露 ≠ 数据不能改**。声音编辑器的 set_row/canon 同理可删行重排。
+- **验证**: 整文件导出 (`export_ops.exportNodeToFile`, 需先设 `scn.freehk_tether` = m_mesh
+  Armature) → `_shout_semantic_diff.py` 对部署二进制: 167 entry **仅 343 一处差异**
+  (mFlag 末键 72→100), 其余零漂移 (433/435/437 两侧同样解析失败 = 已知盲区无害)。
+  导出器全树 [FIXED] 告警为历次常态, 与本次改动无关。
+- **部署**: `nativePC/.../w03_00.lmt` md5 **6433adfe9798c77f7309cf54d5ffecda**, 备份
+  `w03_00.lmt.bak-20261024-trail343-100`。DLL 侧零改动 (343 的 `trail 3 <id>` 规则与
+  +0x2398 武装条件 10-21 已配好, 这次只是同一条 bit3 窗变长)。
+- **注意**: blend 内存里已含本次编辑但**未保存**, user 需自行 Ctrl+S (沿用"导出自工作文件、
+  保存由 user 决定"的惯例; 导出器对其他 action 的自动修复不随本次保存而定格)。
+
+### 2026-10-24 (5) 拖尾面板"删除无效"复盘: 面板按钮接线 bug (operator 不传参 = 静默用类默认值)
+
+- **症状**: user Entry=343 / 段=1 点"删拖尾段", 面板列表纹丝不动, 切 entry 再回来还在。
+- **根因**: `_draw_trail_panel` 四个按钮 (一键配置/状态/seg_add/seg_del) 全部
+  `layout.operator(id)` 裸调, 没把 `scene.freehk_trail_entry / freehk_trail_seg /
+  freehk_trail_start / freehk_trail_end` 传进 op → Blender 按类属性**默认值**执行 =
+  **永远作用于 entry 345 / 段0 / 帧24-38**。user 那一下实际删掉了 **345 的拖尾窗
+  (8-70)**; 343 无恙。面板列表每次 draw 都现解析无缓存 — "看着没刷新"是因为 343
+  的数据真没变 (变的在看不见的 345 上)。user 的操作本身全对 (现场字段
+  Entry=343/段=1/起58/止100 就是证据)。
+- **为什么 10-21 验证没抓到**: `_trail_validate.py` 全部显式传参
+  (`entry_num=e, frame_start=s, frame_end=t`) 绕过面板; 当时"user-verified"那轮
+  实际只踩过默认 345 路径。
+- **修复**: 四键全部接线 (`op.entry_num = entry; op.frame_start/end = scene 值;
+  op.seg_index = scene.freehk_trail_seg`), 装机源码已改 + 活会话热重载生效,
+  仓库 timl-editor/ 副本已同步。**通用教训: 面板 operator() 必须显式传 op 属性,
+  否则静默用类默认值; 其他编辑器 (窗口/声音/damage) 用的是安全写法
+  (op 属性 default=-1 哨兵 + execute 内回退读 scene 属性), 无同款问题。**
+- **事故恢复**: 345 用 `seg_add(entry_num=345, frame_start=8, frame_end=70)` 原样
+  恢复 (bit3 位平面重写自动保留 2048@16-40 / 2048@72-81 两窗, 键 =
+  (0,0),(8,8),(16,2056),(40,8),(70,0),(72,2048),(81,0)); 整文件导出语义 diff vs
+  部署 = **零差异** (除已知 433/435/437 双侧盲区) → blend 与部署一致, 部署
+  md5 6433adfe 未动, 无需重新部署。
+
+### 2026-10-24 (6) 拖尾终态: 343 第二段 58-90 (user 用修好的 GUI 自助完成) + 修复闭环验证
+
+- user 在修复后的面板上自助完成 改90→导出→部署 (部署 md5
+  **5252ca41807f31152e1239f8bc259a38**, 02:05 与 blend 保存同分钟), blend
+  (efx-edit2.blend) 已存盘。提交前验证: 部署 vs 基准导出
+  (_trail343_fix345_export.lmt, 修345后的零差异版) 全量语义 diff = **仅 343 mFlag
+  一处** (100→90 + 一枚 ix1 键), 其余 166 entry 零漂移。GUI 修复闭环 user-verified。
+- 已知无害残留: 343 ix1 通道留 (100,0) 僵尸零键 — set_bit3_windows 对 ix1 不做
+  同值去重且 old1d 帧集合永久并入 frames union, 纯冗余零值键, bit3 消费只看值
+  不影响语义; 该 entry 以后再走段增删它仍会被保留 (继续无害)。

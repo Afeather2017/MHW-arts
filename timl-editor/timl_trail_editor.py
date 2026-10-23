@@ -317,8 +317,8 @@ def _draw_trail_panel(layout, context):
     entry = context.scene.freehk_trail_entry
     layout.prop(context.scene, "freehk_trail_entry", text="Entry")
     row = layout.row(align=True)
-    row.operator("freehk.timl_trail_setup", text="一键配置")
-    row.operator("freehk.timl_trail_list", text="状态")
+    row.operator("freehk.timl_trail_setup", text="一键配置").entry_num = entry
+    row.operator("freehk.timl_trail_list", text="状态").entry_num = entry
     act, _td = _entry_nodes(entry)
     pmv = _entry_pmv(entry)
     box = layout.box()
@@ -339,10 +339,15 @@ def _draw_trail_panel(layout, context):
         srow = box.row(align=True)
         srow.prop(context.scene, "freehk_trail_start", text="起")
         srow.prop(context.scene, "freehk_trail_end", text="止")
-        box.operator("freehk.timl_trail_seg_add")
+        op_add = box.operator("freehk.timl_trail_seg_add")
+        op_add.entry_num = entry
+        op_add.frame_start = context.scene.freehk_trail_start
+        op_add.frame_end = context.scene.freehk_trail_end
         drow = box.row(align=True)
         drow.prop(context.scene, "freehk_trail_seg", text="段")
-        drow.operator("freehk.timl_trail_seg_del")
+        op_del = drow.operator("freehk.timl_trail_seg_del")
+        op_del.entry_num = entry
+        op_del.seg_index = context.scene.freehk_trail_seg
     else:
         box.label(text="PMV: 无")
     layout.label(text="DLL: gauge-rules.txt 'trail 3 <请求id>'")
