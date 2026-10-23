@@ -534,8 +534,7 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch,
     HkPropInt, HkPropBool, HkPropFloat,
-    HkGaugeAdd, HkFxNotify, HkNegrEvent, HkTurnSet, HkHpDelta, HkStamDelta,
-    HkVitSet, HkVitAdd, HkCount
+    HkGaugeAdd, HkFxNotify, HkNegrEvent, HkCount
 };
 
 struct HookSig {
@@ -613,53 +612,12 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x48, 0x8B, 0xCF, 0xFF, 0x50, 0x08, 0x83, 0xF8, 0x08, 0x0F, 0x85, 0x00,
       0x00, 0x00, 0x00, 0x48, 0x8B, 0x7F, 0x18, 0x48, 0x8B, 0xCF, 0xE8, 0x00},
      "xxxxxxxxxxxxxxxxx????xxxxxxxxxxxxxx????xxxxxxx??", 0x21038B0},
-    // turnSet = FUN_141F755C0 em turn-request setter. The mode branch sits in
-    // the first 48 bytes (41 83 E9 01 / 74 08 / 41 83 F9 01 / 74 2D / EB 33 =
-    // turnKind-1 / cmp 1 chains); direct [rcx+disp32] loads stay exact on
-    // purpose - a layout shift of +0xB220 must invalidate the signature.
-    {{0x40, 0x53, 0x48, 0x81, 0xEC, 0x90, 0x00, 0x00, 0x00, 0x0F, 0x29, 0xB4,
-      0x24, 0x80, 0x00, 0x00, 0x00, 0x0F, 0x28, 0xF2, 0x48, 0x8B, 0xD9, 0x45,
-      0x85, 0xC9, 0x74, 0x2C, 0x41, 0x83, 0xE9, 0x01, 0x74, 0x08, 0x41, 0x83,
-      0xF9, 0x01, 0x74, 0x2D, 0xEB, 0x33, 0xF3, 0x0F, 0x10, 0x81, 0x20, 0xB2},
-     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x1F755C0},
-    // hpDelta = FUN_141F518E0 player vitals single entry (delta applied to
-    // *(player+0x7630)+0x64 with the (0,1]->1.0 floor). The prologue reads
-    // [rcx+0x7D20] then byte-tests mgr+0x660/0x661 (heal-block gate) - that
-    // run discriminates it from same-shaped float setters.
-    {{0x40, 0x53, 0x48, 0x83, 0xEC, 0x40, 0x48, 0x8B, 0x81, 0x20, 0x7D, 0x00,
-      0x00, 0x48, 0x8B, 0xD9, 0x0F, 0x29, 0x74, 0x24, 0x30, 0x0F, 0x28, 0xF1,
-      0x0F, 0x29, 0x7C, 0x24, 0x20, 0x0F, 0x57, 0xFF, 0x80, 0xB8, 0x60, 0x06,
-      0x00, 0x00, 0x00, 0x75, 0x09, 0x80, 0xB8, 0x61, 0x06, 0x00, 0x00, 0x00},
-     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x1F518E0},
-    // stamDelta = FUN_141C49F10 player stamina consume/recover entry (writes
-    // the *(player+0x7670) box, raises the 0x7de UI event on the way out).
-    // Wildcards: call rel32 + two jcc rel32.
-    {{0x40, 0x57, 0x48, 0x81, 0xEC, 0x50, 0x01, 0x00, 0x00, 0x0F, 0x29, 0xB4,
-      0x24, 0x40, 0x01, 0x00, 0x00, 0x48, 0x8B, 0xF9, 0x0F, 0x28, 0xF1, 0xE8,
-      0x00, 0x00, 0x00, 0x00, 0x84, 0xC0, 0x0F, 0x85, 0x00, 0x00, 0x00, 0x00,
-      0x38, 0x87, 0x28, 0x09, 0x02, 0x00, 0x0F, 0x85, 0x00, 0x00, 0x00, 0x00},
-     "xxxxxxxxxxxxxxxxxxxxxxxx????xxxx????xxxxxxxx????", 0x1C49F10},
-    // vitSet = FUN_141216940 box cur setter (min(v, [rcx+0x60]) with the
-    // r8b floor-to-1.0 branch; both paths store [rcx+0x64]). Shared by every
-    // entity, so the detour only OBSERVES the local player's HP/stamina box.
-    {{0x45, 0x84, 0xC0, 0x74, 0x1F, 0xF3, 0x0F, 0x5F, 0x0D, 0x00, 0x00, 0x00,
-      0x00, 0x0F, 0x57, 0xC0, 0x0F, 0x2F, 0xC8, 0x72, 0x09, 0xF3, 0x0F, 0x10,
-      0x41, 0x60, 0xF3, 0x0F, 0x5D, 0xC1, 0xF3, 0x0F, 0x11, 0x41, 0x64, 0xC3,
-      0x0F, 0x2F, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x73, 0xE0, 0xF3, 0x0F, 0x10},
-     "xxxxxxxxx????xxxxxxxxxxxxxxxxxxxxxxx????xxxx", 0x1216940},
-    // vitAdd = FUN_141216880 box cur += delta clamp (heal/damage add path).
-    // 32-byte function; the rip-relative comiss disp32 is wildcarded.
-    {{0xF3, 0x0F, 0x58, 0x49, 0x64, 0x0F, 0x2F, 0x0D, 0x00, 0x00, 0x00, 0x00,
-      0x73, 0x12, 0xF3, 0x0F, 0x10, 0x41, 0x60, 0x0F, 0x57, 0xC9, 0xF3, 0x0F,
-      0x5D, 0xC1, 0xF3, 0x0F, 0x11, 0x41, 0x64, 0xC3},
-     "xxxxxxxx????xxxxxxxxxxxxxxxxxxxx", 0x1216880},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch",
     "propInt", "propBool", "propFloat",
-    "gaugeAdd", "fxNotify", "negrEvent", "turnSet", "hpDelta", "stamDelta",
-    "vitSet", "vitAdd",
+    "gaugeAdd", "fxNotify", "negrEvent",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -939,10 +897,11 @@ void LoadModWeaponTypeConfig() {
 // Defense (2026-10-11 user decision): the counter moved off 见切 86's i-frame
 // recipe onto 刚见切 3:112 (LMT 345) whose TIML carries the native guard
 // window (PMC mFlag 0x90080000 f0->f12) - angle-limited engine guard
-// arbitration instead of all-angle i-frames. The GUARD borrow window
-// (guard.txt ids) swallows the engine reaction and rolls chip back, the
-// 刚1 gauge scope below takes the 0.15 cost. nohitSec stays available for
-// i-frame style targets but ships as 0.
+// arbitration instead of all-angle i-frames. (2026-10-23: the DLL-side GUARD
+// borrow and the sheath-counter conversion rules were REMOVED - the defense
+// action and special-sheathe transitions are now fully FSM-native. The 刚1
+// gauge scope below takes the 0.15 cost. nohitSec stays available for
+// i-frame style targets but ships as 0.)
 std::atomic<std::uint32_t> g_sheathRewriteToId{112};
 std::atomic<std::uint32_t> g_sheathRewriteHoldVK{0};
 std::atomic<std::uint32_t> g_sheathRewriteReqLevel{3};
@@ -1251,15 +1210,9 @@ void ApplySheathRewrite(void* controller, ActionInfo* action) {
 }
 #endif
 
-// SHEATHREASSERT: set by a sheath-counter rule fire; while active, an
-// incoming engine guard-reaction load ({3,37}) is swallowed in DoActionHook
-// so it cannot overwrite the just-forced counter move.
-std::atomic_int64_t g_sheathReassertUntilMs{0};
-std::atomic_int32_t g_sheathReassertSet{3};
-std::atomic_int32_t g_sheathReassertId{77};
-
-bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId);
-void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
+// Stamina control (one-shot cost + empty-exit) runs from the accepted-action
+// path below; defined near the vitals section.
+void StaminaOnActionAccepted(std::uint32_t actionId);
 
 // Arms the 刚1 gauge scope for ANY local-player 112 accept - the sheath
 // rewrite target IS the 刚1 move (3:112, LMT 345, TIML guard frames) with
@@ -1302,111 +1255,9 @@ void ArmGang1GaugeScope(void* controller) {
 }
 #endif // !VALOR_PROBE
 
-#ifndef VALOR_PROBE
-// GUARD shared state (defined here so DoActionHook can consult it; the rest
-// of the guard system lives below LoadSheathCounterConfig).
-struct GuardConfig {
-    std::vector<std::uint32_t> ids;
-    // Subset of ids where the mod-side directional arm fallback (and the
-    // window-wide lethal override) may negate. All currently watched ids
-    // (112 / 98 / 99) carry NATIVE guard points (TIML PMC bit28), so
-    // direction gating is the engine's and this list ships empty-by-config
-    // ("armIds 0"): the block negation runs off the reaction rollback only.
-    // The legacy entry was 86 - the old i-frame counter had no native guard
-    // point, so direction gating was ours. Empty list = ALL ids (legacy
-    // behavior) - write "armIds 0" to express none (0 is never current
-    // while a window is open: the window closes on any non-watched action).
-    std::vector<std::uint32_t> armIds;
-    // Turn-clamp scope (GuardTurnSetHook): clamp turning to startYaw +/- maxTurn
-    // ONLY while the CURRENT action is one of these ids. Default {112}: 112
-    // (like the old 86 counter) is a short unsteered counter, while 98/99 are
-    // HELD stances where vanilla lets the player steer with WASD - clamping
-    // there froze the valor-sheathe turn at the stance-entry yaw (2026-10-11
-    // user A/B: DLL renamed out = angle fine; TURNCLAMP yaw 180 -> start+30
-    // in the log). Config "turnIds <ids>" overrides; "turnIds 0" disables
-    // the clamp everywhere (0 is never a live set-3 id).
-    std::vector<std::uint32_t> turnIds{112};
-    float arcHalfDeg = 90.0f;
-    float maxTurnDeg = 30.0f;
-    int guardLevel = 2;
-    bool staminaRefund = true;
-    bool gaugeRefill = true;
-    float maxWindowSec = 6.0f;
-    bool armFallback = true;
-    bool swallowReaction = true;
-    bool counterOnBlock = false;
-};
-GuardConfig g_guardCfg;
-std::atomic<bool> g_guardActive{false};
-// GUARD forward decls (definitions below LoadSheathCounterConfig).
-void GuardOnReactionAction(std::uint32_t actionSet, std::uint32_t actionId);
-void GuardOnActionAccepted(void* controller, std::uint32_t actionId);
-void PollGuardWindow();
-void PollHpLock();
-void PollHpWatch();
-void StaminaOnActionAccepted(std::uint32_t actionId);
-void PollStaminaControl();
-#endif
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
-    // Snapshot the PREVIOUS action before the tracker update below replaces
-    // it with the incoming id: the guard-reaction swallow further down must
-    // test the action the player was IN (98), not the reaction itself (35).
-    std::optional<ActionInfo> prevSheathAction;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            prevSheathAction = *g_lastLongSwordAction;
-        }
-    }
-#ifndef VALOR_PROBE
-    const bool guardReactionFamily = validAction && action->actionSet == 3 &&
-        (action->actionId >= 35 && action->actionId <= 38);
-    const bool reassertActive =
-        g_sheathReassertUntilMs.load(std::memory_order_relaxed) >
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-    const bool watchedHold = prevSheathAction &&
-        prevSheathAction->actionSet == 3 &&
-        SheathWatchedAction(3, static_cast<std::uint32_t>(prevSheathAction->actionId));
-    // GUARDREACT: while a guard window is open, the engine routing a hit to
-    // the guard-reaction family ({3,35..38}, per-weapon DAMAGE_GUARD_S/M/L
-    // tables) IS the "blocked" confirmation - always latch it for the
-    // deferred HP write. Swallow the reaction (keep the move playing) only
-    // when the sheath-counter path does NOT own this hold: there the
-    // swallow+SheathArmHitRule flow is the configured counter trigger and
-    // must keep working (GUARDHP negation still runs off the latch).
-    if (validAction && controller == g_lockedPlayerController &&
-        guardReactionFamily && g_guardActive.load(std::memory_order_acquire)) {
-        GuardOnReactionAction(
-            static_cast<std::uint32_t>(action->actionSet),
-            static_cast<std::uint32_t>(action->actionId));
-        if (g_guardCfg.swallowReaction && !(reassertActive || watchedHold)) {
-            g_insideDoAction.store(false, std::memory_order_release);
-            return true;
-        }
-    }
-    // SHEATHREASSERT: swallow the engine's guard-reaction family (35/36/37)
-    if (validAction && controller == g_lockedPlayerController &&
-        guardReactionFamily && (reassertActive || watchedHold)) {
-        // A guarded hit loads its reaction exactly once, so the swallow IS
-        // the per-hit signal: arm the matching rule's target (heavy hits
-        // pulse no event bits - bit222 only covers light ones).
-        if (watchedHold && prevSheathAction) {
-            SheathArmHitRule(
-                static_cast<std::uint32_t>(prevSheathAction->actionId),
-                action->actionId);
-        }
-        std::ostringstream m;
-        m << "SHEATHREASSERT: swallowed guard reaction 3:"
-          << action->actionId << " (keeping 3:"
-          << g_sheathReassertId.load(std::memory_order_relaxed) << ")";
-        Log(m.str());
-        g_insideDoAction.store(false, std::memory_order_release);
-        return true;
-    }
-#endif
     if (validAction) {
 #ifdef VALOR_PROBE
         const auto sample = g_actionDiagnosticCount.fetch_add(1);
@@ -1603,10 +1454,6 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
 #ifndef VALOR_PROBE
     if (result && validAction && controller == g_lockedPlayerController &&
         action->actionSet == 3) {
-        // GUARD window open/close on the accepted action id (after the
-        // sheath rewrite above, so rewritten ids arm the window too).
-        GuardOnActionAccepted(controller,
-                              static_cast<std::uint32_t>(action->actionId));
         // Stamina control: one-shot cost (见切) + reset the empty-exit latch.
         StaminaOnActionAccepted(
             static_cast<std::uint32_t>(action->actionId));
@@ -1647,90 +1494,6 @@ bool ActionIsRoll() {
     return a && a->actionSet == 3 && a->actionId == 18;
 }
 
-// --- Sheathe i-frame counter (特殊纳刀 family 98/99/100) ----------------------
-// The TIML b26+mTrigger recipe grants these motions raw i-frames, but the
-// vanilla negation latches (bit15 handler = 86, bit250 handler = 101/102) are
-// action-gated and never fire for the sheathe family - "hit during i-frames"
-// is undetectable there without mining. This watcher both MINES the shared
-// event-bit array (player+0x8938..) during the watched actions (F5 = manual
-// "got hit" marker) and fires config rules: a rising edge on the configured
-// event bit opens the counter window and force-queues the switch target.
-// Config nativePC/plugins/ValorGauge.sheath-counter.txt (default inert):
-//   rule <duringIds> <eventBit> <toSet> <toId>
-//   mine <duringIds>
-// duringIds = comma list of set-3 action ids; eventBit = index into the
-// event-bit array (dword*32+bit, e.g. 250 = dword7 bit26).
-struct SheathCounterRule {
-    std::vector<std::uint32_t> duringIds;
-    std::uint32_t eventBit = 0;
-    std::uint32_t toSet = 0;
-    std::uint32_t toId = 0;
-    bool prev = false;
-    bool dispatchBased = false; // drule: fire on rejected type-6 dispatch
-    bool armorBased = false;    // arule: fire on connected hit (armor window)
-    bool keyBased = false;      // krel: fire on sheathe-key release (down->up)
-    unsigned vk = 0;            // krel: watch key (VK_XBUTTON2=6 mouse side-up)
-    // Per-rule one-shot: re-armed when the watched action id changes. The
-    // global g_clangLatch must NOT gate these rules - it only re-arms on
-    // 86/101/102, so a single fire would block every later sheathe guard.
-    bool fired = false;
-    std::uint32_t lastActId = 0;
-};
-std::vector<SheathCounterRule> g_sheathRules;
-
-bool SheathIdsContain(const std::vector<std::uint32_t>& ids, std::uint32_t id);
-void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId);
-// A guarded hit during a watched action loads its reaction exactly once -
-// swallowing it IS the per-hit signal. Arm the matching rule's target
-// (heavy hits pulse no event bits; bit222 only covers light ones).
-void SheathArmHitRule(std::uint32_t holdId, std::uint32_t reactionId) {
-    for (auto& rule : g_sheathRules) {
-        if (rule.keyBased || rule.dispatchBased) {
-            continue;
-        }
-        if (!SheathIdsContain(rule.duringIds, holdId)) {
-            continue;
-        }
-        if (!g_forceArmed.load(std::memory_order_acquire)) {
-            g_forceSet = rule.toSet;
-            g_forceId = rule.toId;
-            g_forceArmed.store(true, std::memory_order_release);
-            std::ostringstream m;
-            m << "SHEATHGUARD: reaction 3:" << reactionId
-              << " swallowed during 3:" << holdId << " - force "
-              << rule.toSet << ':' << rule.toId;
-            Log(m.str());
-        }
-        break;
-    }
-}
-
-bool SheathWatchedAction(std::uint32_t actionSet, std::uint32_t actionId) {
-    if (actionSet != 3) {
-        return false;
-    }
-    for (const auto& rule : g_sheathRules) {
-        if (SheathIdsContain(rule.duringIds, actionId)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::vector<std::uint32_t> g_sheathMineIds;
-std::vector<std::uint32_t> g_sheathBlueIds; // bluesim: mimic the 见切/居合
-// per-move handlers while inside these actions. The vanilla handlers
-// (FUN_142125060 for 86, FUN_142124F70 for 101/102) are dispatched by action
-// id via function-pointer tables, so custom actions never run them; bluesim
-// writes the same outputs: +0x2399 latch, +0x2CED, per-frame
-// +0x23A0/+0x23A4 <- playerParam+0x8A8/0x8B8, FX 0x7D7 (blue flash) and
-// 0x7D4 (iai sound) once per action.
-std::atomic_uint32_t g_sheathMineLogCount{0};
-std::uint32_t g_sheathBlueActId = 0;
-bool g_sheathBlueFx = false;
-std::uint32_t g_sheathMinePrevEv[8] = {};
-bool g_sheathMinePrimed = false;
-
 bool ParseIdList(const std::string& text, std::vector<std::uint32_t>& out) {
     out.clear();
     std::size_t i = 0;
@@ -1749,10 +1512,6 @@ bool ParseIdList(const std::string& text, std::vector<std::uint32_t>& out) {
         if (j == text.size()) break;
     }
     return !out.empty();
-}
-
-bool SheathIdsContain(const std::vector<std::uint32_t>& ids, std::uint32_t id) {
-    return std::find(ids.begin(), ids.end(), id) != ids.end();
 }
 
 #ifdef VALOR_PROBE
@@ -2617,33 +2376,7 @@ void NotifyPlayerHitConnected(long long attacker) {
 }
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3);
-void SheathArmorHitCheck(long long attacker, long long defenderCtx);
-void NotifyGuardDamageHit(long long attacker, long long defenderCtx);
 void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id);
-#ifndef VALOR_PROBE
-// GUARD hook forward decls (definitions below LoadSheathCounterConfig).
-void __fastcall GuardTurnSetHook(void* em, float yawDeg, float duration,
-                                 int mode, int turnKind);
-void __fastcall GuardHpDeltaHook(void* player, float delta);
-void __fastcall GuardStamDeltaHook(void* player, float delta);
-void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag);
-void __fastcall GuardVitAddHook(void* box, float delta);
-using GuardTurnFn = void(__fastcall*)(void*, float, float, int, int);
-using GuardDeltaFn = void(__fastcall*)(void*, float);
-using GuardVitSetFn = void(__fastcall*)(void*, float, std::uint8_t);
-extern GuardTurnFn g_originalTurnSet;
-extern GuardDeltaFn g_originalHpDelta;
-extern GuardDeltaFn g_originalStamDelta;
-extern GuardVitSetFn g_originalVitSet;
-extern GuardDeltaFn g_originalVitAdd;
-// Vitals slot config (definitions below LoadSheathCounterConfig).
-extern std::atomic<std::size_t> g_vitalsHpSlot;
-extern std::atomic<bool> g_vitalsHpSlotCustom;
-std::uint8_t* GuardVitalsBox(std::uint8_t* player, std::size_t slot);
-void GuardClearHealingQuota(std::uint8_t* box);
-void GuardApplyBlockBenefits(std::uint8_t* player, std::uint8_t* box);
-bool GuardCurrentActionInArmIds();
-#endif
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
 // become visible against the damage-window timeline.
@@ -2726,236 +2459,11 @@ static void MotionTraceTick(const void* entity) {
     Log(m.str());
 }
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
-    g_damageThisDispatch = true;
     NotifyPlayerHitConnected(a1);
-    NotifyGuardDamageHit(a1, a2);
     LogHitFrame(a1);
-    long long result = g_originalDmgCalc(a1, a2, a3);
-    SheathArmorHitCheck(a1, a2);
-    return result;
+    return g_originalDmgCalc(a1, a2, a3);
 }
 
-// Armor-window hit reaction (arule): a monster hit CONNECTED while the player
-// is inside a watched sheathe action (the super-armor tail of LMT306; the
-// i-frame head self-protects this rule from early hits). Clamps HP so the
-// hit cannot kill (design: eat the damage, survive with 1), then fires the
-// configured switch via the counter-window + force path. HP chain pinned in
-// the decompile: FUN_141f62320 = mov rcx,[rcx+0x7630]; jmp FUN_141216910 =
-// movss xmm0,[rcx+0x64] -> HP = *(float*)(*(player+0x7630)+0x64)
-// (+0x60 in the same object reads as the max-HP getter twin, unverified).
-void OpenCounterWindow(const char* reason);
-void SheathArmorHitCheck(long long attacker, long long defenderCtx) {
-    bool hasArmorRule = false;
-    for (const auto& rule : g_sheathRules) {
-        if (rule.armorBased) {
-            hasArmorRule = true;
-            break;
-        }
-    }
-    if (!hasArmorRule) {
-        return;
-    }
-    void* controller = nullptr;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        controller = g_lockedPlayerController;
-    }
-    if (!controller) {
-        return;
-    }
-    const auto localPlayer =
-        reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
-    if (attacker == localPlayer) {
-        return; // player-dealt hit, not received
-    }
-    ActionInfo cur;
-    bool haveCur = false;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            cur = *g_lastLongSwordAction;
-            haveCur = true;
-        }
-    }
-    if (!haveCur || cur.actionSet != 3) {
-        return;
-    }
-    const std::uint32_t id = cur.actionId;
-    SheathCounterRule* match = nullptr;
-    for (auto& rule : g_sheathRules) {
-        if (rule.armorBased && SheathIdsContain(rule.duringIds, id)) {
-            match = &rule;
-            break;
-        }
-    }
-    if (!match) {
-        return;
-    }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    // Pin the defender field for future tightening: log a2 vs player once.
-    static std::atomic_uint32_t armorDefLogs{0};
-    if (armorDefLogs.load() < 8) {
-        armorDefLogs.fetch_add(1);
-        std::ostringstream m;
-        m << "SHEADRULE hit a2=0x" << std::hex << std::uppercase
-          << static_cast<std::uintptr_t>(defenderCtx)
-          << " player=0x" << static_cast<std::uintptr_t>(localPlayer)
-          << " (a2==player => defender field pinned) act=3:" << std::dec << id;
-        Log(m.str());
-    }
-    // No-death clamp: survive with 1 HP. Only trusts an explicitly
-    // configured HP slot (defaults = the sharpness box, see vitals.txt).
-    if (g_vitalsHpSlotCustom.load(std::memory_order_relaxed) &&
-        IsReadable(player + g_vitalsHpSlot.load(), sizeof(void*))) {
-        auto* vitals =
-            *reinterpret_cast<std::uint8_t**>(player + g_vitalsHpSlot.load());
-        if (vitals && IsReadable(vitals + 0x64, sizeof(float))) {
-            float hp = *reinterpret_cast<const float*>(vitals + 0x64);
-            if (hp < 1.0f) {
-                *reinterpret_cast<float*>(vitals + 0x64) = 1.0f;
-                std::ostringstream m;
-                m << "SHEADRULE: lethal hit during 3:" << id
-                  << " - HP clamped to 1 (no-death)";
-                Log(m.str());
-            }
-        }
-    }
-    // One interrupt per hold instance (fired/lastActId, re-armed when the
-    // action id changes). g_clangLatch must NOT gate this: it only re-arms
-    // on 86/101/102, so a second hold after one hit would stay blocked.
-    if (match->fired && id == match->lastActId) {
-        return;
-    }
-    match->fired = true;
-    match->lastActId = id;
-    g_forceSet = match->toSet;
-    g_forceId = match->toId;
-    std::ostringstream m;
-    m << "SHEADRULE: armor-window hit during 3:" << id << " - force "
-      << match->toSet << ':' << match->toId;
-    Log(m.str());
-    OpenCounterWindow("sheath arule");
-    if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-        Log("SHEADRULE: auto-force armed");
-    }
-}
-
-// --- Sheathe i-frame dispatch monitor + drule trigger ------------------------
-// FUN_141f71960 routes every hit attempt; 0xD returns are the per-frame
-// ambient checks. Evidence so far: 见切/居合 negated hits arrive here as type-6
-// with a non-0xD code and no damage-calc entry (arbitration-level deflect),
-// while roll i-frames produce ZERO type-6 traffic (query-level exclusion).
-// The TIML b26 windows on 98/99/100 behave like rolls in-game (no 叮), but
-// whether ANY type-6 traffic exists for them is exactly what SHEATHDISPATCH
-// logging answers: if negated hits during the window show up here, the drule
-// gives the switch-on-hit for pure i-frames; if the log stays empty, the
-// exclusion is upstream of the dispatcher and the armor-window route is the
-// fallback.
-using HitDispatchFn = std::int32_t* (__fastcall*)(std::int64_t*, std::int64_t*);
-HitDispatchFn g_originalHitDispatch = nullptr;
-void OpenCounterWindow(const char* reason);
-
-std::int32_t* __fastcall SheathDispatchHook(std::int64_t* a1, std::int64_t* a2) {
-    // Info only: mirror the dispatcher's interaction-type read (vtable+8).
-    // NOTE: an earlier build gated all logging on this == 6 and produced zero
-    // output across sessions (the read itself never yields 6 - the old
-    // "[log only]"-era code that verified clang=non-0xD had no such gate).
-    // Log semantics back to the verified form: non-0xD return = real
-    // interaction attempt; 0xD = the per-frame ambient flood (excluded).
-    long long interactType = -1;
-    if (a2 && IsReadable(a2, sizeof(void*))) {
-        void* obj = *reinterpret_cast<void**>(a2);
-        if (obj && IsReadable(obj, 0x10)) {
-            void* vtbl = *reinterpret_cast<void**>(obj);
-            if (IsReadable(reinterpret_cast<char*>(vtbl) + 8, sizeof(void*))) {
-                using TypeGetterFn = long long (__fastcall*)(std::int64_t*);
-                auto fn = *reinterpret_cast<TypeGetterFn*>(
-                    reinterpret_cast<char*>(vtbl) + 8);
-                if (IsReadable(reinterpret_cast<const void*>(fn), 1)) {
-                    interactType = fn(a2);
-                }
-            }
-        }
-    }
-    g_damageThisDispatch = false;
-    auto* result = g_originalHitDispatch(a1, a2);
-    const auto code = reinterpret_cast<std::uintptr_t>(result);
-    if (code == 0xD) {
-        return result; // ambient per-frame flood
-    }
-    const bool rejected = !g_damageThisDispatch;
-    ActionInfo cur;
-    bool haveCur = false;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            cur = *g_lastLongSwordAction;
-            haveCur = true;
-        }
-    }
-    if (!haveCur || cur.actionSet != 3) {
-        return result;
-    }
-    const std::uint32_t id = cur.actionId;
-    bool watched = SheathIdsContain(g_sheathMineIds, id) ||
-                   id == 86; // 见切 = known-clang calibration control
-    for (const auto& rule : g_sheathRules) {
-        if (rule.dispatchBased && SheathIdsContain(rule.duringIds, id)) {
-            watched = true;
-            break;
-        }
-    }
-    if (!watched) {
-        return result;
-    }
-    if (g_sheathMineLogCount.load() < 400) {
-        ++g_sheathMineLogCount;
-        std::ostringstream m;
-        m << "SHEATHDISPATCH" << std::hex << std::uppercase
-          << " code=0x" << code << " type=" << interactType << std::dec
-          << " dmg=" << (g_damageThisDispatch ? 1 : 0)
-          << (rejected ? " REJECTED" : " DAMAGE") << " act=3:" << id;
-        Log(m.str());
-    }
-    if (!rejected) {
-        return result;
-    }
-    for (auto& rule : g_sheathRules) {
-        if (!rule.dispatchBased || !SheathIdsContain(rule.duringIds, id)) {
-            continue;
-        }
-        // Per-instance latch (g_clangLatch only re-arms on 86/101/102 and
-        // would dead-stop every later frontal hit).
-        if (rule.fired && id == rule.lastActId) {
-            break;
-        }
-        rule.fired = true;
-        rule.lastActId = id;
-        g_forceSet = rule.toSet;
-        g_forceId = rule.toId;
-        // Swallow the engine's {3,37} guard-reaction load briefly so the
-        // hold does not flicker through 37 before the force lands.
-        g_sheathReassertSet.store(
-            static_cast<std::int32_t>(rule.toSet), std::memory_order_relaxed);
-        g_sheathReassertId.store(
-            static_cast<std::int32_t>(rule.toId), std::memory_order_relaxed);
-        g_sheathReassertUntilMs.store(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch())
-                    .count() + 1200,
-            std::memory_order_relaxed);
-        std::ostringstream m;
-        m << "SHEATHDRULE: dispatch-rejected hit during 3:" << id
-          << " - force " << rule.toSet << ':' << rule.toId;
-        Log(m.str());
-        OpenCounterWindow("sheath drule");
-        if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-            Log("SHEATHDRULE: auto-force armed");
-        }
-        break;
-    }
-    return result;
-}
 #endif
 
 #ifdef VALOR_PROBE
@@ -3301,14 +2809,6 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Damage calc hook installed (hit-based valor charging)");
     }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch]),
-                      reinterpret_cast<void*>(&SheathDispatchHook),
-                      reinterpret_cast<void**>(&g_originalHitDispatch)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch])) != MH_OK) {
-        Log("Hit dispatcher hook failed (sheath dispatch monitor inactive)");
-    } else {
-        Log("Hit dispatcher hook installed (SHEATHDISPATCH monitoring)");
-    }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),
                       reinterpret_cast<void**>(&g_originalGaugeAdd)) != MH_OK ||
@@ -3332,46 +2832,6 @@ bool InstallPoolQueryHook() {
         Log("Negation event hook failed");
     } else {
         Log("Negation event hook installed (NEGREVT logging)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkTurnSet]),
-                      reinterpret_cast<void*>(&GuardTurnSetHook),
-                      reinterpret_cast<void**>(&g_originalTurnSet)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkTurnSet])) != MH_OK) {
-        Log("Turn setter hook failed (GUARD turn clamp inactive)");
-    } else {
-        Log("Turn setter hook installed (GUARD turn clamp)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHpDelta]),
-                      reinterpret_cast<void*>(&GuardHpDeltaHook),
-                      reinterpret_cast<void**>(&g_originalHpDelta)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHpDelta])) != MH_OK) {
-        Log("HP delta hook failed (GUARD hit negation inactive)");
-    } else {
-        Log("HP delta hook installed (GUARD hit negation)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkStamDelta]),
-                      reinterpret_cast<void*>(&GuardStamDeltaHook),
-                      reinterpret_cast<void**>(&g_originalStamDelta)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkStamDelta])) != MH_OK) {
-        Log("Stamina delta hook failed (GUARD stamina refund inactive)");
-    } else {
-        Log("Stamina delta hook installed (GUARD stamina refund)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkVitSet]),
-                      reinterpret_cast<void*>(&GuardVitSetHook),
-                      reinterpret_cast<void**>(&g_originalVitSet)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkVitSet])) != MH_OK) {
-        Log("Vitals setter hook failed (VITSET trace inactive)");
-    } else {
-        Log("Vitals setter hook installed (VITSET trace)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkVitAdd]),
-                      reinterpret_cast<void*>(&GuardVitAddHook),
-                      reinterpret_cast<void**>(&g_originalVitAdd)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkVitAdd])) != MH_OK) {
-        Log("Vitals add hook failed (VITADD trace inactive)");
-    } else {
-        Log("Vitals add hook installed (VITADD trace)");
     }
 #endif
 #ifndef VALOR_PROBE
@@ -4767,533 +4227,21 @@ bool InstallPropHistogramHooks() {
 #endif // VALOR_PROBE (property histogram + F11)
 
 #ifndef VALOR_PROBE
-// Optional nativePC\plugins\ValorGauge.force-action.txt:
-// "<set> <id> [invulnSec] [startFrame]" (invulnSec: no-hit window injected at
-// the clang; startFrame >= 0: play the forced action from that action-clock
-// time instead of 0 - the field counts SECONDS at 30Hz, so TIML frame n
-// (60/s) = n/60 seconds. Skipped frames drop their TIML events, e.g. 见切's
-// f0-f12 parry window). Shift+F6 reloads this file in-game.
-void LoadSheathCounterConfig() {
-    g_sheathRules.clear();
-    g_sheathMineIds.clear();
-    g_sheathBlueIds.clear();
-    g_motionBinds.clear();
-    g_sheathMinePrimed = false;
-    g_sheathBlueActId = 0;
-    g_sheathBlueFx = false;
-    std::ifstream input("nativePC/plugins/ValorGauge.sheath-counter.txt");
-    if (!input) {
-        Log("Sheath counter: no ValorGauge.sheath-counter.txt - trigger inert");
-        return;
-    }
-    std::string line;
-    int ruleCount = 0;
-    while (std::getline(input, line)) {
-        const auto hash = line.find('#');
-        if (hash != std::string::npos) {
-            line = line.substr(0, hash);
-        }
-        std::istringstream ss(line);
-        std::string kind;
-        if (!(ss >> kind)) {
-            continue;
-        }
-        if (kind == "rule") {
-            std::string ids;
-            unsigned long bit = 0, toSet = 0, toId = 0;
-            if (ss >> ids >> bit >> toSet >> toId) {
-                SheathCounterRule rule;
-                if (ParseIdList(ids, rule.duringIds)) {
-                    rule.eventBit = static_cast<std::uint32_t>(bit);
-                    rule.toSet = static_cast<std::uint32_t>(toSet);
-                    rule.toId = static_cast<std::uint32_t>(toId);
-                    rule.prev = false;
-                    g_sheathRules.push_back(rule);
-                    ++ruleCount;
-                } else {
-                    Log("Sheath counter: bad id list in rule line - skipped");
-                }
-            } else {
-                Log("Sheath counter: malformed rule line - skipped");
-            }
-        } else if (kind == "drule") {
-            // Dispatch-reject rule: fired from SheathDispatchHook when a
-            // type-6 hit dispatch during a watched action finishes with a
-            // non-0xD code and no damage processing (a negated hit).
-            std::string ids;
-            unsigned long toSet = 0, toId = 0;
-            if (ss >> ids >> toSet >> toId) {
-                SheathCounterRule rule;
-                if (ParseIdList(ids, rule.duringIds)) {
-                    rule.dispatchBased = true;
-                    rule.toSet = static_cast<std::uint32_t>(toSet);
-                    rule.toId = static_cast<std::uint32_t>(toId);
-                    g_sheathRules.push_back(rule);
-                    ++ruleCount;
-                } else {
-                    Log("Sheath counter: bad id list in drule line - skipped");
-                }
-            } else {
-                Log("Sheath counter: malformed drule line - skipped");
-            }
-        } else if (kind == "arule") {
-            // Armor rule: fired from DmgCalcHook when a monster hit CONNECTS
-            // while the player is inside a watched action (the super-armor
-            // tail of the sheathe). Also clamps HP to survive with 1.
-            std::string ids;
-            unsigned long toSet = 0, toId = 0;
-            if (ss >> ids >> toSet >> toId) {
-                SheathCounterRule rule;
-                if (ParseIdList(ids, rule.duringIds)) {
-                    rule.armorBased = true;
-                    rule.toSet = static_cast<std::uint32_t>(toSet);
-                    rule.toId = static_cast<std::uint32_t>(toId);
-                    g_sheathRules.push_back(rule);
-                    ++ruleCount;
-                } else {
-                    Log("Sheath counter: bad id list in arule line - skipped");
-                }
-            } else {
-                Log("Sheath counter: malformed arule line - skipped");
-            }
-        } else if (kind == "krel") {
-            // Key-release rule: while inside a watched action, releasing the
-            // watched key (down->up edge) forces the switch. Fires the plain
-            // armed-force path (no counter window / no no-hit injection -
-            // the sheathing follow-up needs no protection), no latch.
-            std::string ids;
-            unsigned long vk = 0, toSet = 0, toId = 0;
-            if (ss >> ids >> vk >> toSet >> toId) {
-                SheathCounterRule rule;
-                if (ParseIdList(ids, rule.duringIds)) {
-                    rule.keyBased = true;
-                    rule.vk = static_cast<std::uint32_t>(vk);
-                    rule.toSet = static_cast<std::uint32_t>(toSet);
-                    rule.toId = static_cast<std::uint32_t>(toId);
-                    g_sheathRules.push_back(rule);
-                    ++ruleCount;
-                } else {
-                    Log("Sheath counter: bad id list in krel line - skipped");
-                }
-            } else {
-                Log("Sheath counter: malformed krel line - skipped");
-            }
-        } else if (kind == "bluesim") {
-            std::string ids;
-            if (ss >> ids) {
-                ParseIdList(ids, g_sheathBlueIds);
-            }
-        } else if (kind == "mine") {
-            std::string ids;
-            if (ss >> ids) {
-                ParseIdList(ids, g_sheathMineIds);
-            }
-        }
-    }
-    std::ostringstream m;
-    m << "Sheath counter: " << ruleCount << " rule(s) loaded, mine ids=";
-    if (g_sheathMineIds.empty()) {
-        m << "(none)";
-    } else {
-        for (std::size_t i = 0; i < g_sheathMineIds.size(); ++i) {
-            if (i) m << ',';
-            m << g_sheathMineIds[i];
-        }
-    }
-    m << ", bluesim ids=";
-    if (g_sheathBlueIds.empty()) {
-        m << "(none)";
-    } else {
-        for (std::size_t i = 0; i < g_sheathBlueIds.size(); ++i) {
-            if (i) m << ',';
-            m << g_sheathBlueIds[i];
-        }
-    }
-    Log(m.str());
-}
-
-// ==========================================================================
-// GUARD: native-guard borrow for the migrated counter moves (刚见切 112 /
-// 特殊纳刀 99 + 架势持续 98 by default; 2026-10-11 the counter moved
-// 86 -> 112 - the i-frame recipe became TIML guard frames on LMT 345).
-// Replaces the all-angle no-hit windows with the engine's own guard
-// arbitration, direction-limited:
-//   1. While a watched action runs, write weapon+0x20F8 = guard level and the
-//      weapon param block (*(player+0x7810)) +0x940/+0x944 = guard arc in
-//      degrees. The engine's hit routing then treats in-arc hits as guarded:
-//      angle check -> chip damage -> stamina drain -> guard-reaction action
-//      {3,35..38} (per-weapon command tables; all 14 weapons carry
-//      DAMAGE_GUARD_S/M/L at 36/37/38). Saved values restored on close.
-//   2. "Blocked" confirmation = the reaction action itself (GUARDREACT). A
-//      direction-angle self-check in DmgCalcHook arms a fallback latch
-//      (GUARDARM) in case the engine route stays dead on LS.
-//   3. A blocked hit's HP write is negated entirely: FUN_141F518E0 is the
-//      single red-bar entry (damage deducts the red bar IN FULL; the yellow
-//      "recoverable" portion is only a pending-refill quota in the
-//      player+0x1D78 / +0xEBA8 slot arrays) - skipping the call AND clearing
-//      the quota slots = no damage, no phantom refill. Stamina drain
-//      (FUN_141C49F10) is refunded on the react latch.
-//   4. Turn clamp: FUN_141F755C0 detour clamps every action yaw request to
-//      startYaw +/- maxTurnDeg (mode 2/0 absolute, mode 1 relative), so the
-//      player cannot spin freely during the move.
-// Config nativePC/plugins/ValorGauge.guard.txt; file missing = feature OFF.
-// (GuardConfig / g_guardCfg / g_guardActive are declared above DoActionHook.)
-std::atomic<std::int64_t> g_guardDeadlineMs{0};
-std::atomic<float> g_guardStartYaw{0.0f};
-std::atomic<bool> g_guardSavesValid{false};
-int g_guardSavedLevel = 0;
-float g_guardSavedArcMin = 0.0f;
-float g_guardSavedArcMax = 0.0f;
-std::atomic<std::int64_t> g_guardReactUntilMs{0};
-std::atomic<std::int64_t> g_guardArmUntilMs{0};
-std::atomic<std::uint32_t> g_guardReactId{0};
-// Chip passthrough restore: the engine deducts guard chip damage BEFORE
-// queueing the reaction; GUARDREACT then rolls the HP back to this snapshot.
-std::atomic<float> g_guardRestoreHp{0.0f};
-std::atomic<std::int64_t> g_guardRestoreUntilMs{0};
-std::atomic<std::uint32_t> g_guardLogCount{0};
-std::atomic<std::uint32_t> g_guardTurnLogCount{0};
-std::atomic<std::uint32_t> g_guardPassLogCount{0};
-
-// All three originals return void (epilogues touch no rax: verified on the
-// dump - turnSet `add rsp,0x90; pop rbx; ret`, hpDelta `add rsp,0x40; pop
-// rbx; ret`, stamDelta `add rsp,0x150; pop rdi; ret`).
-using TurnSetFn = void(__fastcall*)(void*, float, float, int, int);
-TurnSetFn g_originalTurnSet = nullptr;
-using HpDeltaFn = void(__fastcall*)(void*, float);
-HpDeltaFn g_originalHpDelta = nullptr;
-HpDeltaFn g_originalStamDelta = nullptr;
-GuardVitSetFn g_originalVitSet = nullptr;
-GuardDeltaFn g_originalVitAdd = nullptr;
-
-// Block-event windows. USER-VALIDATED 2026-10-06: the guard chip damage
-// write and the guard-reaction action land within ~1 frame of each other
-// ("时间间隔不久,绝对达不到1.2s") - the old 1200/600ms margins only caused
-// false immunity for follow-up hits. Both windows = one configurable value.
-std::atomic<std::int64_t> g_blockWindowMs{150};
-constexpr float kGuardRad2Deg = 57.29577951308232f;
-
-std::int64_t GuardNowMs() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-
-float GuardWrap180(float deg) {
-    while (deg > 180.0f) deg -= 360.0f;
-    while (deg < -180.0f) deg += 360.0f;
-    return deg;
-}
-
-// em+0x170..0x17C quaternion (x,y,z,w), Y-up Z-forward:
-// fwd = (2(xz+wy), 2(yz-wx), 1-2(x^2+y^2)); yaw = atan2(fwd.x, fwd.z).
-float GuardYawDeg(const void* entity) {
-    const auto* em = static_cast<const std::uint8_t*>(entity);
-    if (!IsReadable(em + 0x170, 16)) {
-        return 0.0f;
-    }
-    const float x = *reinterpret_cast<const float*>(em + 0x170);
-    const float y = *reinterpret_cast<const float*>(em + 0x174);
-    const float z = *reinterpret_cast<const float*>(em + 0x178);
-    const float w = *reinterpret_cast<const float*>(em + 0x17C);
-    const float fwdX = 2.0f * (x * z + w * y);
-    const float fwdZ = 1.0f - 2.0f * (x * x + y * y);
-    return std::atan2(fwdX, fwdZ) * kGuardRad2Deg;
-}
-
-std::uint8_t* GuardWeaponOf(std::uint8_t* player) {
-    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
-        return nullptr;
-    }
-    return *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-}
-
-void GuardCloseWindow(const char* reason) {
-    if (!g_guardActive.exchange(false)) {
-        return;
-    }
-    g_guardReactUntilMs = 0;
-    g_guardArmUntilMs = 0;
-    std::ostringstream m;
-    m << "GUARDCLOSE (" << reason << ")";
-    // Nothing to restore: the window no longer writes any game memory
-    // (guard-level/arc writes retired - see GuardOpenWindow note).
-    (void)g_guardSavesValid.exchange(false);
-    Log(m.str());
-}
-
-void GuardOpenWindow(std::uint8_t* player, std::uint32_t actionId) {
-    g_guardStartYaw = GuardYawDeg(player);
-    g_guardSavesValid = false;
-    std::ostringstream m;
-    m << "GUARDOPEN act=3:" << actionId
-      << " startYaw=" << g_guardStartYaw.load()
-      << " arc=+/-" << g_guardCfg.arcHalfDeg
-      << " maxTurn=" << g_guardCfg.maxTurnDeg;
-    // NOTE: no memory writes beyond our own bookkeeping. The old weapon
-    // +0x20F8 "guard level" write turned out to be SHARPNESS (HunterPie:
-    // MHWSharpnessStructure), and the param-block +0x940/+0x944 "guard arc"
-    // restore logged vanilla values [1200,0] - not degrees either. Native
-    // guard routing (3:98 reactions) works without any of these writes;
-    // negation happens in GuardVitSetHook off the react/arm latches.
-    g_guardDeadlineMs = GuardNowMs() +
-        static_cast<std::int64_t>(g_guardCfg.maxWindowSec * 1000.0f);
-    g_guardActive = true;
-    Log(m.str());
-}
-
-void GuardOnActionAccepted(void* controller, std::uint32_t actionId) {
-    if (g_guardCfg.ids.empty()) {
-        return;
-    }
-    const bool watched = std::find(g_guardCfg.ids.begin(), g_guardCfg.ids.end(),
-                                   actionId) != g_guardCfg.ids.end();
-    if (watched) {
-        if (g_guardActive.load(std::memory_order_acquire)) {
-            // Chained watched move: keep the yaw latch, refresh the deadline.
-            g_guardDeadlineMs = GuardNowMs() +
-                static_cast<std::int64_t>(g_guardCfg.maxWindowSec * 1000.0f);
-            return;
-        }
-        auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-        GuardOpenWindow(player, actionId);
-        return;
-    }
-    if (g_guardActive.load(std::memory_order_relaxed)) {
-        GuardCloseWindow("action change");
-    }
-}
-
-void GuardOnReactionAction(std::uint32_t actionSet, std::uint32_t actionId) {
-    if (actionSet != 3) {
-        return;
-    }
-    if (actionId < 35 || actionId > 38) {
-        return;
-    }
-    g_guardReactId = actionId;
-    g_guardReactUntilMs = GuardNowMs() + g_blockWindowMs.load(std::memory_order_relaxed);
-    // Roll back the chip damage that the engine applied before routing this
-    // reaction (restore snapshot armed by GuardVitSetHook ~same frame).
-    const std::int64_t now = GuardNowMs();
-    const float restoreHp = g_guardRestoreHp.load(std::memory_order_relaxed);
-    if (now < g_guardRestoreUntilMs.load(std::memory_order_relaxed) &&
-        restoreHp > 0.0f) {
-        g_guardRestoreUntilMs = 0;
-        void* controller = g_lockedPlayerController;
-        if (controller) {
-            auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-            if (auto* box = GuardVitalsBox(player,
-                                            g_vitalsHpSlot.load())) {
-                float& cur =
-                    *reinterpret_cast<float*>(box + 0x64);
-                const float before = cur;
-                if (cur < restoreHp - 0.01f) {
-                    cur = restoreHp;
-                    GuardApplyBlockBenefits(player, box);
-                    const auto n =
-                        g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-                    if (n < 48) {
-                        std::ostringstream m;
-                        m << "GUARDBLOCK restore " << before << " -> "
-                          << restoreHp << " (chip rolled back on reaction)";
-                        Log(m.str());
-                    }
-                }
-            }
-        }
-    }
-    const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-    if (n < 24) {
-        std::ostringstream m;
-        m << "GUARDREACT engine guard-reaction 3:" << actionId << " latched";
-        Log(m.str());
-    }
-}
-
-// DmgCalcHook side "frontal?" self-check. a1 = attacker em: position at
-// em+0x160..0x168, same layout as the player. Arm the fallback latch when
-// the attack came from inside our arc (position-based approximation of the
-// engine's facing check; GUARDARM-out lines are the tuning data).
-void NotifyGuardDamageHit(long long attacker, long long defenderCtx) {
-    (void)defenderCtx;
-    if (!g_guardActive.load(std::memory_order_acquire)) {
-        return;
-    }
-    void* controller = g_lockedPlayerController;
-    if (!controller) {
-        return;
-    }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    if (attacker == reinterpret_cast<long long>(player)) {
-        return;  // player-dealt hit
-    }
-    auto* attackerEm = reinterpret_cast<const std::uint8_t*>(attacker);
-    if (!IsReadable(attackerEm + 0x160, 12) || !IsReadable(player + 0x160, 12)) {
-        return;
-    }
-    const float dx = *reinterpret_cast<const float*>(attackerEm + 0x160) -
-                     *reinterpret_cast<const float*>(player + 0x160);
-    const float dz = *reinterpret_cast<const float*>(attackerEm + 0x168) -
-                     *reinterpret_cast<const float*>(player + 0x168);
-    float angDiff = 0.0f;
-    if (dx * dx + dz * dz >= 1.0f) {
-        const float angleTo = std::atan2(dx, dz) * kGuardRad2Deg;
-        angDiff = GuardWrap180(angleTo - GuardYawDeg(player));
-    }
-    const bool frontal = std::fabs(angDiff) <= g_guardCfg.arcHalfDeg;
-    if (frontal && GuardCurrentActionInArmIds()) {
-        g_guardArmUntilMs = GuardNowMs() + g_blockWindowMs.load(std::memory_order_relaxed);
-    }
-    const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-    if (n < 40) {
-        std::ostringstream m;
-        m << "GUARDARM dmg-calc hit " << (frontal ? "FRONTAL" : "outside")
-          << " angDiff=" << angDiff << " arcHalf=" << g_guardCfg.arcHalfDeg;
-        Log(m.str());
-    }
-}
-
-void __fastcall GuardHpDeltaHook(void* player, float delta) {
-    void* controller = g_lockedPlayerController;
-    if (delta < 0.0f && g_guardActive.load(std::memory_order_acquire) &&
-        controller &&
-        player == static_cast<std::uint8_t*>(controller) - 0x61C8) {
-        const std::int64_t now = GuardNowMs();
-        const bool arm = g_guardCfg.armFallback && GuardCurrentActionInArmIds() &&
-                         now < g_guardArmUntilMs.load(std::memory_order_relaxed);
-        const bool lethal =
-            delta < 1.0f && GuardCurrentActionInArmIds();
-        if (arm || lethal) {
-            // Secondary negation point (primary = GuardVitSetHook, where the
-            // observed damage actually converges). Skip the call and clear
-            // the pending-heal quota array (box+0x30 -> +0xEBB0).
-            auto* p = static_cast<std::uint8_t*>(player);
-            float hpBefore = -1.0f;
-            if (auto* box = GuardVitalsBox(p, g_vitalsHpSlot.load())) {
-                hpBefore = *reinterpret_cast<const float*>(box + 0x64);
-                GuardClearHealingQuota(box);
-            }
-            if (g_guardCfg.gaugeRefill) {
-                if (auto* weapon = GuardWeaponOf(p)) {
-                    if (IsWritable(weapon + 0x2399, 1)) {
-                        weapon[0x2399] = 1;  // vanilla 见切-success latch
-                    }
-                }
-            }
-            if (g_guardCfg.counterOnBlock) {
-                OpenCounterWindow("guard block");
-                if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                    Log("GUARDBLOCK: counter window + force armed");
-                }
-            }
-            const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-            if (n < 48) {
-                std::ostringstream m;
-                m << "GUARDBLOCK negated " << delta << " hp=" << hpBefore
-                  << " path=" << (arm ? "arm" : "lethal");
-                Log(m.str());
-            }
-            return;
-        }
-        const auto n = g_guardPassLogCount.fetch_add(1, std::memory_order_relaxed);
-        if (n < 16) {
-            std::ostringstream m;
-            m << "GUARDPASS window hit passed through (no react/arm latch) delta="
-              << delta;
-            Log(m.str());
-        }
-    }
-    g_originalHpDelta(player, delta);
-}
-
-void __fastcall GuardStamDeltaHook(void* player, float delta) {
-    void* controller = g_lockedPlayerController;
-    if (delta < 0.0f && g_guardCfg.staminaRefund &&
-        g_guardActive.load(std::memory_order_acquire) && controller &&
-        player == static_cast<std::uint8_t*>(controller) - 0x61C8 &&
-        GuardNowMs() < g_guardReactUntilMs.load(std::memory_order_relaxed)) {
-        const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-        if (n < 48) {
-            std::ostringstream m;
-            m << "GUARDSTAM refunded " << delta;
-            Log(m.str());
-        }
-        return;
-    }
-    g_originalStamDelta(player, delta);
-}
-
-void __fastcall GuardTurnSetHook(void* em, float yawDeg, float duration,
-                                 int mode, int turnKind) {
-    void* controller = g_lockedPlayerController;
-    if (g_guardActive.load(std::memory_order_acquire) && controller &&
-        em == static_cast<std::uint8_t*>(controller) - 0x61C8) {
-        // Scope gate: only clamp while the CURRENT action is a turnIds member.
-        // Live controller+0xAC/+0xB0 (player+0x6274/+0x6278), not the tracker
-        // snapshot - held stances (98/99) steer per-frame and must stay free.
-        const auto* c = static_cast<const std::uint8_t*>(controller);
-        if (IsReadable(c + 0xAC, 8)) {
-            const std::uint32_t curSet =
-                *reinterpret_cast<const std::uint32_t*>(c + 0xAC);
-            const std::uint32_t curId =
-                *reinterpret_cast<const std::uint32_t*>(c + 0xB0);
-            if (curSet != 3 ||
-                std::find(g_guardCfg.turnIds.begin(), g_guardCfg.turnIds.end(),
-                          curId) == g_guardCfg.turnIds.end()) {
-                g_originalTurnSet(em, yawDeg, duration, mode, turnKind);
-                return;
-            }
-        }
-        const float startYaw = g_guardStartYaw.load(std::memory_order_relaxed);
-        const float maxTurn = g_guardCfg.maxTurnDeg;
-        float clamped = yawDeg;
-        if (mode == 1) {
-            // Relative: the original computes em+0xB220 += yaw - em+0xB224;
-            // clamp the resulting absolute target, then back-solve the input.
-            const auto* e = static_cast<const std::uint8_t*>(em);
-            if (IsReadable(e + 0xB220, 8)) {
-                const float target =
-                    *reinterpret_cast<const float*>(e + 0xB220);
-                const float applied =
-                    *reinterpret_cast<const float*>(e + 0xB224);
-                const float targetAfter = target + yawDeg - applied;
-                float d = GuardWrap180(targetAfter - startYaw);
-                d = std::max(-maxTurn, std::min(maxTurn, d));
-                clamped = startYaw + d - target + applied;
-            }
-        } else {
-            float d = GuardWrap180(yawDeg - startYaw);
-            d = std::max(-maxTurn, std::min(maxTurn, d));
-            clamped = startYaw + d;
-        }
-        if (std::fabs(GuardWrap180(clamped - yawDeg)) > 0.01f) {
-            const auto n =
-                g_guardTurnLogCount.fetch_add(1, std::memory_order_relaxed);
-            if (n < 24) {
-                std::ostringstream m;
-                m << "TURNCLAMP yaw " << yawDeg << " -> " << clamped
-                  << " (mode " << mode << ", start " << startYaw
-                  << ", maxTurn " << maxTurn << ")";
-                Log(m.str());
-            }
-        }
-        yawDeg = clamped;
-    }
-    g_originalTurnSet(em, yawDeg, duration, mode, turnKind);
-}
-
-// --- Vitals slots (CONFIGURABLE - user-verified 2026-10-05: the +0x7630 box
-// is WEAPON SHARPNESS, not HP; the whole "vitals box" cluster derived from
-// FUN_141f62320/141f628c0/141f21ea10 belongs to the sharpness system. The
-// real HP box slot is unknown until found via VIT trace / x64dbg. Configure
-// nativePC/plugins/ValorGauge.vitals.txt = "<hpSlotHex> <stamSlotHex>"
-// (defaults 7630/7670). Slot-dependent WRITE paths (chip-quota clearing,
-// no-death clamp) only activate once the slot is explicitly overridden. ----
+// --- Vitals slots ------------------------------------------------------------
+// HP/stamina box pointer slots on the player object. Config
+// nativePC/plugins/ValorGauge.vitals.txt = "hp <slotHex>" / "stam <slotHex>"
+// (defaults 7630/7670). Readers: stamina control, hp-lock, HPWATCH.
+//
+// USER-VERIFIED 2026-10-05 (HPWATCH + VIT trace): the local player's HP box
+// IS *(player+0x7630): +0x60=max, +0x64=cur; RecoverableHealth at box+0x2DD4;
+// pending-heal array at *(box+0x30)+0xEBB0 (4 entries x0x40: Heal@0x10,
+// MaxHeal@0x18, Stage@0x2C); Stamina cur/max at box+0x12C/0x130. Damage
+// writes route through the low-level setter (FUN_141216940) from unknown
+// callers (seen: RVA +0x1218E18), NOT through FUN_141f518e0.
 std::atomic<std::size_t> g_vitalsHpSlot{0x7630};
 std::atomic<std::size_t> g_vitalsStamSlot{0x7670};
-std::atomic<bool> g_vitalsHpSlotCustom{false};
 
-std::uint8_t* GuardVitalsBox(std::uint8_t* player, std::size_t slot) {
+std::uint8_t* VitalsBox(std::uint8_t* player, std::size_t slot) {
     if (!IsReadable(player + slot, sizeof(void*))) {
         return nullptr;
     }
@@ -5302,6 +4250,13 @@ std::uint8_t* GuardVitalsBox(std::uint8_t* player, std::size_t slot) {
         return box;
     }
     return nullptr;
+}
+
+std::uint8_t* WeaponOfPlayer(std::uint8_t* player) {
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return nullptr;
+    }
+    return *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
 }
 
 void LoadVitalsConfig() {
@@ -5333,248 +4288,17 @@ void LoadVitalsConfig() {
             any = true;
         }
     }
-    // Slot-dependent writes only trust an explicitly configured slot.
-    g_vitalsHpSlotCustom = any;
     std::ostringstream m;
     m << "Vitals slots: hp=+0x" << std::hex << g_vitalsHpSlot.load()
       << " stam=+0x" << g_vitalsStamSlot.load() << std::dec
-      << (any ? " (custom - HP writes active)"
-              : " (DEFAULTS = sharpness box! HP writes disabled until "
-                "ValorGauge.vitals.txt sets the real slot)");
+      << (any ? " (custom)" : " (defaults, HP box verified 2026-10-05)");
     Log(m.str());
-}
-
-// --- Vitals write tracers (VITSET/VITADD) -----------------------------------
-// The two low-level box setters every gauge change funnels through:
-// FUN_141216940 (set cur, min(v, max)) and FUN_141216880 (cur += delta).
-// Shared by ALL entities - observe the local player's configured boxes and,
-// for anything else, DISCOVER which player slot (if any) holds the box so
-// the real HP slot identifies itself in one session.
-std::atomic<std::uint32_t> g_vitHpLogCount{0};
-std::atomic<std::uint32_t> g_vitStamLogCount{0};
-std::atomic<std::uint32_t> g_vitOtherLogCount{0};
-
-// Classify a vitals box: configured HP/stam slots first, then scan the
-// player pointer-slot window (+0x7400..+0x77F0) for a 1-deref match.
-// Allocation-free (hot path); fills cap/capLimit for rate limiting.
-const char* GuardVitClassify(void* box,
-                             std::atomic<std::uint32_t>** capOut,
-                             std::uint32_t* capLimitOut,
-                             std::size_t* slotOut) {
-    *capOut = &g_vitOtherLogCount;
-    *capLimitOut = 64;
-    *slotOut = 0;
-    const char* tag = "ent";
-    void* controller = g_lockedPlayerController;
-    if (!controller) {
-        return tag;
-    }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    if (IsReadable(player + g_vitalsHpSlot.load(std::memory_order_relaxed),
-                   sizeof(void*)) &&
-        box == *reinterpret_cast<void* const*>(
-                   player + g_vitalsHpSlot.load(std::memory_order_relaxed))) {
-        *capOut = &g_vitHpLogCount;
-        *capLimitOut = 100;
-        *slotOut = g_vitalsHpSlot.load(std::memory_order_relaxed);
-        return "HP";
-    }
-    if (IsReadable(player + g_vitalsStamSlot.load(std::memory_order_relaxed),
-                   sizeof(void*)) &&
-        box == *reinterpret_cast<void* const*>(
-                   player + g_vitalsStamSlot.load(std::memory_order_relaxed))) {
-        *capOut = &g_vitStamLogCount;
-        *capLimitOut = 40;
-        *slotOut = g_vitalsStamSlot.load(std::memory_order_relaxed);
-        return "STAM";
-    }
-    for (std::size_t off = 0x7400; off <= 0x77F0; off += 8) {
-        if (IsReadable(player + off, sizeof(void*)) &&
-            box == *reinterpret_cast<void* const*>(player + off)) {
-            *slotOut = off;
-            break;
-        }
-    }
-    return tag;
-}
-
-// USER-VERIFIED 2026-10-05 (HPWATCH + VIT trace): the local player's HP box
-// IS *(player+0x7630): +0x60=max, +0x64=cur; RecoverableHealth at box+0x2DD4;
-// pending-heal array at *(box+0x30)+0xEBB0 (4 entries x0x40: Heal@0x10,
-// MaxHeal@0x18, Stage@0x2C); Stamina cur/max at box+0x12C/0x130. Damage
-// writes route through the low-level setter (FUN_141216940) from unknown
-// callers (seen: RVA +0x1218E18), NOT through FUN_141f518e0.
-void GuardClearHealingQuota(std::uint8_t* box) {
-    if (!IsReadable(box + 0x30, sizeof(void*))) {
-        return;
-    }
-    auto* arr = *reinterpret_cast<std::uint8_t**>(box + 0x30);
-    if (!arr || !IsWritable(arr + 0xEBB0, 4 * 0x40)) {
-        return;
-    }
-    for (int i = 0; i < 4; ++i) {
-        auto* e = arr + 0xEBB0 + i * 0x40;
-        *reinterpret_cast<float*>(e + 0x10) = 0.0f;       // Heal
-        *reinterpret_cast<std::int32_t*>(e + 0x2C) = 0;   // Stage
-    }
-}
-
-// Shared "blocked" benefits: clear the pending-heal quota, top stamina back
-// up, optionally refill the spirit gauge (vanilla foresight-success latch).
-void GuardApplyBlockBenefits(std::uint8_t* player, std::uint8_t* box) {
-    GuardClearHealingQuota(box);
-    // Stamina top-up (hud stamina lives at hpBox+0x12C/0x130; the +0x7670
-    // box turned out to be [0,0], not stamina).
-    if (IsWritable(box + 0x130, 4)) {
-        *reinterpret_cast<float*>(box + 0x12C) =
-            *reinterpret_cast<const float*>(box + 0x130);
-    }
-    if (g_guardCfg.gaugeRefill) {
-        if (auto* weapon = GuardWeaponOf(player)) {
-            if (IsWritable(weapon + 0x2399, 1)) {
-                weapon[0x2399] = 1;  // vanilla 见切-success latch
-            }
-        }
-    }
-    if (g_guardCfg.counterOnBlock) {
-        OpenCounterWindow("guard block");
-        if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-            Log("GUARDBLOCK: counter window + force armed");
-        }
-    }
-}
-
-// True when the tracked current action is one of cfg.armIds (empty = all).
-bool GuardCurrentActionInArmIds() {
-    if (g_guardCfg.armIds.empty()) {
-        return true;
-    }
-    ActionInfo cur;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (!g_lastLongSwordAction) {
-            return false;
-        }
-        cur = *g_lastLongSwordAction;
-    }
-    if (cur.actionSet != 3) {
-        return false;
-    }
-    return std::find(g_guardCfg.armIds.begin(), g_guardCfg.armIds.end(),
-                     static_cast<std::uint32_t>(cur.actionId)) !=
-           g_guardCfg.armIds.end();
-}
-
-void __fastcall GuardVitSetHook(void* box, float value, std::uint8_t floorFlag) {
-    auto* b = static_cast<const std::uint8_t*>(box);
-    const std::uintptr_t caller =
-        reinterpret_cast<std::uintptr_t>(_ReturnAddress()) -
-        g_moduleBase.load(std::memory_order_relaxed);
-    float prev = -1.0f;
-    if (IsReadable(b + 0x64, sizeof(float))) {
-        prev = *reinterpret_cast<const float*>(b + 0x64);
-    }
-    // GUARD negation point: every HP write converges on this setter. The
-    // engine applies guard chip damage BEFORE queueing the reaction (live
-    // trace), so the react latch can never legitimately cover its own hit -
-    // pre-negating on it only granted blanket immunity to FOLLOW-UP hits for
-    // 1.2s (the "knocked back outside the move but HP preserved" bug).
-    // Negation now requires the current action to be arm-armed (armIds
-    // scoped; currently none - 112/98/99 all carry native guard points and
-    // rely on the reaction rollback):
-    //   - arm latch (directional, from DmgCalcHook) -> drop the write;
-    //   - lethal override (would leave <1 HP) -> drop unconditionally.
-    //   - everything else passes; GuardOnReactionAction rolls it back when
-    //     the engine confirms the block with a guard reaction.
-    void* controller = g_lockedPlayerController;
-    if (value < prev && prev > 0.0f && g_guardActive.load(std::memory_order_acquire) &&
-        controller &&
-        box == *reinterpret_cast<void* const*>(
-                   static_cast<std::uint8_t*>(controller) - 0x61C8 +
-                   g_vitalsHpSlot.load(std::memory_order_relaxed))) {
-        const std::int64_t now = GuardNowMs();
-        const bool arm = g_guardCfg.armFallback && GuardCurrentActionInArmIds() &&
-                         now < g_guardArmUntilMs.load(std::memory_order_relaxed);
-        const bool lethal =
-            value < 1.0f && GuardCurrentActionInArmIds();
-        auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-        if (arm || lethal) {
-            GuardApplyBlockBenefits(player, static_cast<std::uint8_t*>(box));
-            const auto n = g_guardLogCount.fetch_add(1, std::memory_order_relaxed);
-            if (n < 48) {
-                std::ostringstream m;
-                m << "GUARDBLOCK vitset negated " << prev << " -> " << value
-                  << " path=" << (arm ? "arm" : "lethal")
-                  << " caller=+0x" << std::hex << caller;
-                Log(m.str());
-            }
-            return;
-        }
-        // Chip passed through: stash the pre-hit HP for the reaction restore.
-        g_guardRestoreHp = prev;
-        g_guardRestoreUntilMs = now + g_blockWindowMs.load(std::memory_order_relaxed);
-    }
-    g_originalVitSet(box, value, floorFlag);
-    std::atomic<std::uint32_t>* cap = nullptr;
-    std::uint32_t capLimit = 0;
-    std::size_t slot = 0;
-    const char* tag = GuardVitClassify(box, &cap, &capLimit, &slot);
-    if (cap->load(std::memory_order_relaxed) < capLimit) {
-        cap->fetch_add(1, std::memory_order_relaxed);
-        std::ostringstream m;
-        m << "VITSET " << tag << " " << prev << " -> " << value;
-        if (slot) {
-            m << " slot=+0x" << std::hex << slot;
-        } else {
-            m << " box=0x" << std::hex
-              << reinterpret_cast<std::uintptr_t>(box);
-        }
-        m << " caller=+0x" << caller
-          << " GW=" << (g_guardActive.load(std::memory_order_relaxed) ? 1 : 0);
-        Log(m.str());
-    }
-}
-
-void __fastcall GuardVitAddHook(void* box, float delta) {
-    auto* b = static_cast<const std::uint8_t*>(box);
-    const std::uintptr_t caller =
-        reinterpret_cast<std::uintptr_t>(_ReturnAddress()) -
-        g_moduleBase.load(std::memory_order_relaxed);
-    float prev = -1.0f;
-    if (IsReadable(b + 0x64, sizeof(float))) {
-        prev = *reinterpret_cast<const float*>(b + 0x64);
-    }
-    g_originalVitAdd(box, delta);
-    std::atomic<std::uint32_t>* cap = nullptr;
-    std::uint32_t capLimit = 0;
-    std::size_t slot = 0;
-    const char* tag = GuardVitClassify(box, &cap, &capLimit, &slot);
-    if (cap->load(std::memory_order_relaxed) < capLimit) {
-        cap->fetch_add(1, std::memory_order_relaxed);
-        float after = prev;
-        if (IsReadable(b + 0x64, sizeof(float))) {
-            after = *reinterpret_cast<const float*>(b + 0x64);
-        }
-        std::ostringstream m;
-        m << "VITADD " << tag << " " << delta << " (" << prev << " -> " << after
-          << ")";
-        if (slot) {
-            m << " slot=+0x" << std::hex << slot;
-        } else {
-            m << " box=0x" << std::hex
-              << reinterpret_cast<std::uintptr_t>(box);
-        }
-        m << " caller=+0x" << caller
-          << " GW=" << (g_guardActive.load(std::memory_order_relaxed) ? 1 : 0);
-        Log(m.str());
-    }
 }
 
 // --- HP lock (address verification tool) -------------------------------------
 // ValorGauge.hp-lock.txt = "<value>"; >0 forces BOTH box fields (max+cur) to
 // value every frame. Set 200: if the HUD shows/keeps 200, the vitals box
-// address is right and any damage write that fights the lock is visible in
-// the VITSET/VITADD trace. 0 or missing file = off.
+// address is right. 0 or missing file = off.
 std::atomic<float> g_hpLockValue{0.0f};
 
 void LoadHpLockConfig() {
@@ -5602,7 +4326,7 @@ void PollHpLock() {
         return;
     }
     auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    if (auto* box = GuardVitalsBox(player, g_vitalsHpSlot.load())) {
+    if (auto* box = VitalsBox(player, g_vitalsHpSlot.load())) {
         *reinterpret_cast<float*>(box + 0x60) = v;  // max
         *reinterpret_cast<float*>(box + 0x64) = v;  // cur
     }
@@ -5667,17 +4391,17 @@ void PollHpWatch() {
         }
     }
     // Legacy candidates for comparison.
-    if (auto* stamBox = GuardVitalsBox(player, 0x7670)) {
+    if (auto* stamBox = VitalsBox(player, 0x7670)) {
         m << " box7670=[" << *reinterpret_cast<const float*>(stamBox + 0x60)
           << "," << *reinterpret_cast<const float*>(stamBox + 0x64) << "]";
     }
-    if (auto* weapon = GuardWeaponOf(player)) {
+    if (auto* weapon = WeaponOfPlayer(player)) {
         if (IsReadable(weapon + 0x2100, 4)) {
             m << " sharp=" << *reinterpret_cast<const int*>(weapon + 0x20F8)
               << "/" << *reinterpret_cast<const int*>(weapon + 0x20FC);
         }
     }
-    if (auto* box = GuardVitalsBox(player, g_vitalsHpSlot.load())) {
+    if (auto* box = VitalsBox(player, g_vitalsHpSlot.load())) {
         m << " cfgHp=[" << *reinterpret_cast<const float*>(box + 0x60)
           << "," << *reinterpret_cast<const float*>(box + 0x64) << "]";
     }
@@ -5719,7 +4443,7 @@ std::chrono::steady_clock::time_point g_stamDrainStart{};
 std::atomic<std::uint32_t> g_stamLogCount{0};
 
 float* StaminaCurPtr(std::uint8_t* player) {
-    auto* box = GuardVitalsBox(player, g_vitalsHpSlot.load());
+    auto* box = VitalsBox(player, g_vitalsHpSlot.load());
     if (!box || !IsWritable(box + 0x12C, 4) || !IsReadable(box + 0x130, 4)) {
         return nullptr;
     }
@@ -5997,133 +4721,12 @@ void LoadStaminaConfig() {
     Log(m.str());
 }
 
-void PollGuardWindow() {
-    if (!g_guardActive.load(std::memory_order_relaxed)) {
-        return;
-    }
-    if (GuardNowMs() >= g_guardDeadlineMs.load(std::memory_order_relaxed)) {
-        GuardCloseWindow("deadline");
-        return;
-    }
-    if (!g_lockedPlayerController || !ModWeaponActive()) {
-        GuardCloseWindow("weapon/controller lost");
-    }
-}
-
-void LoadGuardConfig() {
-    if (g_guardActive.load(std::memory_order_relaxed)) {
-        GuardCloseWindow("config reload");
-    }
-    g_guardCfg = GuardConfig{};
-    std::ifstream input("nativePC/plugins/ValorGauge.guard.txt");
-    if (!input) {
-        Log("Guard: no ValorGauge.guard.txt - native-guard borrow OFF");
-        return;
-    }
-    std::string line;
-    while (std::getline(input, line)) {
-        const auto hash = line.find('#');
-        if (hash != std::string::npos) {
-            line = line.substr(0, hash);
-        }
-        std::istringstream ss(line);
-        std::string kind;
-        if (!(ss >> kind)) {
-            continue;
-        }
-        if (kind == "guard") {
-            std::string ids;
-            float arc = 0.0f;
-            float turn = 0.0f;
-            int level = 0;
-            int stam = 0;
-            int gauge = 0;
-            if (ss >> ids >> arc >> turn >> level >> stam >> gauge) {
-                if (ParseIdList(ids, g_guardCfg.ids)) {
-                    g_guardCfg.arcHalfDeg =
-                        std::max(1.0f, std::min(180.0f, arc));
-                    g_guardCfg.maxTurnDeg =
-                        std::max(0.0f, std::min(180.0f, turn));
-                    g_guardCfg.guardLevel = level;
-                    g_guardCfg.staminaRefund = stam != 0;
-                    g_guardCfg.gaugeRefill = gauge != 0;
-                } else {
-                    Log("Guard: bad id list - guard line skipped");
-                }
-            } else {
-                Log("Guard: malformed guard line - skipped");
-            }
-        } else if (kind == "armIds") {
-            std::string ids;
-            if (ss >> ids) {
-                ParseIdList(ids, g_guardCfg.armIds);
-            }
-        } else if (kind == "turnIds") {
-            // Failed parse (e.g. "turnIds off") clears the list = clamp off.
-            std::string ids;
-            if (ss >> ids) {
-                (void)ParseIdList(ids, g_guardCfg.turnIds);
-            }
-        } else if (kind == "option") {
-            std::string key;
-            float val = 0.0f;
-            if (ss >> key >> val) {
-                if (key == "maxWindowSec") {
-                    g_guardCfg.maxWindowSec =
-                        std::max(0.5f, std::min(30.0f, val));
-                } else if (key == "armFallback") {
-                    g_guardCfg.armFallback = val != 0;
-                } else if (key == "swallowReaction") {
-                    g_guardCfg.swallowReaction = val != 0;
-                } else if (key == "counterOnBlock") {
-                    g_guardCfg.counterOnBlock = val != 0;
-                } else if (key == "blockWindowMs") {
-                    g_blockWindowMs = static_cast<std::int64_t>(
-                        std::max(30.0f, std::min(1000.0f, val)));
-                }
-            }
-        }
-    }
-    if (g_guardCfg.ids.empty()) {
-        Log("Guard: no valid guard line - native-guard borrow OFF");
-        return;
-    }
-    std::ostringstream m;
-    m << "Guard: ON ids=";
-    for (std::size_t i = 0; i < g_guardCfg.ids.size(); ++i) {
-        if (i) m << ',';
-        m << g_guardCfg.ids[i];
-    }
-    m << " arc=+/-" << g_guardCfg.arcHalfDeg
-      << "deg maxTurn=" << g_guardCfg.maxTurnDeg
-      << "deg level=" << g_guardCfg.guardLevel
-      << " stamRefund=" << g_guardCfg.staminaRefund
-      << " gaugeRefill=" << g_guardCfg.gaugeRefill
-      << " armFallback=" << g_guardCfg.armFallback
-      << " swallow=" << g_guardCfg.swallowReaction
-      << " counterOnBlock=" << g_guardCfg.counterOnBlock
-      << " maxWindow=" << g_guardCfg.maxWindowSec << "s";
-    m << " armIds=";
-    if (g_guardCfg.armIds.empty()) {
-        m << "(all)";
-    } else {
-        for (std::size_t i = 0; i < g_guardCfg.armIds.size(); ++i) {
-            if (i) m << ',';
-            m << g_guardCfg.armIds[i];
-        }
-    }
-    m << " turnIds=";
-    if (g_guardCfg.turnIds.empty()) {
-        m << "(off)";
-    } else {
-        for (std::size_t i = 0; i < g_guardCfg.turnIds.size(); ++i) {
-            if (i) m << ',';
-            m << g_guardCfg.turnIds[i];
-        }
-    }
-    Log(m.str());
-}
-
+// Optional nativePC\plugins\ValorGauge.force-action.txt:
+// "<set> <id> [invulnSec] [startFrame]" (invulnSec: no-hit window injected at
+// the clang; startFrame >= 0: play the forced action from that action-clock
+// time instead of 0 - the field counts SECONDS at 30Hz, so TIML frame n
+// (60/s) = n/60 seconds. Skipped frames drop their TIML events, e.g. 见切's
+// f0-f12 parry window). Shift+F6 reloads this file in-game.
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
     std::int32_t set = 0;
@@ -6166,9 +4769,7 @@ void LoadForceActionConfig() {
     LoadSheathRewriteConfig();
     LoadDrawGang1Config();
     LoadActionSoundConfig();
-    LoadSheathCounterConfig();
     LoadVitalsConfig();
-    LoadGuardConfig();
     LoadHpLockConfig();
     LoadStaminaConfig();
     std::ostringstream wt;
@@ -6576,286 +5177,6 @@ void PollModTriggers() {
     }
 }
 
-// Per-frame sheathe-family watcher: config rules (event-bit rising edge while
-// inside a watched action -> counter window + force switch) plus the mining
-// logger that finds WHICH bit (if any) the negation of the TIML i-frame
-// windows produces. See the SheathCounterRule block for the config format.
-void PollSheatheCounter() {
-    if (g_sheathRules.empty() && g_sheathMineIds.empty()) {
-        return;
-    }
-    void* controller = nullptr;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        controller = g_lockedPlayerController;
-    }
-    if (!controller) {
-        return;
-    }
-    if (!ModWeaponActive()) {
-        for (auto& rule : g_sheathRules) {
-            rule.prev = false;
-        }
-        g_sheathMinePrimed = false;
-        return;
-    }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    ActionInfo cur;
-    bool haveCur = false;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            cur = *g_lastLongSwordAction;
-            haveCur = true;
-        }
-    }
-    const bool set3 = haveCur && cur.actionSet == 3;
-    const std::uint32_t id = haveCur ? cur.actionId : 0;
-
-    std::uint32_t ev[8] = {};
-    const bool evReadable = IsReadable(player + 0x8938, sizeof(ev));
-    if (evReadable) {
-        std::memcpy(ev, player + 0x8938, sizeof(ev));
-    }
-
-    // 1) Config rules: rising edge on the rule's event bit.
-    for (auto& rule : g_sheathRules) {
-        if (rule.keyBased) {
-            // krel: key-release edge while inside the watched action.
-            // The armed force is consumed by TryQueuedForceWrite on the
-            // game thread; deliberately no counter window (the sheathing
-            // follow-up needs no no-hit) and no latch (the edge IS the
-            // one-shot; a rejected force retries on the next press).
-            if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
-                rule.prev = false;
-                continue;
-            }
-            const bool down = rule.vk != 0 &&
-                (GetAsyncKeyState(static_cast<int>(rule.vk)) & 0x8000) != 0;
-            // Diagnosis: the sheathe key vk is a guess (side-up = XBUTTON2?).
-            // While in-hold, scan ALL vks and log whichever are down - the
-            // real key appears by name even if the driver remaps it.
-            static std::atomic_uint32_t krelDbg{0};
-            if (krelDbg.load() < 8 && g_sheathMineLogCount.load() < 400) {
-                krelDbg.fetch_add(1);
-                std::ostringstream m;
-                m << "SHEATHKRELDBG act=3:" << id << " down=[";
-                bool first = true;
-                for (unsigned vkScan = 2; vkScan < 255; ++vkScan) {
-                    if ((GetAsyncKeyState(static_cast<int>(vkScan)) & 0x8000)
-                            != 0) {
-                        if (!first) m << ',';
-                        m << vkScan;
-                        first = false;
-                    }
-                }
-                m << "] rule.vk=" << rule.vk << " down=" << down
-                  << " prev=" << rule.prev;
-                Log(m.str());
-            }
-            const bool release = rule.prev && !down;
-            rule.prev = down;
-            if (release && !g_forceArmed.exchange(true)) {
-                g_forceSet = rule.toSet;
-                g_forceId = rule.toId;
-                std::ostringstream m;
-                m << "SHEATHKREL: key " << rule.vk << " released during 3:"
-                  << id << " - force " << rule.toSet << ':' << rule.toId;
-                Log(m.str());
-            }
-            continue;
-        }
-        if (rule.dispatchBased || rule.armorBased) {
-            // drule/arule fire in their own hooks; re-arm here on leaving
-            // the watched set (sentinel lastActId), so same-id re-entry
-            // (98 -> 100 -> 98) counts as a new instance and fires again.
-            if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
-                rule.lastActId = 0xFFFFFFFFu;
-            } else if (id != rule.lastActId) {
-                rule.fired = false;
-                rule.lastActId = id;
-            }
-            continue; // not bit rules (drule fires in the dispatch hook,
-                      // arule in the damage hook); their eventBit is garbage
-        }
-        if (!set3 || !SheathIdsContain(rule.duringIds, id)) {
-            rule.prev = false;
-            rule.fired = false;
-            rule.lastActId = 0;
-            continue;
-        }
-        if (id != rule.lastActId) {
-            rule.lastActId = id;
-            rule.fired = false; // new action instance: re-arm the one-shot
-        }
-        if (!evReadable || rule.eventBit >= 256) {
-            continue;
-        }
-        const bool state =
-            (ev[rule.eventBit >> 5] >> (rule.eventBit & 31)) & 1u;
-        if (state && g_sheathMineLogCount.load() < 480) {
-            ++g_sheathMineLogCount;
-            std::ostringstream m;
-            m << "SHEATHRULEDBG bit=" << rule.eventBit << " state=" << state
-              << " prev=" << rule.prev << " fired=" << rule.fired
-              << " act=3:" << id;
-            Log(m.str());
-        }
-        if (state && !rule.prev && !rule.fired) {
-            rule.fired = true;
-            g_forceSet = rule.toSet;
-            g_forceId = rule.toId;
-            g_sheathReassertSet.store(
-                static_cast<std::int32_t>(rule.toSet), std::memory_order_relaxed);
-            g_sheathReassertId.store(
-                static_cast<std::int32_t>(rule.toId), std::memory_order_relaxed);
-            g_sheathReassertUntilMs.store(
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch())
-                    .count() +
-                    1200,
-                std::memory_order_relaxed);
-            std::ostringstream m;
-            m << "SHEATHCOUNTER: event bit " << rule.eventBit
-              << " rose during 3:" << id << " - force " << rule.toSet << ':'
-              << rule.toId;
-            Log(m.str());
-            OpenCounterWindow("sheath-counter rule");
-            if (g_counterAutoForce && !g_forceArmed.exchange(true)) {
-                Log("SHEATHCOUNTER: auto-force armed");
-            }
-        }
-        rule.prev = state;
-    }
-
-    // 2) Mining: log every event-dword change while inside a watched action
-    //    (edges only; F5 drops a manual "got hit" marker into the same log).
-    const bool mining = set3 && !g_sheathMineIds.empty() &&
-                        SheathIdsContain(g_sheathMineIds, id);
-    if (mining && evReadable) {
-        if (!g_sheathMinePrimed) {
-            std::memcpy(g_sheathMinePrevEv, ev, sizeof(ev));
-            g_sheathMinePrimed = true;
-            std::ostringstream m;
-            m << "IFRMINE armed in 3:" << id << std::hex << std::uppercase;
-            for (int d = 0; d < 8; ++d) {
-                m << " ev" << d << "=0x" << ev[d];
-            }
-            Log(m.str());
-        } else {
-            for (int d = 0; d < 8; ++d) {
-                if (ev[d] == g_sheathMinePrevEv[d]) {
-                    continue;
-                }
-                const std::uint32_t rose = ev[d] & ~g_sheathMinePrevEv[d];
-                if (g_sheathMineLogCount.load() < 400) {
-                    ++g_sheathMineLogCount;
-                    std::ostringstream m;
-                    m << "IFRMINE ev" << d << " 0x" << std::hex
-                      << std::uppercase << g_sheathMinePrevEv[d] << " -> 0x"
-                      << ev[d] << std::dec;
-                    if (rose) {
-                        m << " rose=[";
-                        for (int b = 0; b < 32; ++b) {
-                            if (rose & (1u << b)) {
-                                m << d * 32 + b << ',';
-                            }
-                        }
-                        m << ']';
-                    }
-                    m << " act=3:" << id;
-                    Log(m.str());
-                }
-            }
-            std::memcpy(g_sheathMinePrevEv, ev, sizeof(ev));
-        }
-    } else {
-        g_sheathMinePrimed = false;
-    }
-}
-
-// Bluesim: per-frame mimic of the 见切/居合 per-move handlers while inside a
-// watched action (the vanilla handlers are dispatched by action id through
-// function-pointer tables, so custom actions never run them). Writes the
-// same outputs: once per action the +0x2399 / +0x2CED latches and the FX
-// 0x7D7 (foresight blue flash) + 0x7D4 (iai sound); every frame
-// weapon+0x23A0 / +0x23A4 <- playerParam+0x8A8 / +0x8B8 (the success-armor
-// timers that also drive event bit 151 while positive).
-void PollSheatheBlueSim() {
-    if (g_sheathBlueIds.empty()) {
-        return;
-    }
-    void* controller = nullptr;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        controller = g_lockedPlayerController;
-    }
-    if (!controller) {
-        return;
-    }
-    if (!ModWeaponActive()) {
-        g_sheathBlueActId = 0;
-        g_sheathBlueFx = false;
-        return;
-    }
-    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
-    ActionInfo cur;
-    bool haveCur = false;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction) {
-            cur = *g_lastLongSwordAction;
-            haveCur = true;
-        }
-    }
-    if (!haveCur || cur.actionSet != 3 ||
-        !SheathIdsContain(g_sheathBlueIds, cur.actionId)) {
-        g_sheathBlueActId = 0;
-        g_sheathBlueFx = false;
-        return;
-    }
-    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
-        return;
-    }
-    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-    if (!weapon || !IsReadable(weapon + 0x8808, sizeof(void*))) {
-        return;
-    }
-    if (cur.actionId != g_sheathBlueActId) {
-        g_sheathBlueActId = cur.actionId;
-        g_sheathBlueFx = false;
-    }
-    if (!g_sheathBlueFx) {
-        g_sheathBlueFx = true;
-        if (IsReadable(weapon + 0x2399, 1)) {
-            weapon[0x2399] = 1;
-        }
-        if (IsReadable(weapon + 0x2CED, 1)) {
-            weapon[0x2CED] = 1;
-        }
-        auto* emitter = *reinterpret_cast<void**>(weapon + 0x8808);
-        if (emitter && g_fxNotifyA) {
-            g_fxNotifyA(emitter, 0x7D7, 0); // foresight blue flash + sound
-            g_fxNotifyA(emitter, 0x7D4, 0); // iai deflect sound
-        }
-        std::ostringstream m;
-        m << "BLUESIM armed in 3:" << cur.actionId;
-        Log(m.str());
-    }
-    if (IsReadable(weapon + 0x7810, sizeof(void*))) {
-        auto* playerParam = *reinterpret_cast<std::uint8_t**>(weapon + 0x7810);
-        if (playerParam && IsReadable(playerParam + 0x8B8, sizeof(float) * 2)) {
-            if (IsWritable(weapon + 0x23A0, sizeof(float))) {
-                *reinterpret_cast<float*>(weapon + 0x23A0) =
-                    *reinterpret_cast<const float*>(playerParam + 0x8A8);
-            }
-            if (IsWritable(weapon + 0x23A4, sizeof(float))) {
-                *reinterpret_cast<float*>(weapon + 0x23A4) =
-                    *reinterpret_cast<const float*>(playerParam + 0x8B8);
-            }
-        }
-    }
-}
 #endif // !VALOR_PROBE
 
 #ifdef VALOR_PROBE
@@ -8671,11 +6992,8 @@ void DrawGauge(IDXGISwapChain* swapChain) {
 #else
     PollValorLifecycle();
     PollModTriggers();
-    PollSheatheCounter();
-    PollSheatheBlueSim();
     PollGaugeLock();
     PollSheathWatch();
-    PollGuardWindow();
     PollHpLock();
     PollHpWatch();
     PollStaminaControl();
@@ -8724,20 +7042,6 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                                                                      : "2374")
           << " <- " << g_gaugeLockValue.load(std::memory_order_relaxed)
           << " per frame";
-        Log(m.str());
-    }
-    // Sheathe i-frame mining marker (F5): drops a "got hit" marker into the
-    // log while the IFRMINE watcher is armed on a watched action.
-    if (f5Down && !g_gaugeLockKeyWasDown && !g_sheathMineIds.empty()) {
-        std::ostringstream m;
-        m << "IFRMINE MARK (user: hit landed)";
-        {
-            std::scoped_lock lock(g_actionMutex);
-            if (g_lastLongSwordAction) {
-                m << " act=" << g_lastLongSwordAction->actionSet << ':'
-                  << g_lastLongSwordAction->actionId;
-            }
-        }
         Log(m.str());
     }
     g_gaugeLockKeyWasDown = f5Down;

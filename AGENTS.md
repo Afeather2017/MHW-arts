@@ -4332,3 +4332,34 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - FSM 侧待機２条件直连方案已设计未实施 (bootstrap 覆盖后暂无必要); 试验性 FSM 节点 11
   曾致人物卡死 (ActionNo 11 = 收刀 R2 请求号, 请求按号匹配会进坏节点) — 加刚一路由只
   接线不建节点。
+
+### 2026-10-23 GUARD 防御帧 + 特殊纳刀弹反两子系统整体移除 (user 定案: 转换已全转 FSM 内置)
+
+- **删除理由 (user)**: 防御动作、特殊纳刀的转换已完全转向 FSM 内置, DLL 侧的两套
+  转换处理没用了。被删的两个子系统:
+  - **GUARD (guard.txt 防御帧借用)**: GuardOpenWindow/CloseWindow/OnActionAccepted/
+    OnReactionAction 窗口机、GuardVitSetHook/GuardHpDeltaHook 伤害否决/回滚削伤、
+    GuardStamDeltaHook 耐力回退、GuardTurnSetHook 转身钳制 (HkTurnSet/FUN_141F755C0)、
+    NotifyGuardDamageHit 方向角兜底、GuardApplyBlockBenefits/ClearHealingQuota、
+    DoActionHook 的 GUARDREACT 吞反应块、PollGuardWindow、LoadGuardConfig。
+  - **sheath-counter (sheath-counter.txt 特殊纳刀弹反转换)**: SheathCounterRule
+    (rule/drule/arule/krel/bluesim/mine 五种规则)、SheathArmorHitCheck (arule,
+    DmgCalcHook 路径)、SheathDispatchHook (drule, HkHitDispatch 的 mod 侧安装 —
+    mod build 不再装命中分发钩子, probe 的 HitDispatchHook 保留)、SheathArmHitRule/
+    SheathWatchedAction、SHEATHREASSERT 吞反应、PollSheatheCounter (含事件位挖矿
+    IFRMINE + F5 标记)、PollSheatheBlueSim、LoadSheathCounterConfig。
+- **连带清理**: 5 个钩子签名表条目 (turnSet/hpDelta/stamDelta/vitSet/vitAdd) 从
+  HookId/kHookSigs/kHookNames 移除 (sig_check.py 有独立 TARGETS 表不受影响; 部署目录
+  无 addresses.txt 覆盖); VITSET/VITADD 追踪钩子随之退役 (HP 槽 2026-10-05 已钉死,
+  发现使命完成); GuardVitalsBox/GuardWeaponOf 更名 **VitalsBox/WeaponOfPlayer** 保留
+  (stamina/hp-lock/HPWATCH 还在用); g_vitalsHpSlotCustom 随免死钳制一起删除;
+  vitals.txt 头注释的"+0x7630=锋利度"旧说法已被 10-05 实测推翻, 一并修正。
+- **保留 (易混淆项)**: 见切/居合原生叮触发链 (bit15/bit250/NegrEvent/CondEval)、
+  收刀拔刀刚一 SHEATHREWRITE/DRAWGANG1 (sheath-rewrite.txt/draw-gang1.txt, 现行拔刀
+  刚一方案)、SHEATHWATCH (10-18 收刀序列状态沿日志, 武器位置工作用)、耐力系统
+  (stamina.txt drain/cost/emptyExit — **注意**: 现役配置 drain 98 + emptyExit 98→收刀
+  →1:324 喘息仍是特殊纳刀架势的 DLL 侧处理, 若 FSM 内置版已覆盖记得清空该文件)、
+  probe 侧 HitDispatchHook/RXD/挖矿全数不动。
+- 部署 ValorGauge.dll md5 **b3975fa4ebec4bd142faf2386ac77711** (两 target 编译零警告
+  一次通过)。guard.txt/sheath-counter.txt 部署文件已成死配置 (无加载器), 留在磁盘上
+  未删; SheathCounterRule 时代的 .bak 同理。
