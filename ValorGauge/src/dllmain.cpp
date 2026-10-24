@@ -73,6 +73,9 @@ std::atomic_bool g_valorMode = false;
 // Configured via nativePC/plugins/ValorGauge.hit-charge.txt.
 std::atomic_int g_hitChargePercent{10};
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
+// Configured weapon type (1..14); Long Sword = 3. Semantics documented before
+// ModWeaponActive(); defined here because PollValorLifecycle gates on it.
+std::atomic<std::uint32_t> g_modWeaponType{3};
 // Gauge-lock experiment (2026-09-24): per-frame overwrite of an LS gauge
 // float. Round 1 (target 0x2374): game drains it 0.000556/frame but the
 // visible bar did NOT follow -> 0x2374 is the level-duration timer. Round 2
@@ -125,6 +128,11 @@ void* (*g_originalFxNotify)(void* emitter, std::uint32_t id,
 void* (__fastcall* g_fxNotifyA)(void*, std::uint32_t, std::uint32_t) = nullptr;
 void* (__fastcall* g_fxNotifyB)(void*, std::uint32_t, std::uint32_t) = nullptr;
 void (__fastcall* g_glowEmit)(void* weapon) = nullptr;
+// FUN_142110a90 (RVA 0x2110A90): blade-aura transition - the game calls it
+// with (weapon, fxId, 0, 0, 0) then latches the steady color at weapon+0xad4
+// (to white: fx 100/ad4 100, yellow: 0x65/0x66, red: 0x68/0x69).
+void* (__fastcall* g_auraSet)(void*, std::uint32_t, std::uint32_t,
+                              std::uint32_t, std::uint32_t) = nullptr;
 std::atomic_int g_fxFireFunc{-1};
 std::atomic<std::uint32_t> g_fxFireId{0};
 int g_fxCfgFunc = 0;
@@ -158,19 +166,50 @@ bool g_fxKeyWasDown = false;
 //       the action (per hit; multi-hit moves stack). id 0 = any set-3 action.
 //       Both convert seconds with the live w03p Gauge_Duration of the current
 //       level - the same primitive as the vanilla 见切-success extension.
-//   gainhit <set> <id> <amount>           - add <amount> gauge on CONNECTED
+//   gainhit <set> <id> <amount> [valor]   - add <amount> gauge on CONNECTED
 //       hits of the action (same hit gate as timerhit; whiffs never gain).
 //       Goes through the accumulator, so it is clamped and regen/HUD stay
-//       consistent. For moves whose native per-hit gain must be replaced
-//       deterministically (pair with rewrite <set> <id> 0).
+//       consistent. Optional 4th token = the amount while the spirit level
+//       is yellow/red (valor mode, weapon+0x2370 >= 2). id 0 = every set-3
+//       move (exact rows win over the wildcard).
+//       With "option charge-takeover 1" native TIML hit-gains are zeroed
+//       (see that option), so gainhit becomes the ONLY charging source:
+//       charging at level 0 converts it to white (fresh timer), and a full
+//       gauge while white promotes to yellow - the valor-mode entry
+//       (user design 2026-10-24). Both mirror the vanilla level-change
+//       recipe incl. the blade-aura transition FX (FUN_14211c5f0 branches).
+//       Yellow->red stays vanilla (upgrade moves, FSM gauge-gated).
+//   chargehit <set> <id> <bar> [valorBar] - THE valor charge (2026-10-24
+//       round 2, user-corrected): connected hits push the level-drop TIMER
+//       (weapon+0x2374, the user's "气刃值", bar units 0..1 - NOT seconds)
+//       up by <bar>; crossing into full while WHITE promotes to yellow =
+//       valor entry. Optional 4th token = the bar amount at yellow/red.
+//       id 0 = every set-3 move. Every entry into white starts the bar near
+//       empty (conversion below + the PollValorLifecycle drop edge), so the
+//       promotion is only reachable by hitting. The 练气 gauge (0x2368)
+//       stays 100% vanilla - do NOT pair this with gainhit charging.
+//   chargehit-from <set> <prevId> <bar> [valorBar] - CONTEXT variant: the
+//       amount applies when the hit's PREVIOUS action (controller+0xC8, the
+//       game's own record) was <set>:<prevId> - "勇气纳刀后接的招式" (MHGU
+//       valor sheathe boosts its follow-ups; the stance exits share ids with
+//       normal chains, only prev tells them apart). Beats the per-move row;
+//       the chargehit block only runs when some chargehit row (wildcard ok)
+//       matches, keep that row present.
 struct GaugeRule {
-    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail, GainHit };
+    enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail, GainHit,
+                      ChargeHit, ChargeFrom, ChargeStart };
     Type type = Type::Rewrite;
     std::int32_t set = 3;
     std::int32_t id = 0;
     float a = 0.0f;  // Rewrite: new delta; Cost: amount; Gate: minGauge; Regen: seconds
     float b = 0.0f;  // Rewrite: origVal; Gate: nohitSec; Regen: variant (0=hb, 1=iai)
     bool hasOrig = false;
+    bool hasValor = false;  // GainHit 4th token: the amount at level >= 2
+    // ChargeHit context cell ("82@98"): only applies when the previous
+    // action was 3:<ctxPrev>. Resolution order: ctx cell > chargehit-from
+    // default > plain move row > wildcard.
+    bool hasCtx = false;
+    std::int32_t ctxPrev = 0;
     float rate = 0.0f;      // Regen optional 5th token: override the rate param
     bool hasRate = false;   // (lower = faster; huge = glow without filling)
     std::uint32_t fxId = 0; // Fx: player-emitter effect id (0x prefix accepted)
@@ -179,6 +218,16 @@ std::vector<GaugeRule> g_gaugeRules;
 // option regen-freeze 1: while a regen timer is active the gauge never
 // decreases (negative deltas are zeroed) - "glow without dropping".
 std::atomic_bool g_gaugeRegenFreeze{false};
+// option charge-takeover 1: zero the native TIML hit-gains (the positive
+// accumulator calls from FUN_142124b20's type-7 path) for the local player,
+// so gainhit rows are the only charging source and the valor design holds
+// exactly. Costs (negative) and the 见切 success refill (different caller)
+// pass untouched. Explicit rewrite rows already won before this check.
+std::atomic_bool g_gaugeChargeTakeover{false};
+// Caller RVA of the accumulator call inside the TIML gain dispatcher
+// (GAUGEEVT +0x2124f13, inside FUN_142124b20). addresses.txt override:
+// gaugeTimlGain=0xRVA.
+std::uintptr_t g_timlGainCallerRva = 0x2124F13;
 
 const GaugeRule* FindGaugeRule(GaugeRule::Type type, std::int32_t set,
                                std::int32_t id) {
@@ -492,6 +541,30 @@ void PollValorLifecycle() {
         std::ostringstream message;
         message << "Long Sword spirit level changed: " << previous << " -> " << current;
         Log(message.str());
+        // Valor recharge loop (user design 2026-10-24): EVERY entry into
+        // white starts the charge bar (the level timer) near empty. The
+        // native yellow/red -> white drop refills the timer, which would
+        // leave the bar "born full" and unable to cross into a promotion;
+        // the chargehit rule's level-0 conversion covers the other entry.
+        if (current == 1 && previous >= 2) {
+            auto* player =
+                static_cast<std::uint8_t*>(controller) - 0x61C8;
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (weapon && IsReadable(weapon + 0x2374, sizeof(float)) &&
+                IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                *reinterpret_cast<const volatile std::uint32_t*>(
+                    weapon + 0x9F8) ==
+                    g_modWeaponType.load(std::memory_order_relaxed)) {
+                auto* timer =
+                    reinterpret_cast<volatile float*>(weapon + 0x2374);
+                const float prev = *timer;
+                *timer = 0.05f;
+                std::ostringstream m;
+                m << "GAUGERULE valor-recharge: dropped to white, bar "
+                  << prev << " -> 0.05";
+                Log(m.str());
+            }
+        }
     }
 
 }
@@ -842,7 +915,6 @@ bool IsLongSwordController(void* controller) {
 // matches wp03 data folder, w03 FSM files and action set 3). 0xFF = no weapon.
 // Override via nativePC/plugins/ValorGauge.weapon-type.txt if a patch
 // renumbers the enum.
-std::atomic<std::uint32_t> g_modWeaponType{3};
 
 bool ModWeaponActive() {
     void* controller = g_lockedPlayerController;
@@ -1663,6 +1735,11 @@ void LoadGaugeLogConfig() {
 // player only) replace the delta before the original runs.
 float __fastcall GaugeAddHook(void* weapon, float value) {
     void* returnAddress = _ReturnAddress();
+    const std::uintptr_t callerRva =
+        returnAddress
+            ? reinterpret_cast<std::uintptr_t>(returnAddress) -
+                  g_moduleBase.load(std::memory_order_relaxed)
+            : 0;
     float before = 0.0f;
     float costSlot = 0.0f;
     bool hasWeapon = false;
@@ -1702,6 +1779,7 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
             }
         }
     }
+    bool rewritten = false;
     if (own && hasAct && !g_gaugeRules.empty()) {
         if (const auto* rule =
                 FindGaugeRule(GaugeRule::Type::Rewrite, actSet, actId)) {
@@ -1714,8 +1792,27 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
                   << " val " << value << " -> " << rule->a;
                 Log(m.str());
                 value = rule->a;
+                rewritten = true;
             }
         }
+    }
+    // charge-takeover: native TIML hit-gains (the positive accumulator calls
+    // from FUN_142124b20's type-7 dispatcher path) are zeroed so the gainhit
+    // rows define charging exactly. Consumption (negative) and the 见切
+    // success refill (FUN_142123510, different caller) pass untouched, and
+    // explicit rewrite rows already won above.
+    if (own && !rewritten && value > 0.0f &&
+        g_gaugeChargeTakeover.load(std::memory_order_relaxed) &&
+        callerRva != 0 && callerRva == g_timlGainCallerRva) {
+        static std::atomic_uint32_t takeoverLogs{0};
+        if (takeoverLogs.load(std::memory_order_relaxed) < 40) {
+            takeoverLogs.fetch_add(1, std::memory_order_relaxed);
+            std::ostringstream m;
+            m << "GAUGERULE takeover: suppressed native gain +" << value
+              << " (act " << actSet << ':' << actId << ')';
+            Log(m.str());
+        }
+        value = 0.0f;
     }
     // 刚1 guard-tail bookkeeping: legit costs reaching the accumulator (the
     // chain moves' native handlers) shift `expected` so the drift guard does
@@ -1774,11 +1871,6 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
     if (++windowCount > 40) {
         ++dropped;
         return result;
-    }
-    std::uintptr_t callerRva = 0;
-    if (returnAddress) {
-        callerRva = reinterpret_cast<std::uintptr_t>(returnAddress) -
-                    g_moduleBase.load(std::memory_order_relaxed);
     }
     std::ostringstream m;
     m << "GAUGEEVT +0x" << std::hex << callerRva << std::dec
@@ -1878,6 +1970,56 @@ void LoadGaugeRulesConfig() {
             if (!(ss >> rule.set >> rule.id >> rule.a)) {
                 continue;
             }
+            float valor = 0.0f;
+            if (ss >> valor) {
+                rule.b = valor;
+                rule.hasValor = true;
+            }
+        } else if (kind == "chargehit" || kind == "chargehit-from") {
+            // chargehit: connected hits push the level-drop TIMER (0x2374,
+            // bar units 0..1, NOT seconds) up; crossing into full while
+            // white promotes to yellow. Optional 4th token = the amount at
+            // yellow/red (valor mode). id 0 = every set-3 move. The id may
+            // carry a context qualifier "82@98": that row only applies when
+            // the previous action (controller+0xC4/+0xC8) was 3:98 - per-move
+            // amounts for 勇气纳刀 follow-ups (MHGU: every stance exit has
+            // its own gauge gain). Resolution order: ctx cell > chargehit-from
+            // default > plain move row > wildcard.
+            // chargehit-from: the context DEFAULT - applies to any move whose
+            // previous action was <set>:<id> ("勇气纳刀后接的招式").
+            rule.type = kind == "chargehit" ? GaugeRule::Type::ChargeHit
+                                            : GaugeRule::Type::ChargeFrom;
+            std::string idTok;
+            if (!(ss >> rule.set >> idTok >> rule.a)) {
+                continue;
+            }
+            rule.id = std::atoi(idTok.c_str());
+            const auto at = idTok.find('@');
+            if (at != std::string::npos) {
+                rule.ctxPrev = std::atoi(idTok.c_str() + at + 1);
+                rule.hasCtx = true;
+            }
+            float valor = 0.0f;
+            if (ss >> valor) {
+                rule.b = valor;
+                rule.hasValor = true;
+            }
+        } else if (kind == "chargestart") {
+            // Unconditional bar charge when the move BEGINS - for moves that
+            // never connect hits but must charge (100 收刀回避: LMT312 has no
+            // live attack windows, the hit-gated chargehit can never fire;
+            // the move itself IS the "guard success" since its only entry is
+            // the 98 stance guard). Same 0->white conversion and full-cross
+            // promotion as chargehit.
+            rule.type = GaugeRule::Type::ChargeStart;
+            if (!(ss >> rule.set >> rule.id >> rule.a)) {
+                continue;
+            }
+            float valor = 0.0f;
+            if (ss >> valor) {
+                rule.b = valor;
+                rule.hasValor = true;
+            }
         } else if (kind == "fx") {
             rule.type = GaugeRule::Type::Fx;
             if (!(ss >> rule.set >> rule.id)) {
@@ -1903,9 +2045,14 @@ void LoadGaugeRulesConfig() {
         } else if (kind == "option") {
             std::string key;
             float v = 0.0f;
-            if (ss >> key >> v && key == "regen-freeze") {
-                g_gaugeRegenFreeze.store(v != 0.0f,
-                                         std::memory_order_relaxed);
+            if (ss >> key >> v) {
+                if (key == "regen-freeze") {
+                    g_gaugeRegenFreeze.store(v != 0.0f,
+                                             std::memory_order_relaxed);
+                } else if (key == "charge-takeover") {
+                    g_gaugeChargeTakeover.store(v != 0.0f,
+                                                std::memory_order_relaxed);
+                }
             }
             continue;
         } else {
@@ -1969,6 +2116,64 @@ const GaugeRule* FindGaugeRuleLoose(GaugeRule::Type type, std::int32_t set,
 // as the vanilla 见切-success extension (FUN_142123510:
 // +0x2374 += playerParam+0x888). Seconds convert with the live w03p duration
 // (playerParam+0x858/85C/860 by level) so "1.0" buys one countdown second.
+// Mirror of the vanilla spirit-level change recipe (FUN_14211c5f0 branches):
+// write the level, refresh the drop countdown, arm the no-decay grace
+// (w03p Gauge_No_Decay_Time_after_Spirit_Gauge_Upgrade at playerParam+0x884)
+// and fire the blade-aura transition FX + steady color latch (weapon+0xad4)
+// with the same ids the game uses for the same transition. Used by the
+// chargehit path (level 0 -> white with a near-empty bar, full white ->
+// yellow = valor entry); vanilla upgrade moves still own yellow->red.
+// timerValue: the drop-countdown value to leave the new level with. Full
+// (default) for yellow/red entry; near-empty for the white conversion so the
+// bar must be charged up by hits before it can cross into a promotion.
+void SetSpiritLevel(std::uint8_t* player, std::uint8_t* weapon,
+                    std::int32_t newLevel, const char* why,
+                    float timerValue = 1.0f) {
+    if (!player || !weapon || newLevel < 1 || newLevel > 3 ||
+        !IsReadable(weapon + 0x2370, sizeof(float) * 2)) {
+        return;
+    }
+    auto* levelAddr =
+        reinterpret_cast<volatile std::int32_t*>(weapon + 0x2370);
+    auto* timerAddr = reinterpret_cast<volatile float*>(weapon + 0x2374);
+    const auto prev = *levelAddr;
+    *levelAddr = newLevel;
+    *timerAddr = timerValue;
+    float grace = 0.0f;
+    if (IsReadable(player + 0x7810, sizeof(void*))) {
+        auto* paramTable = *reinterpret_cast<std::uint8_t**>(player + 0x7810);
+        if (paramTable && IsReadable(paramTable + 0x884, sizeof(float))) {
+            grace = *reinterpret_cast<const volatile float*>(paramTable + 0x884);
+        }
+    }
+    if (grace > 0.0f && IsWritable(weapon + 0x2390, sizeof(float))) {
+        *reinterpret_cast<volatile float*>(weapon + 0x2390) = grace;
+    }
+    std::uint32_t fxId = 0;
+    std::uint32_t steady = 0;
+    switch (newLevel) {
+        case 1: fxId = 100; steady = 100; break;   // white
+        case 2: fxId = 0x65; steady = 0x66; break;  // yellow
+        case 3: fxId = 0x68; steady = 0x69; break;  // red
+    }
+    bool auraOk = false;
+    if (fxId && g_auraSet &&
+        IsReadable(weapon + 0xAD4, sizeof(std::uint32_t))) {
+        g_auraSet(weapon, fxId, 0, 0, 0);
+        *reinterpret_cast<volatile std::uint32_t*>(weapon + 0xAD4) = steady;
+        auraOk = true;
+    }
+    static std::atomic_uint32_t levelLogs{0};
+    if (levelLogs.load(std::memory_order_relaxed) < 64) {
+        levelLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "GAUGERULE spirit-level " << why << ": " << prev << " -> "
+          << newLevel << " timer=" << timerValue << " grace=" << grace
+          << "s aura=" << (auraOk ? "fired" : "skipped");
+        Log(m.str());
+    }
+}
+
 void ExtendLevelDropTimer(std::uint8_t* player, float seconds,
                           std::int32_t actionSet, std::int32_t actionId,
                           bool fromHit) {
@@ -2265,6 +2470,50 @@ bool LockedPlayerActionChargesValor() {
     return IsNormalModeChargingAction(*g_lastLongSwordAction);
 }
 
+// Chargehit resolution (2026-10-25 redesign): pick the row for this hit.
+//   1. ctx cell      "chargehit 3 82@98 ..."  - move 82 while prev is 3:98
+//   2. from default  "chargehit-from 3 98 ..." - any move while prev is 3:98
+//   3. plain move    "chargehit 3 82 ..."      - move 82 anywhere
+//   4. wildcard      "chargehit 3 0 ..."       - every move
+// *tierOut labels which tier matched (chargehit log). nullptr = no charging.
+static const GaugeRule* ResolveChargeHit(std::int32_t actSet,
+                                         std::int32_t actId,
+                                         std::int32_t prevSet,
+                                         std::int32_t prevId,
+                                         const char** tierOut) {
+    for (const auto& r : g_gaugeRules) {
+        if (r.type == GaugeRule::Type::ChargeHit && r.set == actSet &&
+            r.hasCtx && r.ctxPrev == prevId && r.id == actId) {
+            *tierOut = "ctx";
+            return &r;
+        }
+    }
+    if (prevSet == actSet && prevId >= 0) {
+        for (const auto& r : g_gaugeRules) {
+            if (r.type == GaugeRule::Type::ChargeFrom && r.set == actSet &&
+                r.id == prevId) {
+                *tierOut = "from";
+                return &r;
+            }
+        }
+    }
+    for (const auto& r : g_gaugeRules) {
+        if (r.type == GaugeRule::Type::ChargeHit && r.set == actSet &&
+            !r.hasCtx && r.id == actId && actId != 0) {
+            *tierOut = "move";
+            return &r;
+        }
+    }
+    for (const auto& r : g_gaugeRules) {
+        if (r.type == GaugeRule::Type::ChargeHit && r.set == actSet &&
+            !r.hasCtx && r.id == 0) {
+            *tierOut = "wild";
+            return &r;
+        }
+    }
+    return nullptr;
+}
+
 void NotifyPlayerHitConnected(long long attacker) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
@@ -2317,33 +2566,131 @@ void NotifyPlayerHitConnected(long long attacker) {
             }
             // gainhit: the connected-hit gate is upstream (this only runs for
             // the local player's landed hits), so the amount goes straight
-            // through the accumulator.
+            // through the accumulator. The amount depends on the LIVE spirit
+            // level (valor mode = yellow/red, weapon+0x2370 >= 2). Charging
+            // at level 0 converts to white; a full gauge while white promotes
+            // to yellow = valor entry (user design 2026-10-24). Yellow->red
+            // stays with the vanilla upgrade moves.
             if (const auto* gain =
                     FindGaugeRuleLoose(GaugeRule::Type::GainHit, actSet, actId)) {
-                auto* weapon = *reinterpret_cast<std::uint8_t**>(
-                    static_cast<std::uint8_t*>(controller) - 0x61C8 + 0x76B0);
+                auto* player =
+                    static_cast<std::uint8_t*>(controller) - 0x61C8;
+                auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
                 if (weapon && g_originalGaugeAdd &&
-                    IsReadable(weapon + 0x2368, sizeof(float))) {
-                    const float before = *reinterpret_cast<volatile float*>(
-                        weapon + 0x2368);
-                    g_originalGaugeAdd(weapon, gain->a);
-                    // The 刚1 guard tail reverts ANY drift from its expected
-                    // gauge - including accumulator-confirmed positives (that
-                    // policy is what suppresses the 见切 refill). Account for
-                    // our own addition so counter-chain hits keep their gain.
-                    if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
-                        const float e =
-                            g_gang1Expected.load(std::memory_order_relaxed);
-                        g_gang1Expected.store(
-                            std::clamp(e + gain->a, 0.0f, 1.0f),
-                            std::memory_order_relaxed);
+                    IsReadable(weapon + 0x2368, sizeof(float)) &&
+                    IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                    *reinterpret_cast<const volatile std::uint32_t*>(
+                        weapon + 0x9F8) ==
+                        g_modWeaponType.load(std::memory_order_relaxed)) {
+                    const auto level =
+                        *reinterpret_cast<const volatile std::int32_t*>(
+                            weapon + 0x2370);
+                    // Defense in depth: only touch sane levels (struct-shift
+                    // alarm would read garbage).
+                    if (level >= 0 && level <= 3) {
+                        const bool valor = level >= 2;
+                        const float amount =
+                            (gain->hasValor && valor) ? gain->b : gain->a;
+                        if (level == 0) {
+                            // 未开刃 -> 白刃 on the first charging hit.
+                            SetSpiritLevel(player, weapon, 1, "charge");
+                        }
+                        const float before = *reinterpret_cast<volatile float*>(
+                            weapon + 0x2368);
+                        g_originalGaugeAdd(weapon, amount);
+                        // The 刚1 guard tail reverts ANY drift from its expected
+                        // gauge - including accumulator-confirmed positives (that
+                        // policy is what suppresses the 见切 refill). Account for
+                        // our own addition so counter-chain hits keep their gain.
+                        if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
+                            const float e =
+                                g_gang1Expected.load(std::memory_order_relaxed);
+                            g_gang1Expected.store(
+                                std::clamp(e + amount, 0.0f, 1.0f),
+                                std::memory_order_relaxed);
+                        }
+                        const float after = *reinterpret_cast<volatile float*>(
+                            weapon + 0x2368);
+                        // Full while white = enter valor mode (yellow).
+                        if (after >= 0.999f &&
+                            *reinterpret_cast<const volatile std::int32_t*>(
+                                weapon + 0x2370) == 1) {
+                            SetSpiritLevel(player, weapon, 2, "charge-full");
+                        }
+                        std::ostringstream m;
+                        m << "GAUGERULE gainhit act=" << actSet << ':' << actId
+                          << " +" << amount << (valor ? " (valor)" : "")
+                          << " gauge=" << before << "->" << after;
+                        Log(m.str());
                     }
-                    const float after = *reinterpret_cast<volatile float*>(
-                        weapon + 0x2368);
-                    std::ostringstream m;
-                    m << "GAUGERULE gainhit act=" << actSet << ':' << actId
-                      << " +" << gain->a << " gauge=" << before << "->" << after;
-                    Log(m.str());
+                }
+            }
+            // chargehit (2026-10-24 design round 2): the valor charge bar IS
+            // the level-drop timer (weapon+0x2374, the user's "气刃值" - the
+            // same bar timerhit 3:84 already extended). Connected hits push
+            // the bar up by <amount> (optional 4th token = the amount at
+            // yellow/red); a charge that CROSSES into full while WHITE
+            // promotes to yellow = valor entry. Entering white always starts
+            // the bar near empty (PollValorLifecycle handles the yellow/red
+            // -> white drop, the level-0 conversion above handles 未开刃), so
+            // "full" is only reachable by hitting. The 练气 gauge (0x2368)
+            // stays 100% vanilla.
+            // chargehit (2026-10-25 matrix redesign): the previous action
+            // comes from the game's own controller record (+0xC4/+0xC8,
+            // written at the real transition - buffered accepts don't touch
+            // it). ResolveChargeHit picks ctx-cell > from-default > move-row
+            // > wildcard so 勇气纳刀后接的招式 can carry per-move amounts
+            // (MHGU: every stance exit has its own gauge gain).
+            const char* tier = nullptr;
+            std::int32_t prevSet = -1;
+            std::int32_t prevId = -1;
+            if (IsReadable(controller, 0xD0)) {
+                prevSet = *reinterpret_cast<const volatile std::int32_t*>(
+                    static_cast<std::uint8_t*>(controller) + 0xC4);
+                prevId = *reinterpret_cast<const volatile std::int32_t*>(
+                    static_cast<std::uint8_t*>(controller) + 0xC8);
+            }
+            if (const auto* rule = ResolveChargeHit(actSet, actId, prevSet,
+                                                    prevId, &tier)) {
+                auto* player =
+                    static_cast<std::uint8_t*>(controller) - 0x61C8;
+                auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+                if (weapon && IsReadable(weapon + 0x2374, sizeof(float)) &&
+                    IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                    *reinterpret_cast<const volatile std::uint32_t*>(
+                        weapon + 0x9F8) ==
+                        g_modWeaponType.load(std::memory_order_relaxed)) {
+                    const auto level =
+                        *reinterpret_cast<const volatile std::int32_t*>(
+                            weapon + 0x2370);
+                    if (level >= 0 && level <= 3) {
+                        if (level == 0) {
+                            // 未开刃 -> 白刃, charge bar starts near empty.
+                            SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
+                        }
+                        const bool valor = level >= 2;
+                        const float amount =
+                            (rule->hasValor && valor) ? rule->b : rule->a;
+                        auto* timer =
+                            reinterpret_cast<volatile float*>(weapon + 0x2374);
+                        const float prev = *timer;
+                        const float next = std::min(1.0f, prev + amount);
+                        *timer = next;
+                        // Crossing into full is what promotes - an already-
+                        // full bar (fresh yellow) never re-fires.
+                        if (next >= 0.999f && prev < 0.999f &&
+                            *reinterpret_cast<const volatile std::int32_t*>(
+                                weapon + 0x2370) == 1) {
+                            SetSpiritLevel(player, weapon, 2, "charge-full");
+                        }
+                        std::ostringstream m;
+                        m << "GAUGERULE chargehit act=" << actSet << ':'
+                          << actId << " +" << amount << (valor ? " (valor)" : "")
+                          << " bar=" << prev << "->" << next
+                          << " prev=" << prevSet << ':' << prevId
+                          << " tier=" << tier;
+                        Log(m.str());
+                    }
                 }
             }
         }
@@ -3484,6 +3831,47 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
                 std::ostringstream m;
                 m << "GAUGERULE fx act=" << actionSet << ':' << actionId
                   << " id=0x" << std::hex << rule->fxId << std::dec;
+                Log(m.str());
+            }
+        }
+    }
+    // chargestart: unconditional level-timer charge on BEGIN (2026-10-25).
+    // For moves that never connect hits but must charge the valor bar - the
+    // move starting IS the event (100 收刀回避: only entered from the 98
+    // stance guard, so beginning = "the guard happened"). Same semantics as
+    // the chargehit path: level 0 converts to white (bar 0.05), a charge
+    // crossing into full while white promotes to yellow.
+    if (const auto* rule =
+            FindGaugeRule(GaugeRule::Type::ChargeStart, actionSet, actionId)) {
+        if (IsReadable(weapon + 0x2370, sizeof(float) * 2) &&
+            IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+            *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) ==
+                g_modWeaponType.load(std::memory_order_relaxed)) {
+            auto* player =
+                static_cast<std::uint8_t*>(g_lockedPlayerController) - 0x61C8;
+            const auto level =
+                *reinterpret_cast<const volatile std::int32_t*>(weapon + 0x2370);
+            if (level >= 0 && level <= 3) {
+                if (level == 0) {
+                    SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
+                }
+                const bool valor = level >= 2;
+                const float amount =
+                    (rule->hasValor && valor) ? rule->b : rule->a;
+                auto* timer =
+                    reinterpret_cast<volatile float*>(weapon + 0x2374);
+                const float prev = *timer;
+                const float next = std::min(1.0f, prev + amount);
+                *timer = next;
+                if (next >= 0.999f && prev < 0.999f &&
+                    *reinterpret_cast<const volatile std::int32_t*>(
+                        weapon + 0x2370) == 1) {
+                    SetSpiritLevel(player, weapon, 2, "charge-full");
+                }
+                std::ostringstream m;
+                m << "GAUGERULE chargestart act=" << actionSet << ':'
+                  << actionId << " +" << amount << (valor ? " (valor)" : "")
+                  << " bar=" << prev << "->" << next;
                 Log(m.str());
             }
         }
@@ -7201,17 +7589,30 @@ DWORD WINAPI InitializePlugin(void*) {
                         OverrideOrZero("glowEmit") != 0
                             ? OverrideOrZero("glowEmit")
                             : 0x21224D0;
+                    const std::uintptr_t rvaAura =
+                        OverrideOrZero("auraSet") != 0
+                            ? OverrideOrZero("auraSet")
+                            : 0x2110A90;
                     g_fxNotifyA = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaA);
                     g_fxNotifyB = reinterpret_cast<void* (__fastcall*)(
                         void*, std::uint32_t, std::uint32_t)>(base + rvaB);
                     g_glowEmit = reinterpret_cast<void (__fastcall*)(void*)>(
                         base + rvaGlow);
+                    g_auraSet = reinterpret_cast<void* (__fastcall*)(
+                        void*, std::uint32_t, std::uint32_t, std::uint32_t,
+                        std::uint32_t)>(base + rvaAura);
+                    g_timlGainCallerRva =
+                        OverrideOrZero("gaugeTimlGain") != 0
+                            ? OverrideOrZero("gaugeTimlGain")
+                            : 0x2124F13;
                     std::ostringstream fxm;
                     fxm << "FX test notify resolved: ADD670="
                         << (g_fxNotifyA ? "ok" : "null") << " AE0D70="
                         << (g_fxNotifyB ? "ok" : "null") << " glowEmit="
-                        << (g_glowEmit ? "ok" : "null");
+                        << (g_glowEmit ? "ok" : "null") << " auraSet="
+                        << (g_auraSet ? "ok" : "null") << " timlGainRva=0x"
+                        << std::hex << g_timlGainCallerRva;
                     Log(fxm.str());
                 }
                 LoadFxTestConfig();

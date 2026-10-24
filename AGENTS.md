@@ -4482,3 +4482,242 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 已知无害残留: 343 ix1 通道留 (100,0) 僵尸零键 — set_bit3_windows 对 ix1 不做
   同值去重且 old1d 帧集合永久并入 frames union, 纯冗余零值键, bit3 消费只看值
   不影响语义; 该 entry 以后再走段增删它仍会被保留 (继续无害)。
+
+### 2026-10-24 (7) 勇气模式充能系统落地: gainhit 唯一充能源 + 无刃→白 + 满白→黄 (valor 入场)
+
+- **设计 (user 定案)**: 复用气刃系统做勇气模式入场。普通态(无刃0/白1)所有命中充
+  练气值 +0.1/跳, 勇气纳刀链上招(105/106/107/108, 同 10-04 seed 集) +0.3/跳;
+  黄刃及以上 = 勇气模式, 充能降为 0.05/0.1。无刃时首次命中充能 → 直接转白刃
+  (计时器回满); 白刃充满(>=0.999) → 自动升黄刃 = 进勇气模式。黄→红留给原版
+  升级招 (回转斩族: FSM 練気ゲージ判定(大回転斬り) 门控 + 处理器
+  FUN_1417e3c40/3cc0 做 level+=1+特效, **原版升级不刷计时器不清气刃量** —
+  我们的白→黄刷计时器是对 vanilla 的有意偏离, 让黄刃入场永远是完整时长)。
+- **user 修正 (关键)**: "气刃值满不会自动升级, 特定动作才升级" — 原版没有满槽
+  自动升级, 所以白→黄必须 DLL 主动写 (已做)。白刃等级时长 user 自己改资源文件
+  (w03p Gauge_Duration_White; 磁盘 w03p 是加密载荷, 编辑器改完导出)。
+- **实现 (mod build, 3 处)**:
+  1. `gainhit <set> <id> <amount> [valor]` 第 4 参 = 黄刃及以上时的金额
+     (GaugeRule.hasValor/b); id 0 通配全 set-3 (FindGaugeRuleLoose 精确行优先)。
+  2. `option charge-takeover 1` + **caller RVA 精准清零原生增益**: 累加器
+     (FUN_142122410) 全游戏只有 3 个调用方 (10-22 定案), 其中正增量只有
+     TIML type-7 命中增益 (FUN_142124b20 内部 call site, GAUGEEVT caller
+     **+0x2124f13**) 和见切成功回填 (FUN_142123510, +0x212358d)。takeover 在
+     GaugeAddHook 里只清 caller==0x2124f13 的正增量 (addresses.txt 可覆盖
+     `gaugeTimlGain=0xRVA`) → 原生命中增益归零、消耗(负)/见切回填/regen 全透传,
+     gainhit 成为唯一充能源, 配置数值即最终数值。rewrite 行优先于 takeover
+     (rewritten 标志), 显式 rewrite 不被二次清零。
+  3. `SetSpiritLevel(player, weapon, newLevel, why)` = 复刻 FUN_14211c5f0 的
+     等级变更分支: 写 +0x2370 + **+0x2374=1.0 (计时器回满, 偏离 vanilla 升级
+     不刷计时器)** + +0x2390 = playerParam+0x884 (免衰减宽限,
+     Gauge_No_Decay_Time_after_Spirit_Gauge_Upgrade) + **刀光过渡 FX**
+     g_auraSet = FUN_142110a90 (RVA 0x2110A90, addresses.txt `auraSet=`) 传
+     (weapon, fxId, 0,0,0) 再锁 +0xad4 常驻色: 白 fx100/ad4 100, 黄 0x65/0x66,
+     红 0x68/0x69 (id 全部抄自 14211c5f0 各分支)。命中路径 (DmgCalcHook/
+     HitCharge hook 的 gainhit 块) 加 weapon+0x9F8==modWeaponType 门。
+- **配置 (部署 gauge-rules.txt, bak-20261024-charge)**:
+  `option charge-takeover 1` + `gainhit 3 0 0.1 0.05` (通配默认) +
+  `gainhit 3 105/106/107/108 0.3 0.1` (链上招)。既有 76/77 显式 0.2 行优先于
+  通配且无第 4 参 → 勇气态也是 0.2 (注释里给了改法)。`hit-charge.txt` 写 **-1**
+  (旧蓝条→满充强制红刃系统退役, 防止和新系统打架双入场); gauge-lock 确认 `2 0`
+  (关) 不干扰。旧 DLL 对新配置行安全 (4 参多余 token 被忽略 / option 键被忽略),
+  但 takeover 需要新 DLL — **别在旧会话里 Shift+F6 热重载后再打一圈**(会双份充能),
+  重启即干净。
+- **日志**: `GAUGERULE gainhit act=.. +<amt> (valor) gauge=a->b` / `GAUGERULE
+  takeover: suppressed native gain +x (act ..)` / `GAUGERULE spirit-level
+  charge|charge-full: p -> n timer=1.0 grace=..s aura=fired|skipped`。
+  验证路径: 普通攻击命中看 gainhit 行; 无刃打一下看 spirit-level charge;
+  白刃充满看 spirit-level charge-full + 刀光变黄; 空挥看 gauge 不涨 (takeover
+  只在 DmgCalc 命中路径加钱)。
+- **新地址**: auraSet=FUN_142110a90 RVA 0x2110A90 (无直接 xref, 指针调用, 5 参
+  形态抄 decompile); gaugeTimlGain caller RVA 0x2124F13。顺带澄清: caller RVA
+  是 _ReturnAddress() - 模块基址 (GaugeAddHook 里已提升到函数头统一计算)。
+
+### 2026-10-24 (8) 充能方向修正: 气刃值=计时器 0x2374 定案, chargehit 取代 gainhit 充能
+
+- **user 局内纠错**: "原本 dll 3:84 打中积累气刃值, 现在 3:11 打中涨的是练气, 弄混了" —
+  术语就此钉死: **气刃值 = 等级计时器 weapon+0x2374** (掉级倒计时条, 原 timerhit 3:84
+  扩的就是它); **练气值 = 0x2368 蓝条** (气刃斩消耗/普攻回充/见切回填, 原版自理)。
+  上一节 (7) 的 gauge-side 充能 (takeover + gainhit 通配/链上行) **整体作废**:
+  takeover 代码保留但休眠 (配置不加 option 即关), gainhit 76/77 0.2 (10-22 确定性
+  切换) 与充能无关, 保留。
+- **新设计 (user 两问拍板)**: `chargehit <set> <id> <bar> [valorBar]` — 命中把**计时器
+  按 0..1 条刻度**往上推 (不是秒!); 白刃(1)时条**跨越**满值 (prev<0.999 → next>=0.999)
+  → SetSpiritLevel(2) 进勇气; 黄/红时充能只是维持条。**每次进白刃条清到 0.05**:
+  无刃→白转换直接 timerValue=0.05 (SetSpiritLevel 加了 timerValue 参数, 黄/红入场仍
+  =1.0); 黄/红→白掉级由 PollValorLifecycle 掉级沿 (current==1 && previous>=2, 每帧
+  Present 线程) 把原版回满的条压回 0.05, 日志 `GAUGERULE valor-recharge`。→ 条只能
+  靠打攒满, "天生满条无法触发跨越"的结构问题被堵死。
+- **部署**: gauge-rules.txt (bak-20261024-charge 之上再改, 通配 `chargehit 3 0 0.1
+  0.05` + 链上 105/106/107/108 `0.3 0.1`); **timerhit 3 84 3.0 已删** (被通配
+  chargehit 覆盖, 留着双份充条); hit-charge=-1 维持。DLL md5 5e2e8c65。
+  g_modWeaponType 定义前移到 g_lastObservedSpiritLevel 旁 (PollValorLifecycle 现在也
+  门它, 原声明在 900 行区太靠后)。
+- **日志语义变化**: `GAUGERULE chargehit act=.. +0.1 bar=0.15->0.25` (条刻度);
+  `spirit-level charge: 0 -> 1 timer=0.05`; `spirit-level charge-full: 1 -> 2 timer=1`;
+  `valor-recharge: dropped to white, bar 1 -> 0.05`。练气槽不再出现 DLL 加行 —
+  它回到纯原版节奏。
+- **遗留对齐点**: 黄→红升级招 (回转斩族) 吃的是**练气槽满** (0x2368, 原版门控) —
+  勇气态内练气槽照原版节奏走, 所以红刃路径无改动; user 若想红刃也走条充能再说。
+
+### 2026-10-24 (9) w0Xp 参数文件容器破解 (Blowfish) + Guard Angles (Shared) = 引擎侧真格挡的数据面配置
+
+- **容器格式定案**: w0Xp = **Blowfish-ECB 加密**, 全 14 武器共用 key
+  `j1P15gEkgVa7NdFxiqwCPitykHctY2nZPjSaElvqb0eSwcLO1cOlTqqv`(55 字节截到 56),
+  加解密前后各做一次 u32 BSwap; 明文头 = `W03\0`+u32 版本(0x14) = 模板的
+  Weapon[4]+uint, 其后即 .bt 模板紧凑布局 (BinaryReader 顺序读, 无对齐)。
+  证据: MHW-Editor.exe 反编译 (ilspycmd 8.2.0 + DOTNET_ROLL_FORWARD=Major,
+  完整副本在 `_mhweditor_src/`) — `EncryptionHelper`(BlowfishEngine+BSwap)、
+  `Wp03Param.cs`(逐字段 LoadData/WriteData)。此前"编辑器显示值在文件里搜不到/
+  195/135/60 搜不到"之谜全部解开 = 密文。**工具: `w03p_tool.py`**
+  (dump/guard/hexdump/setguard, auto .bak + attrib 解只读, 依赖 pycryptodome)。
+  nativePC 文件与 chunk-extracted 两份密文相同 (历史结论复核成立)。
+- **Guard Angles (Shared) 表 = 文件偏移 0x1B5(437), 2×7B 条目**
+  `{f32 Guard_Angle_Both_Sides, u8 Knockback_Threshold_S/M/L}` (entry1 @444)。
+  LS = 90.0/14/39/40 ×2 (user 编辑器截图逐值吻合)。全武器对照 (w03p_tool.py guard):
+  GS 70/90°14/39/40, SNS 60/90°**14/20/21**(小盾低阈值=易大后仰), DB/LS/HAM/HH/SA
+  = 90°14/39/40(无盾默认档), **LANCE 110/180°39/49/50, GL 110/360°39/49/50**
+  (大盾宽角高阈值), CB 70/70° 但 entry1 阈值不同(24/49/50)。
+  → 语义 = **引擎格挡方向锥(度) + 后仰小/中/大伤害阈值**; entry1 = 第二状态
+  (待钉: CB 阈值不同→疑似斧形态, GL 360→疑似某种全向态; 也可能是防御强化/Guard
+  技能档)。
+- **运行时消费链 (静态证据链闭环, 运行时偏移待局内 A/B)**: 参数表 =
+  `*(*(weapon+0x9B0)+0x7810)` (getter FUN_14211c060)。angle 以度消费
+  (解码 FUN_142178100/142176240(player+0x230, +0x7870/+0x1510) 出弧度, ×
+  DAT_142f16ec0=57.285 转度, DAT_142f16ec8=180.0):
+  - param+0x940/0x944 与 +0x948/0x94C = 两组 float 对 = 两个条目的角度窗
+    (FSM 条件求值器 FUN_140f0f830/FUN_140f0f8e0: deg∈[min,max];
+    FUN_1418247d0(发 event bit 0xC5+99 的动作类): deg∈[min,max) 严格;
+    FUN_1417e4260: event bit9 门, deg∈[min, 180−max] 分类前/后向选动作 id
+    (param_1+0xcd8/cdc/cd4) 并把角度写 player+0xe1b4)。
+  - param+0x950/+0x954 = 两个 **u32 阈值三元组** {S,M,L} 字段打包
+    (LS = 0x0028270E), 动作类 begin (FUN_1417d8d00 族, 按 FUN_141f62070 返回块
+    +0x28 bit4 门) 经 **FUN_141f72330** 装到 **player+0x14B0 / +0xE178**
+    (+0xE174=激活字节; FUN_141736ab0/14173de50 等武器防御类按状态重装/清零)。
+  - 加载器把 7B 文件条目扩展成 min/max 对 + 打包阈值 → **文件→运行时不是全文
+    +871 平移** (+871 只对 Params(5) 簇 file 1177-1317 → runtime +0x800-0x888
+    验证成立; guard 表 file 437 平移会落到非对齐地址, 说明有重排)。
+- **翻案之翻案**: 10-05 (9) "param+0x940/0x944 实测 [1200,0] 非角度" 的测量对象
+  是 **player+0x7810 = 玩家位置缓存** (玩家对象自己的 +0x7808-0x7818 是位置拷贝区,
+  FUN_142018a50 写点; X=1200cm 量级), 偏移撞号误测。参数表 +0x940 角窗结论恢复成立。
+- **与本项目防御体系的接口**: 306 特殊纳刀强格挡 (TIML b30+mFlag1b28) 让引擎把
+  命中按格挡处理, **方向锥与后仰档就吃这张表** — user 10-14 局内实测的
+  "真·带角度防御 (背后被打直接击飞)" 的锥角即本表 LS 的 90°。想改 LS 真·格挡:
+  角度改宽 (90→180 近全向)、阈值抬高 (Large 40→255 永不大后仰)、或抄长枪档
+  (110°+39/49/50) — **纯数据面, 无需 DLL**; MHW-Editor GUI 与 w03p_tool.py
+  两条路都能写。改完放 nativePC 部署同名路径即可 (Blowfish 回加密工具已封装)。
+- **新造"能转换的防御类"只差 FSM 接线 (2026-10-24 对现部署 wp03_action.fsm 的盘点,
+  xfs_parse.py 解析 98 节点)**: 反应节点**全部已存在且全部零出边(停车位)** —
+  act34 弾かれ=node43, act35/36/37 防御=node95/96/97, **act38/39/40 强化防御=node91/92/93**。
+  请求进入不需要入边 (零入边节点按 ActionNo 匹配请求进入, 09-19 模型), 所以強G 三件套
+  打出 {3,39} 时 node92 已在被进入、播完 38-40 的反应动作后无处可去 = "格挡成功但 FSM
+  不切换"的完整解释。**新防御类配方 = 任选载体动作贴強G 位 (306 现役 0x52400006 +
+  mFlag1 b28 + staminaParam; 禁 b26 同窗) + node91/92/93 加出边指到反击动作 (条件可选,
+  无条件=自动转换) + w03p Guard Angles 表调锥角/阈值**。三档可分派不同反击 (91/92/93
+  各自出边), 条件可做红刃门 (VariableNode)。- **条件属性表速览 (2026-10-24, vadump 0x1430ba000+0x6000, UTF-8)**: 全武器 FSM 条件
+  属性注册表里存在 **`アクション`** / **`MotionNo`** / `CheckRequestFromMotion` /
+  `フェイズ0/1/サブ1` / `攻撃ヒット` / `レバー(方向)` / `遷移可` 等未在 wp03 使用的属性
+  — 若 VariableNode 可绑 `アクション`/`MotionNo` (FSM-Studio 属性下拉 30s 可验), 反应
+  节点 (91-93/95-97) 的出边就能**按来源动作分派不同反击** = 同一组位组合承载任意多
+  个行为上独立的防御类; 第三类的解锁点在 FSM 路由层, 不在位组合层。
+
+  (Wp06 cChargeCounter*, LS 抄位不转换, user 已实测), 不要走那条。
+- **遗留**: ① 运行时 +0x940 区实际值 dump 一眼定案 (预期 −90/90 或 90/90 形态 +
+  0x0028270E ×2; ValorProbe/LuaEngine 均可); ② entry1 触发条件; ③ 后仰档
+  S/M/L 的具体消费点 (player+0x14B0 字节 vs 攻击记录 record+0x248/24C 阈值的
+  比较处, 10-05 的后仰档链) 未逐指令钉死。
+
+### 2026-10-24 (9) "没检测到特殊纳刀"破案: 纳刀链第一招 = ACT109 纳刀一文字 (FSM 部署件全表实锤)
+
+- **user 报告**: 特殊纳刀后接的招式没吃到 0.3 大额充能。**根因 = (8) 的链上招 id 配错**:
+  用的还是 10-04 seed 的 {105,106,107,108}, 但特殊纳刀 (ACT98) 的直接派生是 **ACT109
+  纳刀一文字** — 不在行里, 只吃了通配 0.1。
+- **部署 FSM (wp03_action.fsm) 勇气链全表** (xfs_parse.py 提取; mpProcessList 是单容器
+  对象, ActionNo 在 mpParameter.ActionNo.EnumValue — 之前脚本按 list 扫所以全空):
+  [61] ACT98 勇气纳刀 (==特殊纳刀, user 混用同义) 出边: '一文字'→[72] ACT109 纳刀一文字 /
+  '气刃踏步斩'→ACT70 気刃踏込斬り / 左右移动斩→ACT82/83 / 斬り下がり→ACT84 /
+  '松开R'+'体力耗尽'→[90] ACT6 收刀。
+  [72] ACT109 → [87] **MOT118** '一文字接上挑' (MOT 注入, 动作层 id 仍=109, chargehit
+  照样命中 109 行!) 或 → [74] ACT112 刚一。
+  其余自定义 ACT: 104 気刃１スリF / 107 気刃２スリF / 110 気刃３スリF / 111 気刃３スリL /
+  106 一文字短 / 105 一文字长 / 108 气刃无双斩 / 112 刚一 / 38,39,40 强化防御 / 100 收刀回避。
+  MOT 节点: 357 大居合后登龙 / 358-360 右上右下左上一文字短 / 361-363 同长 / 364 小居合后
+  登龙 / 118 一文字接上挑 — MOT 段动作层停在前一招 id, 充能/规则按宿主 id 命中。
+- **修复 (纯配置)**: chargehit 行换成 `3 109 / 105 / 106 / 108 = 0.3 0.1`; **107 删行**
+  (滑步气刃, 非纳刀链, 回落通配 0.1)。可选行注释在文件里: ACT70 (架势踏步斩, 原版招别处
+  也出, 按id配=全局大额) 和 ACT112 刚一要不要大额, user 定。DLL md5 5e2e8c65 未动,
+  Shift+F6 热重载生效。
+- **教训**: "勇气纳刀后接的招式"这类 **按语境**的需求, 落到实现上是**按动作 id**的 —
+  id 表必须从**当前部署的 FSM**现挖, 三周前 seed 的 id 集合不可信 (moveset 已大改两轮)。
+  MOT 注入段不换 id 是双刃剑: 规则自动覆盖后继段 (便利), 但 MOT 招永远拿不到独立身份。
+
+### 2026-10-25 语境充能定稿: chargehit-from (前一动作==纳刀98 → 大额), user 点破 MHGU 语义
+
+- **user 需求**: 勇气纳刀接的移动斩 (MHGU) 增长比普通移动斩高很多 → 必须区分"是不是
+  纳刀后接的", 纯 id 行做不到 (82/83/84 移动斩、70 踏步斩与普通连段共享 id)。
+- **实现**: `chargehit-from <set> <prevId> <amt> [valorAmt]` — 命中时读 **controller
+  +0xC4/+0xC8 (前一动作, 游戏动作层在真实转换时自己写, 09-26 控制器全图字段首次实战)**
+  , prev==规则目标 (3:98) 则覆盖金额。优先级 from > 具体招行 > 通配; 日志 chargehit 行
+  新增 `prev=3:<id> src=from|move` 供局内验证 +0xC4/+0xC8 语义。chargehit 块只在有
+  chargehit 行匹配时才跑 (通配行须保留)。部署配置 `chargehit-from 3 98 0.3 0.1`。
+  DLL 部署由后台任务等游戏退出完成 (构建 md5 见任务日志)。
+- **语义注意**: prev 在缓冲衔接时会提前翻页 (82 早期帧就 accept 了后继 → prev 变 82),
+  多段招尾跳吃不到大额 — 可接受, 原版取消系统同款语义。
+
+### 2026-10-25 (2) chargehit 矩阵化: @语境单元格 + 四档解析 (user: 纳刀后继各招应有专属增量)
+
+- **user 反馈**: 纳刀后接的各招在 MHGU 里各充不同的气刃值, 一个 from 大额不够 → 重设计。
+- **新语法**: `chargehit 3 <id>@<prevId> <amt> [valorAmt]` — 语境单元格, 只有"上一招是
+  3:<prevId>"时该招才吃这个额。四档解析 ResolveChargeHit: **ctx 单元格 > chargehit-from
+  默认 > 普通招行 > 通配行** (from 压过普通招行是有意的: 语境提升就是要抬高普通招)。
+  GaugeRule 加 hasCtx/ctxPrev; id token 含 '@' 时 split。日志 chargehit 行带
+  `tier=ctx|from|move|wild prev=<set>:<id>` 供逐发核对。
+- **prev 语义补充定案**: controller+0xC4/+0xC8 由游戏在**真实转换时**写, 缓冲 accept
+  不动它 — 比 DLL tracker (accept 即翻页) 更贴"前一招"语义, 命中时现读即可。
+- **部署**: DLL md5 ea7ef559; 配置 chargehit 段重写 (四档说明 + 纳刀出边清单 +
+  5 条注释态 @98 示例行), from 3:98 0.3/0.1 与 109/105/106/108 普通行保留。
+- **配置即调参面**: 整体改纳刀语境 → from 行; 单招纳刀档 → @98 行; 某招普通档 →
+  普通行。全 Shift+F6 热重载。
+
+### 2026-10-25 (3) 100 收刀回避充能 + 纳刀出边真实请求 id 钉死 (user 调参实测)
+
+- **user 补充**: 勇气纳刀(98)格挡转入收刀回避(100, LMT312)也要回气 — "看似格挡成功才
+  回气, 但 100 全游戏唯一入口就是 98, 按 id 无条件回 = 等价格挡语义"。**配置行落地**:
+  `chargehit 3 100 0.15 0.08` (先照袈裟斩档, user 自调)。312 有 A/B 两段攻击判定窗
+  (EventCollision00 ReqNo 1/2) — 是攻击招, 命中充能直接可用, 多段每跳各充。
+- **user 调参实测钉死**: 纳刀架势出边的**真实请求 id = 7/8/9** (袈裟斩/移动斩族, ctx 行
+  `chargehit 3 7@98 0.15 0.08` 局内生效) — FSM 节点 ActionNo 82/83/84 是**另一套编号**,
+  链接进入的招节点号≠请求号 (09-20 结论的又一实证, 这次是 user 从 chargehit 日志读的)。
+  之前配置注释里写的 "82/83/84/70 出边" 已纠正。
+- **user 的充能经济定案** (配置文件现状, 数值 user 自调): 通配默认行和 from 默认行都被
+  user 注释 — **普通攻击不充能**, 只有纳刀链充: 7/8/9@98 = 0.15/0.08, 109 = 0.19/0.053,
+  105/106/108 勇气态 0.02-0.03 (普通态 0), 100 = 0.15/0.08。ResolveChargeHit 对未列出
+  招返回 nullptr = 不充, 无通配行时系统照常工作 (ctx/move 层不依赖通配)。
+
+### 2026-10-25 (4) chargestart 起手充能规则 (100 收刀回避专用; "312 有攻击窗"结论被 user 翻案)
+
+- **user 纠错**: 312 (收刀回避) 实战从没出过伤害 — 我从 TIML dump 看到 EventCollision00
+  轨 (ReqNo A/B + mFlag f35/f61 窗段) 就判"有攻击窗"是**误读**: 没有
+  CollisionTimelineObject ノードID 轨把窗挂到 hitbox, 那些轨是无路由残留。教训:
+  **判"某招能不能命中充能"必须有实战伤害佐证, TIML 轨存在≠有判定** (COL 章节"TIML 只开窗"
+  的另一面: 开窗还要看路由)。
+- **新规则** `chargestart <set> <id> <amt> [valorAmt]` — **起手无条件充条** (bar 刻度),
+  用于"永远吃不到命中但必须回气"的招。应用点 = ApplyBeginGaugeRules (cost/fx 同点),
+  语义与 chargehit 完全一致: 0→白转换 (bar 0.05) + 白刃跨满→黄升级 + valor 4 参。
+  100 用它正合适: 唯一入口是 98 格挡转入, **起手 = 格挡成功事件本身**, 无条件充等价格挡语义。
+- **配置**: `chargestart 3 100 0.15 0.08` 替换了错误的 chargehit 3 100 行 (user 实测
+  chargehit 版从未触发, 与"无攻击窗"互证)。DLL md5 6e88a118。
+- **chargestart vs timer**: timer 是秒数+按等级时长换算, chargestart 是条刻度直加 —
+  调参语义和 chargehit 一致, 优先用 chargestart。
+
+### 2026-10-25 (5) "0.15 没加上"破案: 架势出边的袈裟斩是 82/83/84, 7/8/9 是输入路径请求 id (同招两套号实锤)
+
+- **user 报告**: 7/8/9@98 配了 0.15 但目测只涨 ~1/20。**日志破案**: (a) 那三行一次都没
+  命中过 — **prev=3:98 的袈裟斩命中全部是 act=3:82/3:83**; (b) 目测的小额 = 通配行
+  `chargehit 3 0 0.02 0.015` (user 自己开的)。
+- **机制定案 (09-20"链接条件测按键不测请求"的另一面)**: **同一招两套 id 按入口分** —
+  架势→袈裟斩走 **FSM 链接执行, DoAction 发的是目标节点的 ActionNo (82/83/84)**;
+  连段中按键输入产生的袈裟斩走请求层 = **7/8/9**。NFH 10-12 案例 ("node24 ACT=16 →
+  DoAction{3,16}") 同机制。**chargehit/ctx 行按动作层 id 匹配, 配哪套要看入口路径**;
+  from 语境行免疫这个二义性 (只看 prev)。
+- **修复**: 配置三行改 `82@98/83@98/84@98` (数值 0.15/0.08 保留, sed 精确替换, user
+  正在同时手调文件)。7/8/9 若要充可配链式语境 (如 7@9) 或普通行。
