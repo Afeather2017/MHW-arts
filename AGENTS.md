@@ -4721,3 +4721,226 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   from 语境行免疫这个二义性 (只看 prev)。
 - **修复**: 配置三行改 `82@98/83@98/84@98` (数值 0.15/0.08 保留, sed 精确替换, user
   正在同时手调文件)。7/8/9 若要充可配链式语境 (如 7@9) 或普通行。
+
+### 2026-10-25 (6) オーラレベル条件取值链全破解: 黄刃判定新钩点 (AURAW/AURAR 日志钩子已部署, 待局内验证)
+
+- **勇气模式转换失效根因 (二分实证)**: 部署版 wp03_action.fsm 所有勇气分支用的条件名
+  `オーラレベル黄以上` **在游戏属性注册表里不存在** — 全 dump exe .rdata 搜"オーラ"仅两条:
+  `オーラレベル白以上`@0x1430BA6D8 (cFSMPl_W03 成员 0x269) 和 `オーラレベル赤以上`@0x1430BA6F8
+  (0x26a)。名字解析 (FUN_140b2e4e0 全局 / FUN_140b306a0 分武器组) 查不到 → 转换实例建不出来 →
+  条件恒假。与 09-22 `R+↑`/裸`↑` 同类: **FSM 属性名必须是注册表里存在的字符串**。
+  LS 组 (case 3) 成员块 0x269-0x277 共 15 个封顶: 白/赤以上 + 9 个練気ゲージ判定(気刃斬りI..見切り
+  + 居合斬り(0x276) + 見切り成功(0x277), **没有黄、没有裸等级属性 → 纯 FSM 表达不了 ==2 / >=2**。
+- **原版语义 (由原版链接用法反推, 可靠)**: 白以上 bit0 门控 J気刃二連斬り/必殺駆け上がり
+  (= 等级≥1); 赤以上 bit0 门控 J気刃三連斬り (= 等级≥3)。原版勇气作者 (MHW-valor) 62 条全部
+  `白以上 AND 練気ゲージ判定(気刃大回転斬り AND R` — **"黄刃检测"其实是气刃量判定伪造的**
+  (旧观察"白不触发黄红触发"正是这个 AND 造成的, 不是颜色语义)。
+- **取值链 (本轮主产出, 全环验证)**: FSM VariableNode → 名字注册表记录 (.data
+  白0x144F7EF88 / 赤0x144F7EAB0) → 类型描述符 (0x1431C2C10 / 0x1431C2CC0, 6-7 个工厂指针+名字串
+  `nHmTransition::cWp03AuraLevelWhiteOver/RedOver`) → 类 vtable (**0x1431C5668 / 0x1431C56B0**)
+  → **vtable+0x30 check 函数 (白 0x140F0DC60 / 赤 0x140F0DCD0)**。vtable+0x20 = lea rax,[rip];ret
+  的 RTTI getter。签名唯一命中已入 sig_check.py/signatures.json (auraWhite/auraRed)。
+- **check 函数现状**: WhiteOver = player(obj+0x10)→weapon(+0x76B0) 门 → FUN_14211C400(weapon) →
+  可选 IsActionAvailable(ctx, 0xCC) → 0=放行 / -1=拒绝。RedOver = 读 **weapon+0x2358**
+  (`<2` 尾调 WhiteOver 体, `>=2` 直接 -1)。**weapon+0x2358 = 气刃量档位**: 升级驱动区
+  (6760059 一带) 把气刃量 float **+0x2350** 对照 4 档阈值表 (func_0x14211caa0 取表) 算 0-3,
+  同写 +0x2354(速率)/0x2374/0x2388/0x2390/0x2398/0x239c — **原版"蓝条攒满升色"的真判定字段,
+  与 DLL 直写的 +0x2370 平行**。⚠静态极性疑点: RedOver `>=2 拒绝` 与"J三連需红"矛盾、
+  RenkiRateAvailable(0x140F0DD00, 同族) `==2 才放行` 也怪 — **极性/调用图以局内 AURAW/AURAR
+  日志为准, 别按静态读数写死语义**。
+- **AURAW/AURAR 日志钩子已部署** (mod build, md5 2325c29cf5fd77366446121747f6f19e): 两 check
+  纯转发 detour, 记 `ret / obj+8 / tier(+0x2358) / lv(+0x2370) / gauge(+0x2350) / obj /
+  caller RVA / act`, 本地玩家过滤 + 首发自带 own= 标记 (NegrEvent 教训) + 40 行/s 上限。
+  MEMORYMAP 报告多两行 auraWhite/auraRed=ok。**下一版语义改写就挂同一对钩子** (detour 内按
+  level>=2 分流; vanilla 招共用这两类, 需按当前动作 id 分流或接受全局改语义)。
+- **配套必做**: 部署 FSM 的 20 来条 `オーラレベル黄以上` 必须改回 `白以上` (或其他已注册名),
+  否则无论 DLL 怎么改条件恒假。纯数据备选: 原版作者的 `白以上 AND 練気ゲージ判定(気刃大回転斬り`
+  配方 (量阈值即"黄"门槛, DLL 已控量条)。
+- **(同日补充) 转换类在玩法中零调用 (反证)**: AURAW/AURAR 钩子整局 (user 正常游玩, 2.5 万行
+  其他钩子日志, 3:80 斬り上げ×12 / 3:87 必殺攻撃×39 都打了) **一次未触发** →
+  **FSM 链接条件的玩法求值不走 nHmTransition 类** (那些类/注册表/描述符是另一套, 可能是编辑器
+  或动作层候选仲裁用)。新主假设: 引擎走**注册表 getter FUN_141922190/1F0/240**
+  ((entity, id, index) → row+0x24+index*2 计数器; 09-14 属性 222 的取证调用方 0x11B/0x11C
+  = FSM 求值区)。mod build 原本只装了 int getter (force 路径宿主), **bool/float getter 没装**
+  — 已补装并加 `AURAPROP` 日志 (id 0x260-0x280 全 LS 块过滤; 練気ゲージ判定族 0x26b-0x273
+  被原版 R2 连携必然求值, 它们出现即证实路径)。部署 md5 6f53ab4a8506492db239e7494ca1f36c。
+  若 AURAPROP 也空: 下一手 = 找 cFSMPlBase 实例地址后 PAGE_GUARD 守卫成员区 (probe 的
+  ATKTRACE 机制可复用)。
+- **(同日补充 2) getter 路径也证伪 → round 3 = 注册表绑定钩**: AURAPROP 整局零调用 (user 打了
+  3:87 必殺攻撃×137 等足量动作) → 引擎**不经过** FUN_141922190/1F0/240 读 LS 条件块。round 3
+  (md5 f65e4a6017956f514895f1abd40eb38e): 钩 **FUN_140462700 注册表行查找** (propLookup, 签名
+  已入 json) — key 0x260-0x280 的 (key,row) 首次绑定记 `AURABIND`,617/618 的行地址被记住后
+  每帧轮询 row+0x24+idx*2 计数器边沿记 `AURAROW`;另一次性 dump 组件绑定键
+  (component=*(player+0x126D8), key=*(int32*)(component+0x84+id*24), id∈{222,617,618,631}) —
+  617/618 若 key=0 即未绑定 (631 前例), 引擎就是直读 cFSMPlBase 实例成员, 下一步 PAGE_GUARD
+  实例 (先要从 propLookup 绑定日志或 FUN_14118a0c0 的 per-frame ctx 找实例地址)。
+- **(同日补充 3) +0x2358 假设成形 → round 4 = tier 钉死判决实验**: 3:75(J気刃三連斬り, 赤以上
+  门控)在 AURAPROP 局打了 95 次照常出招 → 转换类+getter 双双出局实锤。读 +0x2358 的 6 函数簇
+  (4922225+)是升级演出 FX 选择器(按档位取 0x7D1 族 id),不是求值器。**新假设: 白以上/赤以上
+  条件读的是量档位 +0x2358(由量条 +0x2350 对阈值表算出),不是 DLL 写的 +0x2370** — 一并解释:
+  原版勇气作者的量条配方有效(量条→tier→条件)、7月"白不触发 2/3 触发"(当时量条状态不同)、
+  三轮引擎钩子全静默(泛型求值器直接读字段)。vanilla 里 0x2370 是 tier 的缓存镜像(升级/掉级
+  处理器两边同写), 用户的 SetSpiritLevel 制造了分裂。**round 4 (md5 da216c904a37831721e2bee9
+  84b5b9c)**: 新配置 `ValorGauge.aura-tier.txt` 单整数 (0=off/1=镜像 level→+0x2358/2=钉
+  +0x2358=0, 随 Shift+F6 热重载), 每帧写 +0x2358, 变化记 `AURATIER`。**判决: mode 2 (已预写 2)
+  下白刃时 J二連/必殺駆け上がり 变不可用 = 条件读 tier 实锤**; 若 mode2 无影响而 617 绑定键=0,
+  转直读 cFSMPlBase 实例成员 + PAGE_GUARD/F5 挖矿。round-3 的 AURABIND(component 绑定键 dump)
+  也在本版 DLL 里, 一次局内同时收两份数据。
+- **(同日补充 4) round 4 判决 + 注册表行实锤**: mode 2 (tier 钉 0) 整局 AURATIER 零写入 = tier
+  从未离开 0 (量条清 0.05 的系统下 updater 没抬过它), 而兜割/J二連(74)/J三連(75) 照常出招 →
+  **条件也不读 +0x2358**。但 round-3 的 AURABIND 大丰收: **整块 0x260-0x280 都在注册表里绑了行**
+  (heap, stride 0x90; 0x269→row 白以上 / 0x26a→row 赤以上), component 绑定键 id617=id618=key1
+  (id222=key500, id631=key1)。AURAROW 抓到 +0x24 计数器跳变 (0→2397/2399→-1→0 振荡) **但全部
+  发生在加载期, 游戏中静止** — 活体 FSM 可能绑了另一行 (旧 dedupe 吞了后续绑定日志) 或条件值
+  不在 +0x24。**round 5 (md5 2c9b0b570c1a86ef27f6b319d42ef46a)**: 617/618 的 propLookup 不去重
+  (`AURABIND2`, 上限 60 条) + 跟踪最新行 + **400ms 行内容快照差分** (`AURADUMP`, row+08..37
+  48字节 hex + lv + act) — 跨色变差分出条件值真身偏移。tier 实验配置已回 0。
+- **(同日补充 5) round 5 结果 + 收敛**: AURABIND2 揭示 **617/618 被多实例反复绑行** (≥5 对:
+  0x6d1250b0/0x6cd850b0/0x75338240/0x3e138240/0x75401cf0..., 617/618 成对 +0xa0 相邻), "跟踪最新行"
+  会追着菜单/预览实例跑 — AURADUMP 全落在 lv=-1 (加载期), 游戏中没采到活体。行内容结构:
+  +0x08=成员id(0x269/0x26A 本尊!), +0x24 dword = 帧戳样值 (2397/2399/-1/0, 617/618 差 2)。
+  **证据链收敛**: J二連/兜割/J三連 在 tier=0 钉死下照常出招 + 条件随 0x2370 驱动的颜色正常门控
+  → **白以上=lv(0x2370)>=1, 赤以上=>=3, 读的就是气刃等级**(行计数器是引擎侧镜像); 7月"白不触发"
+  = 原作者配方的 AND 量条判定, 从来不是颜色语义; 用户系统唯一真 bug = 未注册的'黄以上'名。
+  **round 6 (md5 35258da2999ec72617aef99f9ae02ffc)**: 跟踪全部行 (每 id ≤12) + DLL 驱动的等级
+  边沿立刻整表快照 (`AURALVEDGE` vs 400ms 常规 `AURADUMP`) — 黄↔红边界翻转的行/字段 = 活体
+  条件值真身 → 下一版 per-frame 写行计数器实现"白以上:=yellow+"(纯 DLL, FSM 回改白以上, 无节点
+  失步)。备注: DLL 强制至少白刃, 白以上恒真, 判决观测点 = 黄↔红边沿 (赤以上翻转)。
+- **(同日补充 6) round 6 结果 → round 7 = PAGE_GUARD 抓现行**: AURALVEDGE 零命中 — 等级边沿时
+  12 个被跟踪行没有一个字节变化 → 活体条件值不在 propLookup 绑的那些行里 (那些行是别的消费者;
+  玩家 FSM 的绑定/求值走别的表或直接缓存)。**round 7 (md5 36bd2634cad46b8bd2478893813b0e2d)**:
+  克隆 probe 的 ATKTRACE VEH 机制 → `PollAuraGuard` (mod 每帧轮询): 拔刀锁+3s 自动布防, 守卫
+  全部被跟踪 617/618 行 (≤24 行, 每行所在页 PAGE_GUARD, 单步重挂), 窗口 90s 后自动撤防,
+  `AURAGUARD i<N> <R|W> off=0x.. rip=+0x.. stk=..` 记录行内访问 + 邻近分配噪声计数。守卫窗内
+  用户切色 → 读写 RIP 即引擎求值器/写入器真身。若 90s 内行内零命中 → 实锤"值不在注册表行",
+  转挖 cFSMPlBase 实例 (F5 挖矿: 无刃↔白 差分, 但用户系统强制至少白刃, 需临时注释掉强制)。
+- **(同日补充 7) 守卫崩溃复盘 + 静态扫尾 + round 8 = F5 挖矿**: (a) AURAGUARD 崩溃 = 守卫 ≤24 个
+  堆行 300s, 行被释放/复用后守卫页打进游戏 SEH —— **已改为配置 opt-in**
+  (`ValorGauge.aura-guard.txt`=1, 默认关; 崩溃版 md5 a819db64 已撤为 .hold-crashy36bd,
+  安全 mod 版 .hold-safe-mod=73594c21659916cbc96cce7d34a3cded 待换回)。(b) 用户提议"从 +0x2370
+  写入地址找读取点" — 静态扫完全部 95 处读点 (新增排查: FUN_140b98060=请求重映射 240/247→244、
+  FUN_1417fe1c0=FX 0xC134-7 选择、FUN_1417ffdb0=lv==2 选 motion 参数 +0x980/+0x950、
+  FUN_14214d840=5 档计量、updater 拔刀位 bit0x20/0x40), **无行写入器、无独立求值器** →
+  引擎把等级**拷贝**进 FSM 上下文后求值器读副本 (0x2370 直搜永远搜不到)。**round 8
+  (probe 798ab4d505ee166cb736b5072787c858)**: F5 挖矿器新增两窗口: **fsmCtx** (mgr+0xDA0 →
+  0x2BC0, FUN_14118a0c0 的 cFSMPl_W03 每帧上下文) + **fsmComp** (player+0x126D8 → 0x6000, 键表
+  组件); probe 无 SetSpiritLevel 干扰, 等级自然演进, 白以上在 0↔1 边界真实翻转可挖。
+  流程: 换 probe DLL → 任务里白/黄/红/衰减各 F5 标记 → ValorProbe.log 报告找边界翻转字节。
+- **(同日补充 8) round 8 挖矿失败复盘 → round 9 = 挖矿器改造**: 用户挖矿局数据无效, 两个 bug:
+  (1) **MinerCaptureFrame 只在 见切86/居合101/102/翻滚18 动作中记录帧** — 用户标记的白/黄/红
+  状态时刻根本不在采集窗; (2) **regionNames[8] 越界** — fsmCtx(9)/fsmComp(10) 永远不显示。
+  **round 9 (probe 3961091718c672976e1a3aeac86b7448)**: 挖矿器改气刃挖矿专用 — 连续录制(去
+  动作门, 600 帧自动滚段), F5 = 结束当前段+记录当时气刃等级进日志 ("MINER: phase N starts now
+  (aura lv at mark=X)"), MinerRun 加 levelBegin/levelEnd, kMinerMaxChanges 30k→120k, 段保留
+  16→24, 分析重写: 每键"出现相位列"升序报告 (`MINER KEY <region>+0x.. phases=[..] changes=N`,
+  regionNames×10 含 fsmCtx/fsmComp) — 只在颜色跨越相位翻转的字节 = 条件值候选。上一局数据作废,
+  需重跑: 白/黄/红各停几秒 + F5, 无刃也标。
+- **(同日补充 9) round 8 挖矿数据分析 + round 10 = 硬件断点**: 相位-等级表完美 (11 相位覆盖全部
+  0↔1↔2↔3 边界), 但 **全 log 无 phases=[7,8] (赤以上翻转) / [1,2,3,10] (白以上翻转) 的键** —
+  ~100KB/帧 ×10 窗口都没有边界翻转字节 → **条件值不落地, 求值时现场计算**。另发现 +0x2CE4
+  真身: **开刃阶段机的等级捕获** (FUN_1421225e0: params+0xA68=段数, +0x2740=段数组, +0x23C4/8
+  计数, 段0 写镜像; 6764464 读镜像映射 {1,4,7}/{3,6,9} 进 +0x2790 计分表; 重置=1)。挖矿器已改
+  气刃专用 (连续录制/600帧滚段/F5 记等级/相位掩码报告, round 9 md5 39610917)。**round 10
+  (mod fc26cc5f73926750ce1d8fb34d8e60b9)**: **硬件调试寄存器** — `ValorGauge.hwbp.txt`=1 启用,
+  DR0=weapon+0x2370 DR1=+0x2CE4 (RW, 4字节), 全线程挂载 (suspend/set/resume), 拔刀锁+2s 自动
+  布防, 150s 窗口后清 DR7, VEH 记 `HWBP d<N> rip=+0x.. stk=..` (上限600)。用户触发条件求值
+  (跳劈R2/上挑接R2等) → 未知 rip = 求值器真身 (静态已知读取方 RVA 离线过滤)。
+- **(同日补充 10) round 10 HWBP 又崩 → 用户裁定: 换 x64dbg 外部调试器**: 进程内 VEH+全线程
+  SetThreadContext 挂 DR 与游戏线程/异常管理冲突 (第二次崩溃)。**mod 的 HWBP 已配 0 禁用**
+  (代码保留 opt-in)。x64dbg 流程: 进任务拔刀 → 从 ValorGauge.log 拿最新 `controller=0x..`
+  → 附加 x64dbg → 表达式 `[[<controller>+14E8]]+2370` 得等级地址 (controller=player+0x61C8,
+  weapon=*(*(ctrl+14E8))+2370... 准确式: 等级地址=[[ctrl+14E8]+2370 的解引用链:
+  weapon=[ctrl+14E8] 解引用, level=weapon+2370) → 硬件断点 Access/4字节 + **log-only**
+  (break condition=0, log text={cip}) → 触发白/赤以上门控招 → 日志 RIP 减基址 0x140000000
+  对静态已知读取方过滤, 未知 rip = 求值器。静态扫尾结论一并记录: +0x2CE4=开刃阶段机等级捕获
+  (FUN_1421225e0 段0 写镜像), 读它的 6764464 映射 {1,4,7}/{3,6,9} 进 +0x2790 计分表, 非条件值。
+- **(同日补充 11) x64dbg MCP 实战 + 条件值"不落地"实锤 + round 12**: x64dbg MCP (HTTP :9094,
+  Bearer 在 .mcp.json) 全程可用: AttachProcess/EvalExpression/ReadMemory/WriteMemToAddress
+  (参数名 byteString, 空格分隔)/SetHardwareBreakpoint/ListBreakpoints。**真相链**: (a) DR 读断点
+  立刻命中 = **我们自己的 mod 每帧读等级是最大噪声源**(PollValorLifecycle 等); (b) 断点条件
+  (cip 排除 valorgauge 模块)与 fast-resume 对 HW 断点均未生效, 暂停风暴两次杀死游戏
+  (另有一次手算地址错 968850≠96E850); (c) 用户 FSM 探针上线: 待機２ R+赤以上→斬り上げ(80),
+  R+白以上→気刃斬3(68), 兜底→突き(79), **裸写 +0x2370=1 后 Ctrl → 79(白以上=假!)** —
+  **条件值不读 +0x2370/镜像/+0x2CE4/+0x2D24(0xC)/+0xAD4 任何已知字段, 且 F5 挖矿
+  (10 窗口 100KB/帧)在全部相位里找不到 [1,2,3,10]/[7,8] 翻转掩码 → 条件值由引擎升级/掉级
+  流程计算或存于未扫描区域**; (d) 排查盲区补上: 挖矿 weapon 窗口只有 0x2400, 而 +0x2740
+  数组/+0x2790 计分/+0x2CE4/+0x2D24 全在 0x2400 以外! **round 12 (probe e179760b)**: weapon
+  窗口 0x2400→0x3000, 重跑 F5 相位挖矿 (无刃/白/黄/红各标记) → 找 0x2400-0x3000 内边界翻转
+  字节。x64dbg MCP 工具经验: SetBreakpointFastResume/条件对 HW 断点无效; ExecuteDebuggerCommand
+  响应回显当前 cip 非命令目标; MCP 有 ~256 字符命令长度限制; python socket 直连必须带完整
+  HTTP 头 (用 curl 最稳); 暂停态下 WriteMemToAddress 需先 PauseDebug。
+- **(同日补充 12) 白以上"裸写不生效"实锤 + 求值器追捕进行中**: x64dbg HW bp + 条件断点(排除
+  valorgauge/更新器/HUD/衰减) 全套就位后, **裸写 +0x2370=1(含 timer 1.0) 后 Ctrl → 79(双判定
+  失败)** — 白以上在等级 1 时为假! 同场验证: 镜像 +0x2CE4=1、+0xAD4=100(写它也无效)、
+  +0x2D24=0xC(无效) → **条件值不读任何已知字段, 引擎自己升级流程(69 命中/掉级)维护的某个
+  派生态才是真身**; 用户 FSM 探针(待機２ R+判定→68/79/80)工作正常(等级 0 → 79 ✓)。
+  另排掉: +0x2D24=0xC 无效、+0x2CE4/开刃阶段机、+0xAD4 auraSet。**噪声源定位: mod 内
+  PollAuraRow(round 5/6 诊断轮询, 骑 PropIntHook 每帧 ResolveLongSwordLevel 读等级)未随
+  weapon-type 门控 — 已门掉**; PollValorLifecycle 也补了硬门(weapon-type≠3 即跳过,
+  md5 f5d97f3c/514c15a8 之后的构建)。流程经验: scancode SendInput 才能触发游戏按键
+  (虚拟键不行); x64dbg HW 断点的 break condition/fast-resume 在该版本不生效(每次访问都暂停);
+  TLS 回调断点每次附加从数据库回灌, bpc 清; MCP 工具 condition 长度上限 ~256。
+  **下一步**: 用户关游戏 → 部署 f5d97f3c → 重开 → 附加 → HW bp(无 mod 噪声) → 87/Ctrl 触发
+  → 暂停 RIP = 求值器真身。
+- **(同日补充 13) 行写入器抓获 → 条件值真身仍未定位, 但可行路径已清晰**: x64dbg 内存断点
+  (write-only, 0x269 两行)命中 0x14203D91A = FUN_14203d000 的 **瞄准/位置写入**
+  (movss [rax+0x30], xmm7 写浮点坐标, FUN_1412dc780/FUN_1419c0ee0 链取对象) — 行 =
+  转换类组件实例, 混有瞄准数据, 非条件值存储。**关键事实汇总**: (1) FSM 探针
+  (待機２ R+赤以上→80/R+白以上→68/兜底→79)工作正常, 等级 0 → 79 ✓;
+  (2) **裸写 +0x2370=1(含 timer)后 Ctrl → 79 = 白以上为假** → 条件不读等级本体;
+  (3) 同样排除: +0x2CE4 镜像/+0x2D24=0xC/+0xAD4=100/+0x2358 tier;
+  (4) **但用户 DLL 的 SetSpiritLevel 配方驱动的白刃, 白以上门控的 J二連 正常可用
+  (round-4 实测)→ 14211c5f0 配方路径确实驱动条件真值**; (5) mod 读取静默方案:
+  PollValorLifecycle 硬门(weapon-type≠3 跳过, md5 514c15a8)+ PollAuraRow 门掉
+  (f5d97f3c)。**下一局决定性测试**(weapon-type 恢复 3, mod 全功能):
+  SetSpiritLevel(2) 到黄 → Ctrl 探针 → **出 68 = 条件跟随 SetSpiritLevel 真值** →
+  最终方案 = 勇气分支改白以上(等级≥1 恒真于黄红)+ 白刃阶段 DLL 压量条(量判定假)/
+  或 DLL 请求门 — 全用已验证机制, 无需继续逆向求值器。
+- **(同日补充 14) 行写入器实验与内存断点结论**: 只写内存断点(0x269 两行)命中 0x14203D91A =
+  FUN_14203d000 的**瞄准/位置浮点写入**(movss [rax+0x30], 经 FUN_1412dc780/FUN_1419c0ee0 链) —
+  行 = 转换类组件实例池, 与瞄准数据混用, 非条件值存储。bpmc 清理后恢复流畅。**x64dbg 该版本
+  HW 断点不生效 break condition**(排除了 valorgauge 的条件照样暂停)——条件过滤对 HW 断点不可用。
+  用户正确指出: LLM 实时玩 60fps 游戏不现实, 分工 = 用户物理操作 + 程序化时机控制。
+  **当前状态**: weapon-type=3 恢复, x64dbg 脱离, mod DLL 514c15a8 在位 (含 PollValorLifecycle
+  硬门/PropLookupHook/AURABIND2 日志), f5d97f3c (PollAuraRow 门) 未部署待下次。
+  **10+ 轮结论**: 白以上/赤以上 = 引擎自有升级/掉级流程维护的派生态; 裸写 +0x2370 不驱动;
+  SetSpiritLevel 配方(14211c5f0 复刻)驱动 (round-4 J二連 证据); 赤以上在用户 DLL 红 ✓。
+  **可行最终方案**: 勇气分支 黄以上→白以上 (AND 練気ゲージ判定(見切り 已在) + DLL 白刃期
+  压蓝条 (量判定恒假, 升黄即放开) — 全用已验证机制; 或 DLL 请求门 (等级1 拒勇气招, 节点失步
+  caveat)。
+- **(同日补充 15) 输入架构确认**: 运行时模块表: dinput8.dll ×2 (0x7FF8A80C0000 26MB = Stracker's
+  wrapper + 0x7FF8E9090000 132KB = 系统) + xinput1_4 + xinput9_1_0 + winmm + hid。游戏 exe 的
+  静态导入表被保护壳清空(离线 PE 解析为空) → 运行时模块表为准。MHW 输入 = 轮询模型
+  (DirectInput GetDeviceState 键盘 + XInputGetState 手柄, 每帧拉状态); 键鼠→手柄按钮 = 游戏
+  内部映射。**拦截点**: 手柄 = XInputGetState (干净导出, MinHook 直挂, 改返回的 wButtons 位);
+  键盘 = DirectInput 设备的 GetDeviceState (COM 方法无导出, 需 vtable patch 或
+  DirectInput8Create 捕获设备对象)。**纯应用层方案**: R+△ 组合在游戏内部本就生成 3:87 请求
+  (気刃突刺), DoAction 钩子可见每个请求 → 外挂条件不满足时改写/吞掉 3:87 = "不满足不让进",
+  检查时机 = FSM 转换点 (SHEATHREWRITE 同款模式, 机器现成)。用户裁定 LLM 实时玩游戏不现实,
+  分工 = 用户物理操作 + 程序化时机/内存/断点控制。
+- **(同日补充 16) 输入系统静态地图 (Ghidra)**: 游戏**静态导入** DirectInput8Create/XInputGetState/
+  XInputSetState/XInputGetCapabilities (delay-load 包装: XInputGetState@0x14273DCC9,
+  DirectInput8Create@0x14273DC3E, 固定 VA 可 MinHook); 设备轮询族: XInput 调用方
+  FUN_1422a5710/59d0/5e70/29fbc0/fdc0/a0650 (4 手柄槽 × 0x2D8 设备状态, 枚举+选择),
+  DirectInput 调用方 FUN_1422e6a20/e8060/29f8e0/a5040/29f4c0。输入 = 轮询模型。
+  **R+△ 组合在游戏内部 = 3:87 请求 (気刃突刺)** → DoAction 钩子可见 → 外挂条件门可以在
+  DoAction 层做 (SHEATHREWRITE 同款): 条件不满足改写/吞掉 87, 检查时机 = FSM 转换点。
+  键盘路径注意: KB 玩家的 R+△ 走 DirectInput → 游戏 KB→pad 内部映射 → XInput 钩子
+  挡不住键盘; 挡键盘需 dinput GetDeviceState 缓冲钩子 (COM vtable, 工作量中等)。
+- **(同日最终) 行页守卫路线死刑**: 写-only 内存断点(0x269 行)走查发现行所在页与 **GPU 驱动
+  (igc64)/输入宿主(inputhost)的高频写入共享** — 页粒度断点每帧命中无关写入, 过滤不可行,
+  且驱动写守卫页直接把游戏打挂。**堆行路线全线退役** (HW bp/条件断点/mem bp 三种全试)。
+  10+ 轮最终事实: 白以上/赤以上值 = 引擎升级/掉级流程维护, 存储未定位 (10 窗口挖矿 + 全字段
+  排除 + 行页守卫三路全败), SetSpiritLevel 配方是唯一已知驱动路径。
+  **落地路线 (全部已验证机制, 零逆向)**: (1) FSM-Studio 把勇气分支的黄以上 → 白以上
+  (AND 練気ゲージ判定(見切り 已在); (2) DLL 白刃期压蓝条 (level==1 时 +0x2368 钳 ≤ 見切り
+  判定阈值, 升黄放开) → 白刃期量判定恒假 → 勇气分支死; 升黄放开 → 活。零失步零截断。
+  或 (b) DoAction 请求门 (等级1 拒勇气招, 节点失步 caveat)。
+- **(同日收尾) 实验代码全部回退**: dllmain.cpp git checkout 回 HEAD — 今天的 DLL 侧实验
+  (AURAW/AURAR/AURAPROP/AURABIND/AURAROW/AURADUMP 钩子、PollAuraGuard/PollHwbp/PollAuraTier/
+  PollAuraRow、HWBP/守卫机器、valor-clamp、挖矿器气刃改造)全部丢弃, 知识保留在本文件。
+  保留并已提交: sig_check.py 的 auraWhite/auraRed/propLookup 签名 (逆向成果)。
+  plugins 已重部署干净 HEAD 构建 (8a26cc36), weapon-type=3, aura-tier/hwbp 实验配置已删。
+  **下一会话入口**: FSM-Studio 把勇气分支 黄以上→白以上 (AND 練気ゲージ判定(見切り 已在)
+  → DLL 加白刃期蓝条钳制 (~20 行, 见补充 14 落地路线) → 探针验证 (黄刃 Ctrl→68,
+  白刃 R→刚一 不出)。战技系统 (R+△/R+○) 是之后的事。
