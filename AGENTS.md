@@ -4944,3 +4944,39 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   **下一会话入口**: FSM-Studio 把勇气分支 黄以上→白以上 (AND 練気ゲージ判定(見切り 已在)
   → DLL 加白刃期蓝条钳制 (~20 行, 见补充 14 落地路线) → 探针验证 (黄刃 Ctrl→68,
   白刃 R→刚一 不出)。战技系统 (R+△/R+○) 是之后的事。
+
+### 2026-10-25 (7) 勇气入场方案改版 plan B: 白刃充条, 红刃=勇气模式 (user 定案, FSM 归 user / DLL 归本侧)
+
+- **方案切换 (user)**: 上一节落地路线 (白以上+量条钳制伪造"黄判定") 弃用 —
+  user 改走更简单的二元模型: **白刃(1) = 充能相位, 红刃(3) = 勇气模式**,
+  FSM 勇气分支由 user 改挂 **`オーラレベル赤以上`** (已注册属性 0x26a, 12+ 轮追捕
+  的核心遗留成果)。条件真值驱动沿用已验证事实: 裸写 +0x2370 不驱动条件
+  (补充 12), **SetSpiritLevel(14211c5f0 配方) 驱动** (round-4 J二連 + 补充 13
+  "赤以上在用户 DLL 红 ✓"), 引擎原生红也走同配方形态。
+- **DLL 改动 (部署 md5 2477ac6e313e00be5e09282b0bcf0d71, 上任 8a26cc36)**:
+  1. **跨域升级直达红**: chargehit + chargestart 的白刃满值跨越
+     (prev<0.999 → next>=0.999) 改 `SetSpiritLevel(3, "charge-full")`
+     (原写 2), 日志 `spirit-level charge-full: 1 -> 3 timer=1 aura=fired`。
+  2. **valor 档位收紧为等级>=3** (原 >=2, 三处: gainhit/chargehit/chargestart):
+     第 4 参维持额只在红刃生效; 105/106/108 (a=0 勇气态专属) 在红刃照常微充,
+     白/黄吃满额。黄刃无角色, 只是红→白折返的过路态。
+  3. **红→黄折返沿 (PollValorLifecycle 新增)**: `current==2 && previous==3`
+     → `SetSpiritLevel(1, "valor-exit", 0.05f)` + tracker 钉回 1 (防下一帧
+     白刃沿重复 valor-recharge)。红刃自然到期和居合/兜割扣级
+     (Gauge_Consumption_for_Helm_Plus_Iai_Spirit_Slash) 落到黄的一帧内即折回
+     白刃+条 0.05, 勇气结束立回充能相位。日志 `spirit-level valor-exit: 2 -> 1 timer=0.05`。
+  4. **gainhit 块拆掉 round-1 残留**: 0→白转换 (带满条 timer=1.0!) 和
+     蓝条满→升黄 (0x2368>=0.999 ∧ 白刃 → SetSpiritLevel(2)) 删除 — plan B 下
+     蓝条满 ≠ 勇气入场, 且旧转换给"天生满条"会堵死跨域检测。gainhit 现在纯练气
+     喂食 (76/77/109 0.2/0.3 行不受影响, 刚1 蓝条门照常)。
+  5. SetSpiritLevel 前置声明加在 g_lastObservedSpiritLevel 旁 (默认参留在定义处,
+     前置声明带默认参 = C2572 重定义)。
+- **边界语义**: 自然白→黄升级招 (若 user FSM 保留) 不折返 — 只抓红→黄;
+  黄→白自然掉级仍走既有 valor-recharge 清条 0.05 (每次进白清条惯例);
+  勇气入场唯一路径 = 充能条跨越满值, 蓝条/升级招不再产生平行入场。
+- **待局内验证 (user 首测点)**: (a) 白刃充满 → 刀光变红 + FSM 勇气分支活
+  (赤以上被 SetSpiritLevel(3) 驱动 — 配方推定成立但白→红直跳是首测);
+  (b) 红刃到期/居合扣级 → 一帧内折回白刃+条 0.05+白刀光; (c) 红刃期间
+  105/106/108 命中按 0.02-0.03 维持条; (d) charge-full 日志 1 -> 3。
+- 部署配置 gauge-rules.txt 头注释同步 plan B 语义 (规则行零改动)。
+

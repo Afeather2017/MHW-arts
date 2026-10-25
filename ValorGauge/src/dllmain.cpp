@@ -73,6 +73,10 @@ std::atomic_bool g_valorMode = false;
 // Configured via nativePC/plugins/ValorGauge.hit-charge.txt.
 std::atomic_int g_hitChargePercent{10};
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
+// Defined near the gauge rules (default timerValue = 1.0f there);
+// PollValorLifecycle's valor-exit edge calls it.
+void SetSpiritLevel(std::uint8_t* player, std::uint8_t* weapon,
+                    std::int32_t newLevel, const char* why, float timerValue);
 // Configured weapon type (1..14); Long Sword = 3. Semantics documented before
 // ModWeaponActive(); defined here because PollValorLifecycle gates on it.
 std::atomic<std::uint32_t> g_modWeaponType{3};
@@ -563,6 +567,25 @@ void PollValorLifecycle() {
                 m << "GAUGERULE valor-recharge: dropped to white, bar "
                   << prev << " -> 0.05";
                 Log(m.str());
+            }
+        }
+        // Valor exit (2026-10-25 plan B): RED is valor mode. The native red
+        // expiry (and level-consuming moves like helm breaker/iai) lands on
+        // yellow with the timer refilled - yellow has no role in this model,
+        // so fold the drop straight back into the white charge phase with the
+        // usual near-empty bar. The tracker is pinned to 1 so the white-entry
+        // edge above does not log a second recharge on the next frame.
+        if (current == 2 && previous == 3) {
+            auto* player =
+                static_cast<std::uint8_t*>(controller) - 0x61C8;
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (weapon && IsReadable(weapon + 0x2370, sizeof(float) * 2) &&
+                IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                *reinterpret_cast<const volatile std::uint32_t*>(
+                    weapon + 0x9F8) ==
+                    g_modWeaponType.load(std::memory_order_relaxed)) {
+                SetSpiritLevel(player, weapon, 1, "valor-exit", 0.05f);
+                g_lastObservedSpiritLevel.store(1, std::memory_order_relaxed);
             }
         }
     }
@@ -2566,11 +2589,11 @@ void NotifyPlayerHitConnected(long long attacker) {
             }
             // gainhit: the connected-hit gate is upstream (this only runs for
             // the local player's landed hits), so the amount goes straight
-            // through the accumulator. The amount depends on the LIVE spirit
-            // level (valor mode = yellow/red, weapon+0x2370 >= 2). Charging
-            // at level 0 converts to white; a full gauge while white promotes
-            // to yellow = valor entry (user design 2026-10-24). Yellow->red
-            // stays with the vanilla upgrade moves.
+            // through the accumulator. gainhit feeds the 练气 gauge (0x2368)
+            // only - the 76/77 rows keep the 刚1 blue-gate topped up. The
+            // round-1 valor-entry logic (level-0 conversion, full-gauge
+            // promotion) was removed 2026-10-25: valor entry is exclusively
+            // the charge-bar crossover in the chargehit/chargestart paths.
             if (const auto* gain =
                     FindGaugeRuleLoose(GaugeRule::Type::GainHit, actSet, actId)) {
                 auto* player =
@@ -2588,13 +2611,9 @@ void NotifyPlayerHitConnected(long long attacker) {
                     // Defense in depth: only touch sane levels (struct-shift
                     // alarm would read garbage).
                     if (level >= 0 && level <= 3) {
-                        const bool valor = level >= 2;
+                        const bool valor = level >= 3;
                         const float amount =
                             (gain->hasValor && valor) ? gain->b : gain->a;
-                        if (level == 0) {
-                            // 未开刃 -> 白刃 on the first charging hit.
-                            SetSpiritLevel(player, weapon, 1, "charge");
-                        }
                         const float before = *reinterpret_cast<volatile float*>(
                             weapon + 0x2368);
                         g_originalGaugeAdd(weapon, amount);
@@ -2611,12 +2630,6 @@ void NotifyPlayerHitConnected(long long attacker) {
                         }
                         const float after = *reinterpret_cast<volatile float*>(
                             weapon + 0x2368);
-                        // Full while white = enter valor mode (yellow).
-                        if (after >= 0.999f &&
-                            *reinterpret_cast<const volatile std::int32_t*>(
-                                weapon + 0x2370) == 1) {
-                            SetSpiritLevel(player, weapon, 2, "charge-full");
-                        }
                         std::ostringstream m;
                         m << "GAUGERULE gainhit act=" << actSet << ':' << actId
                           << " +" << amount << (valor ? " (valor)" : "")
@@ -2628,11 +2641,15 @@ void NotifyPlayerHitConnected(long long attacker) {
             // chargehit (2026-10-24 design round 2): the valor charge bar IS
             // the level-drop timer (weapon+0x2374, the user's "气刃值" - the
             // same bar timerhit 3:84 already extended). Connected hits push
-            // the bar up by <amount> (optional 4th token = the amount at
-            // yellow/red); a charge that CROSSES into full while WHITE
-            // promotes to yellow = valor entry. Entering white always starts
-            // the bar near empty (PollValorLifecycle handles the yellow/red
-            // -> white drop, the level-0 conversion above handles 未开刃), so
+            // the bar up by <amount> (optional 4th token = the amount in
+            // valor mode); a charge that CROSSES into full while WHITE
+            // promotes straight to RED = valor entry (2026-10-25 plan B:
+            // white = charge phase, red = valor mode - the FSM gates valor
+            // branches on the registered オーラレベル赤以上, driven by the
+            // SetSpiritLevel recipe; no registered "yellow over" property
+            // exists). Entering white always starts the bar near empty
+            // (PollValorLifecycle folds the red-exit drop and the yellow/red
+            // -> white drop, the level-0 conversion here handles 未开刃), so
             // "full" is only reachable by hitting. The 练气 gauge (0x2368)
             // stays 100% vanilla.
             // chargehit (2026-10-25 matrix redesign): the previous action
@@ -2668,7 +2685,7 @@ void NotifyPlayerHitConnected(long long attacker) {
                             // 未开刃 -> 白刃, charge bar starts near empty.
                             SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
                         }
-                        const bool valor = level >= 2;
+                        const bool valor = level >= 3;
                         const float amount =
                             (rule->hasValor && valor) ? rule->b : rule->a;
                         auto* timer =
@@ -2677,11 +2694,11 @@ void NotifyPlayerHitConnected(long long attacker) {
                         const float next = std::min(1.0f, prev + amount);
                         *timer = next;
                         // Crossing into full is what promotes - an already-
-                        // full bar (fresh yellow) never re-fires.
+                        // full bar (fresh red) never re-fires.
                         if (next >= 0.999f && prev < 0.999f &&
                             *reinterpret_cast<const volatile std::int32_t*>(
                                 weapon + 0x2370) == 1) {
-                            SetSpiritLevel(player, weapon, 2, "charge-full");
+                            SetSpiritLevel(player, weapon, 3, "charge-full");
                         }
                         std::ostringstream m;
                         m << "GAUGERULE chargehit act=" << actSet << ':'
@@ -3840,7 +3857,8 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
     // move starting IS the event (100 收刀回避: only entered from the 98
     // stance guard, so beginning = "the guard happened"). Same semantics as
     // the chargehit path: level 0 converts to white (bar 0.05), a charge
-    // crossing into full while white promotes to yellow.
+    // crossing into full while white promotes straight to red = valor entry
+    // (2026-10-25 plan B).
     if (const auto* rule =
             FindGaugeRule(GaugeRule::Type::ChargeStart, actionSet, actionId)) {
         if (IsReadable(weapon + 0x2370, sizeof(float) * 2) &&
@@ -3855,7 +3873,7 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
                 if (level == 0) {
                     SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
                 }
-                const bool valor = level >= 2;
+                const bool valor = level >= 3;
                 const float amount =
                     (rule->hasValor && valor) ? rule->b : rule->a;
                 auto* timer =
@@ -3866,7 +3884,7 @@ void ApplyBeginGaugeRules(std::int32_t actionSet, std::int32_t actionId) {
                 if (next >= 0.999f && prev < 0.999f &&
                     *reinterpret_cast<const volatile std::int32_t*>(
                         weapon + 0x2370) == 1) {
-                    SetSpiritLevel(player, weapon, 2, "charge-full");
+                    SetSpiritLevel(player, weapon, 3, "charge-full");
                 }
                 std::ostringstream m;
                 m << "GAUGERULE chargestart act=" << actionSet << ':'
