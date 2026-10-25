@@ -15,16 +15,20 @@
 - LinkMotion（MOT 节点）= 第三条通道：FSM 直播 LMT entry，不经过动作层
   （详见 motion-data.md）。
 
-## 组合键/方向派生（09-22 结论 + 10-12/13 翻案后的完整模型）
+## 组合键/方向派生（已解决，照配方做即可）
 
-1. **combo→请求分类器 per-weapon**（代码侧静态表，LS 只路由原版 wp03 引用过的组合）。
-2. **动作侧使能位**：输入属性随当前动作的 PlMotionInput 使能位写入——R+方向组需要
-   该招 entry 的 mFlag1 位簇（配方见 motion-data.md）。09-22 的 "R+↑ 永远假" 两个根因
-   各占一半：属性名未注册（已修）+ 动作没带使能位（翻案主因）。
-3. 键盘玩家 R+△ 内部生成 3:87 请求（気刃突刺），DoAction 钩子可见——不满足条件的
-   请求可在 DoAction 层改写/吞掉（SHEATHREWRITE 同款模式）。
-- 否定态属性（R押してない 等）注册于 .rdata，输入系统每帧无条件写 cFSMPlBase
-  （registration accessor 全是 stub）——FSM 引用+动作使能位即激活，纯数据。
+**配方（user-verified 贯通）**：目标招 entry 的 PlMotionInput mFlag1 非零键 OR 方向组使能簇
+（NFH 撒网值 0xCFFC10CC / 0xCFFC30CC）→ FSM 在该招节点接 R+方向 边。完成。
+
+- **FreeKinetics 已有实现**：窗口编辑器『任意位窗』`freehk.timl_bit_window`（PI 轨
+  mFlag..mFlag6 通用位窗）+ BIT_SEMANTICS 位语义速查（PI.mFlag1 已带位簇标签）；
+  完整解锁簇逐键配方表在 `timl-editor/README.md`。
+- **使能位只对当前播放动作生效**——FSM 边挂在哪招，位就打在哪招（首测"无效"的根因）。
+- 配方必须落在 blend 侧（导出物后打补丁活不过下次导出，10-17 丢簇复盘）。
+- 最小位集未 bisect，部署维持全簇。背景一句话：09-22 "LS 分类器不写 R+方向" 的旧结论
+  已翻案——当年失败 = 属性名未注册 + 动作没带使能位两个问题叠加。
+- 键盘玩家的 R+△ 在内部同样生成 3:87 请求，DoAction 层可改写/吞（SHEATHREWRITE 同款
+  模式）。否定态属性（R押してない 等）同机制：FSM 引用+动作使能位即激活，纯数据。
 
 ## 条件属性注册表（写 FSM 前必查）
 

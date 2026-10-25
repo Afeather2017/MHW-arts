@@ -2589,8 +2589,9 @@ void NotifyPlayerHitConnected(long long attacker) {
             }
             // gainhit: the connected-hit gate is upstream (this only runs for
             // the local player's landed hits), so the amount goes straight
-            // through the accumulator. gainhit feeds the 练气 gauge (0x2368)
-            // only - the 76/77 rows keep the 刚1 blue-gate topped up. The
+            // through the accumulator. gainhit feeds the 练气 gauge (0x2368,
+            // the RED vanilla spirit bar) only - the 76/77 rows keep the
+            // 刚1 gauge gate topped up. The
             // round-1 valor-entry logic (level-0 conversion, full-gauge
             // promotion) was removed 2026-10-25: valor entry is exclusively
             // the charge-bar crossover in the chargehit/chargestart paths.
