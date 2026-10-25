@@ -4836,3 +4836,55 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 至此 10-25 (6) 12+ 轮条件值追捕的落地路线闭合: 白以上/赤以上 = 唯二注册色条件,
   SetSpiritLevel 配方 = 唯一已知驱动路径, 黄以上不存在 (恒假) — 系统定案,
   后续按此模型扩展 (战技槽 = 外挂新字段蓝条, 不复用练气)。
+
+
+### 2026-10-25 HUD 气刃颜色不刷新: keep-white + overlay 模式行 (user 双 workaround)
+
+- 问题: SetSpiritLevel 配方驱动 FSM/刀光正常 (2477ac6e 局内验证过), 但 HUD 刻度条
+  颜色不随任务中的等级写入重刷 — 配方是内存写复刻, 绕过了游戏自己的 HUD 刷新路径。
+  user 定调不深挖 HUD notify, 直接上两个 workaround。
+- **workaround 2 keep-white** ("只要是太刀就保持白刃", PollValorLifecycle):
+  任何 0 级观测沿 (集会所出生/任务开始/白刃自然衰减归零) → SetSpiritLevel(1,
+  "keep-white", 0.05) 立即回白。观测路线补 manager 链回退 (原先无动作锁直接
+  return, 集会所/任务初帧是盲区; manager 链路径强制 weapon+0x9F8==mod 武器门,
+  外武器 0x2370 别义不跟) — 白刃在进任务前就绪 = HUD 入场初始化读到正确颜色
+  (FLiNG 式"进任务前设好")。controller 路径 player/weapon 提到共享变量, 三分支
+  (keep-white/valor-recharge/valor-exit) 共用。副作用定案接受: 长时间不打条
+  0.05→0 → 重挂白, 几秒周期, 白刀光 FX 随之重复。
+- **workaround 1 overlay 模式行**: `SPIRIT lv<N> CHARGE/PASS/VALOR/NONE <bar>%`
+  (bar = 0x2374), 每帧实读 0x2370/0x2374, 等级配色, 出界显示 BAD (结构漂移报警
+  语义); DisplayWeapon() = 动作锁 → manager 链回退, 集会所即显示。任务中白→红
+  时 HUD 恒白属已知 — 真相看此行。
+- HunterPie 源码考古 (E:\MHW-arts\HunterPie, v2): MHW 武器类型 = WEAPON_ADDRESS
+  (421471 map 0x05073ED0 — 与本项目 manager 全局同址, 旁证) + 装备链
+  0x50,0xC0,0x8,0x78,0x2E8 读 byte (LS=3, Weapon enum 0..13); 任务态 =
+  *(0x500ED30)→State@0x54 (InQuest=2), 区域 = *(0x500ECA0)→+0xAED0。录
+  memory-map 作武器类型滑动时的备用路线。
+- 构建: mod/probe 两 target 全过 (std::clamp 不吃 volatile float 左值, 先读普通
+  float 再夹); 部署 deploy.sh mod, md5 c5372fa1 (上任 2477ac6e)。待 user 局内
+  验证: 集会所/任务入场 HUD 显示白刃; 任务中 valor 入场 HUD 仍白 (已知, 看
+  overlay); valor-exit 折返后 HUD 恒白正确; 长时间静置的重挂白周期可接受。
+
+
+### 2026-10-25 keep-white 首测失败 → manager 链 RVA 滑掉修复 (user 局内验证通过收口)
+
+- 首测 (部署版 c5372fa1, user): 进任务 HUD 仍不显示白, 拔刀后才刷新 — user 点破
+  "set3 检测条件还在"。日志实证: 全场 `confirmed by manager chain` = 0 行; 每条
+  `-1 -> 0` 首次观测都紧跟 `Player action controller locked` (首 set-3 动作) 之后,
+  集会所 0 条 — manager 链恒失败, 观测静默滞留首 set-3 锁启发式, keep-white 实际
+  仍被第一次拔刀卡住 (keep-white 开火时 HUD 已用 0 初始化完, 拔刀重同步才显白)。
+- 根因: 本地玩家 mgr 全局地址随 build 滑掉。旧 VA 0x145073ED0 (RVA 0x5073ED0) =
+  HunterPie 421471 map 的地址; 本机 build = **421810** (HunterPie 日志实证
+  `Loaded MonsterHunterWorld.421810.map`), 该全局 421810 = **0x50139A0**。旧地址
+  读垃圾过不了武器类型 1..14 校验 → 链恒死。以前无人发现: 链原本只服务锁确认,
+  失败有首 set-3 启发式兜底; keep-white 是第一个真依赖此链的功能。
+- 修复 (部署 md5 588de89b, 上任 2477ac6e, 中间 c5372fa1 首测失败退役):
+  1. ResolveLocalPlayerViaManager 候选解析: addresses.txt `localPlayerMgr=0xRVA`
+     覆盖 > 缓存胜者 > 0x50139A0 (421810) > 0x5073ED0 (421471 兜底); 每调用仍过
+     武器类型校验; 首次成功打 `MEMORYMAP localPlayerMgr RVA=0x... weaponType=N`
+     一行 (下次日志一眼可判链死活)。前置声明 Log/ModuleBaseAddr/OverrideOrZero。
+  2. PollValorLifecycle / DisplayWeapon: 链玩家先行, 与动作锁玩家不一致 = 跨场景
+     陈旧锁 (集会所↔任务换 controller 实体), 丢锁走链 — 同进程连打两任务也覆盖。
+  3. 链修活后, 锁确认的 FOREIGN set-3 拒绝逻辑首次按设计生效。
+- user 局内验证通过: localPlayerMgr 链读到、气刃等级正确、HUD 到位。memory-map
+  本地玩家/武器类型旁证两行已按 build 改写 (候选+覆盖纪律入档)。

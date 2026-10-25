@@ -17,10 +17,11 @@
 
 | 项 | 地址/偏移 |
 |---|---|
-| 本地玩家 | `*( *(0x145073ED0) + 0x50 )`（manager 链，可能随版本滑动；失效时 fallback 首 set-3 + 武器门） |
+| 本地玩家 | `*( *(mgr全局) + 0x50 )`；mgr 全局 RVA **按 build**：421810=0x50139A0 / 421471=0x5073ED0（=HunterPie map 的 WEAPON_ADDRESS 同址）。⚠旧 VA 0x145073ED0 随更新滑掉后链**从未再验证成功**（全场日志 `confirmed by manager chain` = 0 行），观察一直静默落在首 set-3 锁启发式上——keep-white 是第一个真依赖此链的功能才暴露。DLL 现按候选+`addresses.txt localPlayerMgr=0xRVA` 覆盖+缓存解析，首次成功打 `MEMORYMAP localPlayerMgr` 行 |
 | 动作控制器 | `player + 0x61C8`（slot0；slot1 = +0x6878，stride 0x6B0） |
 | 当前动作 set:id | `player + 0x6274 / 0x6278`（= controller+0xAC/+0xB0） |
 | 武器指针 | `*(player + 0x76B0)`（equipment 块） |
+| 武器类型旁证 | HunterPie v2 装备链独立路线（本机 build **421810**，其日志实证）：`*(mgr全局 0x50139A0)+0x50` → `+0xC0`→`+0x8`→`+0x78`→`+0x2E8` 读 **byte**（LS=3；0..13 枚举）——首两级与本项目 manager 链同址；旧版 421471 该全局=0x5073ED0（旧常量出处）。任务态=`*(0x500ED30)`→State@0x54（InQuest=2），区域=`*(0x500ECA0)`→+0xAED0 |
 | gauge mgr | `*(player + 0x7D20)`；no-hit 池 `mgr+0x28`，注入槽 `pool+0xE4` |
 | 动画组件 | `*(player + 0x468)`；**motion 时钟 = `*(float*)(anim+0x10C)`**（TIML 60fps 帧，动作重启归零；instance+8 是秒线 30Hz 纯记账） |
 | 参数表 | `*(*(weapon + 0x9B0) + 0x7810)`（getter FUN_14211c060；**player+0x7810 是另一物**=位置缓存，勿混） |

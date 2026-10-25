@@ -353,51 +353,86 @@ bool IsNormalModeChargingAction(const ActionInfo& action) {
 
 // --- Local player identification (multiplayer correctness) --------------------
 // The original ValorLS resolved the local player through its build's quest
-// player-manager global: player = *( *( *(0x145073ED0) ) + 0x50 ). Its .data
-// (0x1800329A8 = 0x50/0x76B0/0x00) confirms the 0x76B0 weapon-slot step. The
-// current build has no .text reference to that VA (the global may have slid),
-// so the result is trusted only after the weapon pointer reads a plausible
-// weapon type (1..14). Returns nullptr when the chain does not validate;
-// callers fall back to the DoAction first-set-3-controller lock heuristic.
 bool IsReadable(const void* address, std::size_t size);
+std::uintptr_t ModuleBaseAddr();
+std::uintptr_t OverrideOrZero(const char* name);
+void Log(const char* message);
 
+// Player-manager global, per game build - the same global HunterPie's MHW
+// maps call WEAPON_ADDRESS: build 421810 (current) = 0x50139A0,
+// build 421471 = 0x5073ED0. The old dumped-build VA 0x145073ED0 slid with a
+// game update and the chain silently NEVER validated again afterwards
+// ("confirmed by manager chain" = 0 lines in the whole field log), so every
+// observer stayed on the first-set-3-action lock heuristic without anyone
+// noticing - keep-white was the first feature that actually needed the chain.
+// Override via ValorGauge.addresses.txt: localPlayerMgr=0xRVA. The winning
+// candidate is cached (Present-thread callers only) but re-validated on every
+// call through the weapon-type check, so a stale cache degrades to re-probing.
 void* ResolveLocalPlayerViaManager() {
-    constexpr std::uintptr_t kMgrGlobal = 0x145073ED0;
     constexpr std::uintptr_t kMgrToPlayer = 0x50;
     constexpr std::uintptr_t kPlayerToWeaponSlot = 0x76B0;
-    const auto* globalSlot = reinterpret_cast<void* const*>(kMgrGlobal);
-    if (!IsReadable(globalSlot, sizeof(void*))) {
-        return nullptr;
+    static std::uintptr_t cachedRva = 0;
+    static bool announced = false;
+
+    std::uintptr_t rvas[4] = {};
+    int rvaCount = 0;
+    if (cachedRva) {
+        rvas[rvaCount++] = cachedRva;
     }
-    auto* mgr = *globalSlot;
-    if (!mgr) {
-        return nullptr;
+    if (const std::uintptr_t overrideRva = OverrideOrZero("localPlayerMgr")) {
+        rvas[rvaCount++] = overrideRva;
     }
-    const auto* playerSlot = reinterpret_cast<void* const*>(
-        static_cast<std::uint8_t*>(mgr) + kMgrToPlayer);
-    if (!IsReadable(playerSlot, sizeof(void*))) {
-        return nullptr;
+    rvas[rvaCount++] = 0x50139A0;  // build 421810 (current, HunterPie map)
+    rvas[rvaCount++] = 0x5073ED0;  // build 421471 (legacy dump)
+
+    const auto base = ModuleBaseAddr();
+    for (int i = 0; i < rvaCount; ++i) {
+        const auto* globalSlot =
+            reinterpret_cast<void* const*>(base + rvas[i]);
+        if (!IsReadable(globalSlot, sizeof(void*))) {
+            continue;
+        }
+        auto* mgr = *globalSlot;
+        if (!mgr) {
+            continue;
+        }
+        const auto* playerSlot = reinterpret_cast<void* const*>(
+            static_cast<std::uint8_t*>(mgr) + kMgrToPlayer);
+        if (!IsReadable(playerSlot, sizeof(void*))) {
+            continue;
+        }
+        auto* player = *playerSlot;
+        if (!player) {
+            continue;
+        }
+        const auto* weaponSlot = reinterpret_cast<void* const*>(
+            static_cast<std::uint8_t*>(player) + kPlayerToWeaponSlot);
+        if (!IsReadable(weaponSlot, sizeof(void*))) {
+            continue;
+        }
+        auto* weapon = *weaponSlot;
+        if (!weapon || !IsReadable(static_cast<std::uint8_t*>(weapon) + 0x9F8,
+                                   sizeof(std::uint32_t))) {
+            continue;
+        }
+        const auto weaponType =
+            *reinterpret_cast<const volatile std::uint32_t*>(
+                static_cast<std::uint8_t*>(weapon) + 0x9F8);
+        if (weaponType < 1 || weaponType > 14) {
+            continue;
+        }
+        cachedRva = rvas[i];
+        if (!announced) {
+            announced = true;
+            std::ostringstream m;
+            m << "MEMORYMAP localPlayerMgr RVA=0x" << std::hex << rvas[i]
+              << " player=0x" << reinterpret_cast<std::uintptr_t>(player)
+              << " weaponType=" << std::dec << weaponType;
+            Log(m.str().c_str());
+        }
+        return player;
     }
-    auto* player = *playerSlot;
-    if (!player) {
-        return nullptr;
-    }
-    const auto* weaponSlot = reinterpret_cast<void* const*>(
-        static_cast<std::uint8_t*>(player) + kPlayerToWeaponSlot);
-    if (!IsReadable(weaponSlot, sizeof(void*))) {
-        return nullptr;
-    }
-    auto* weapon = *weaponSlot;
-    if (!weapon || !IsReadable(static_cast<std::uint8_t*>(weapon) + 0x9F8,
-                               sizeof(std::uint32_t))) {
-        return nullptr;
-    }
-    const auto weaponType = *reinterpret_cast<const volatile std::uint32_t*>(
-        static_cast<std::uint8_t*>(weapon) + 0x9F8);
-    if (weaponType < 1 || weaponType > 14) {
-        return nullptr;
-    }
-    return player;
+    return nullptr;
 }
 
 void Log(const char* message) {
@@ -534,9 +569,47 @@ void PollValorLifecycle() {
         std::scoped_lock lock(g_actionMutex);
         controller = g_lockedPlayerController;
     }
-    auto* level = ResolveLongSwordLevel(controller);
+    // The chain player tracks the LIVE entity across scene swaps; the action
+    // lock survives them (hub -> quest creates a new controller), so a stale
+    // lock must not shadow the chain.
+    std::uint8_t* chainPlayer =
+        static_cast<std::uint8_t*>(ResolveLocalPlayerViaManager());
+    if (chainPlayer && controller &&
+        static_cast<std::uint8_t*>(controller) - 0x61C8 != chainPlayer) {
+        controller = nullptr;
+    }
+    std::uint8_t* player = nullptr;
+    std::uint8_t* weapon = nullptr;
+    const std::int32_t* level = nullptr;
+    if (controller) {
+        player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+        level = ResolveLongSwordLevel(controller);
+        if (level && IsReadable(player + 0x76B0, sizeof(void*))) {
+            weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+        }
+    }
     if (!level) {
-        return;
+        // No action lock yet (main menu / hub / a fresh quest before the
+        // first LS action). Watch through the manager chain instead so the
+        // keep-white pre-arm below fires BEFORE any action happens - the
+        // HUD gauge color only repaints from the value already present at
+        // hub/quest entry, so the white blade must exist by then.
+        player = chainPlayer;
+        if (!player || !IsReadable(player + 0x76B0, sizeof(void*))) {
+            return;
+        }
+        weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+        if (!weapon || !IsReadable(weapon + 0x2370, sizeof(std::int32_t))) {
+            return;
+        }
+        // The 0x2370 slot means something else on foreign weapons - only
+        // follow the modded weapon through this path.
+        if (!IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) ||
+            *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) !=
+                g_modWeaponType.load(std::memory_order_relaxed)) {
+            return;
+        }
+        level = reinterpret_cast<const std::int32_t*>(weapon + 0x2370);
     }
 
     const auto current = *level;
@@ -545,15 +618,29 @@ void PollValorLifecycle() {
         std::ostringstream message;
         message << "Long Sword spirit level changed: " << previous << " -> " << current;
         Log(message.str());
+        // Keep-white (2026-10-25, user workaround for the stale HUD gauge
+        // color): mid-quest level writes drive the FSM and the blade aura
+        // but never repaint the HUD color, so an LS never rests below white.
+        // Any observation of level 0 (hub spawn, quest start, natural white
+        // decay) is promoted straight back with the usual near-empty charge
+        // bar - the gauge is already white before every quest loads (the
+        // FLiNG "set it before the quest" behavior). Only level 0 folds
+        // here; the yellow/red edges below are untouched.
+        if (current == 0 && weapon &&
+            IsReadable(weapon + 0x2370, sizeof(float) * 2) &&
+            IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+            *reinterpret_cast<const volatile std::uint32_t*>(
+                weapon + 0x9F8) ==
+                g_modWeaponType.load(std::memory_order_relaxed)) {
+            SetSpiritLevel(player, weapon, 1, "keep-white", 0.05f);
+            g_lastObservedSpiritLevel.store(1, std::memory_order_relaxed);
+        }
         // Valor recharge loop (user design 2026-10-24): EVERY entry into
         // white starts the charge bar (the level timer) near empty. The
         // native yellow/red -> white drop refills the timer, which would
         // leave the bar "born full" and unable to cross into a promotion;
         // the chargehit rule's level-0 conversion covers the other entry.
         if (current == 1 && previous >= 2) {
-            auto* player =
-                static_cast<std::uint8_t*>(controller) - 0x61C8;
-            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
             if (weapon && IsReadable(weapon + 0x2374, sizeof(float)) &&
                 IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
                 *reinterpret_cast<const volatile std::uint32_t*>(
@@ -576,9 +663,6 @@ void PollValorLifecycle() {
         // usual near-empty bar. The tracker is pinned to 1 so the white-entry
         // edge above does not log a second recharge on the next frame.
         if (current == 2 && previous == 3) {
-            auto* player =
-                static_cast<std::uint8_t*>(controller) - 0x61C8;
-            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
             if (weapon && IsReadable(weapon + 0x2370, sizeof(float) * 2) &&
                 IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
                 *reinterpret_cast<const volatile std::uint32_t*>(
@@ -971,6 +1055,45 @@ void LoadModWeaponTypeConfig() {
     if (input >> type && type >= 0 && type <= 0xFE) {
         g_modWeaponType.store(static_cast<std::uint32_t>(type), std::memory_order_relaxed);
     }
+}
+
+// Present-thread weapon resolve for the overlay mode line (workaround 1 for
+// the stale HUD gauge color): the locked action controller when one exists,
+// else the manager-chain local player (hub / fresh quest, no lock yet) - the
+// same order PollValorLifecycle uses. Returns the weapon only when it reads
+// the modded weapon type; nullptr = nothing worth displaying.
+std::uint8_t* DisplayWeapon() {
+    const auto modType = g_modWeaponType.load(std::memory_order_relaxed);
+    const auto typeIs = [&](std::uint8_t* weapon) {
+        return weapon && IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+               *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) ==
+                   modType;
+    };
+    auto* chainPlayer =
+        static_cast<std::uint8_t*>(ResolveLocalPlayerViaManager());
+    void* controller = g_lockedPlayerController;
+    if (controller && chainPlayer &&
+        static_cast<std::uint8_t*>(controller) - 0x61C8 != chainPlayer) {
+        controller = nullptr;  // stale lock from a previous scene
+    }
+    if (controller) {
+        auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+        if (IsReadable(player + 0x76B0, sizeof(void*))) {
+            auto* weapon =
+                *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (typeIs(weapon)) {
+                return weapon;
+            }
+        }
+    }
+    if (chainPlayer && IsReadable(chainPlayer + 0x76B0, sizeof(void*))) {
+        auto* weapon =
+            *reinterpret_cast<std::uint8_t**>(chainPlayer + 0x76B0);
+        if (typeIs(weapon)) {
+            return weapon;
+        }
+    }
+    return nullptr;
 }
 
 // --- Sheathed-state draw rewrite (收刀拔刀刚1) -------------------------------
@@ -7540,6 +7663,49 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                                   ? IM_COL32(80, 255, 120, 255)
                                   : IM_COL32(170, 170, 170, 200),
                               lockText);
+            }
+        }
+        // Mode line (2026-10-25): the in-game HUD gauge color never repaints
+        // on mid-quest level writes, so this overlay line is the source of
+        // truth - phase label (CHARGE = white charge phase, VALOR = red mode,
+        // PASS = yellow fold-back transient) + charge bar (weapon+0x2374)
+        // percent, color-coded by the live spirit level. Works from the hub
+        // on (DisplayWeapon falls back to the manager chain).
+        if (std::uint8_t* modeWeapon = DisplayWeapon()) {
+            if (IsReadable(modeWeapon + 0x2370, sizeof(float) * 2)) {
+                const auto level = *reinterpret_cast<
+                    const volatile std::int32_t*>(modeWeapon + 0x2370);
+                const float rawBar = *reinterpret_cast<const volatile float*>(
+                    modeWeapon + 0x2374);
+                const float bar = std::clamp(rawBar, 0.0f, 1.0f);
+                const char* mode = "BAD";
+                ImU32 color = IM_COL32(255, 55, 55, 255);
+                switch (level) {
+                    case 1:
+                        mode = "CHARGE";
+                        color = IM_COL32(235, 235, 235, 255);
+                        break;
+                    case 2:
+                        mode = "PASS";
+                        color = IM_COL32(255, 215, 80, 255);
+                        break;
+                    case 3:
+                        mode = "VALOR";
+                        color = IM_COL32(255, 70, 70, 255);
+                        break;
+                    case 0:
+                        mode = "NONE";
+                        color = IM_COL32(160, 160, 160, 255);
+                        break;
+                    default:  // struct-shift alarm: level out of 0..3
+                        break;
+                }
+                char modeText[48]{};
+                snprintf(modeText, sizeof(modeText), "SPIRIT lv%d %s %d%%",
+                         level, mode,
+                         static_cast<int>(bar * 100.0f + 0.5f));
+                draw->AddText(ImGui::GetFont(), 20.0f, ImVec2(0.0f, 28.0f),
+                              color, modeText);
             }
         }
 #endif

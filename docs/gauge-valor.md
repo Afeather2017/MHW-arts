@@ -36,6 +36,18 @@
   一帧内 `SetSpiritLevel(1, "valor-exit", 0.05)` 折回白刃（tracker 钉 1 防重复日志）。
 - **进白清条惯例**：任何进白条都清 0.05（无刃→白转换直接给 0.05；黄/红→白掉级沿
   `valor-recharge` 压回）→ 条只能靠打攒满。
+- **白刃常驻 keep-white（10-25 追加，user 局内验证通过）**：**HUD 刻度条颜色只在集会所/任务入场时从
+  现值初始化，任务中写等级不重刷**（FSM 条件/刀光正常，仅 HUD 色滞后）——定调不深挖
+  HUD 刷新路径，用 workaround：太刀永不静置 0 级。PollValorLifecycle 补 manager 链
+  观测回退（原先无动作锁直接 return，集会所/任务初帧是盲区），任何 0 级观测沿
+  → `SetSpiritLevel(1, "keep-white", 0.05)` 立即回白 → 进任务前 gauge 已是白，
+  HUD 入场显示正确（FLiNG 式"进任务前设好"）。⚠mgr 全局 RVA 按 build 候选解析
+  （旧常量滑掉曾让链恒死、keep-white 被首拔刀卡住，见 memory-map 本地玩家行）。
+  副作用为设计内：长时间不打条 0.05→0 后重挂白（几秒周期，白刀光 FX 随之重复）。
+- **overlay 模式行**：mod overlay 左上 Action 行下方 `SPIRIT lv<N> <相位> <条>%`，
+  每帧实读 0x2370/0x2374，按等级配色（白=CHARGE/黄=PASS/红=VALOR/灰=NONE，
+  出界=BAD 即结构漂移报警语义）；`DisplayWeapon()` = 动作锁 → manager 链回退，
+  集会所也显示。任务中白→红时 HUD 恒白属已知（真相看此行）。
 - **gainhit 只喂练气**（0x2368；76/77/109 行服务刚1 的练气门槛）——round-1 的"练气满→升黄"
   与 0→白带满条转换已删除，勇气入场唯一路径 = 条跨域。
 - 白→黄的自然升级招（若 FSM 保留）不折返；黄→白自然掉级仍清条（进白惯例）。
