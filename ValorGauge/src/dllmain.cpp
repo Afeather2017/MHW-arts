@@ -72,6 +72,34 @@ std::atomic_bool g_valorMode = false;
 // (DmgCalcHook); 0: legacy charge-on-action-start; <0: charging disabled.
 // Configured via nativePC/plugins/ValorGauge.hit-charge.txt.
 std::atomic_int g_hitChargePercent{10};
+// --- 战技槽 / art gauge (2026-10-26, user design) ----------------------------
+// MHXX hunter-arts resource as a DLL-EXTERNAL field: no game memory holds it,
+// just g_artGauge (0..100) shown as overlay text "ART n%" (a drawn bar is a
+// later milestone). Charging: CONNECTED hits (same gate as gainhit/timerhit -
+// whiffs never charge) of the actions configured in ValorGauge.art.txt.
+// Release: the R+△ combo (KBM Ctrl+LMB) reaches the game as the 3:87 request
+// (気刃突刺); while the gauge is below 100 the DoAction hook swallows that
+// request outright (the 10-25 session "纯应用层方案"), so it never becomes
+// current, never buffers, plays no vanilla move and can enter no FSM node on
+// the request path. At 100 the request passes; when the game accepts it the
+// gauge drains (consume 1) - the art move itself is the user's FSM work, and
+// it MUST be wired via the request path (zero-in-edge node, ActionNo = the
+// gated id): a button-property link edge evaluates the raw keys and would
+// bypass this gate entirely.
+// Config: nativePC/plugins/ValorGauge.art.txt (missing file = system off;
+// Shift+F6 reloads). No new game addresses - pure logic on existing hooks.
+struct ArtChargeRow {
+    std::int32_t set = 3;
+    std::int32_t id = 0;    // 0 = every move in the set (exact rows win)
+    float percent = 0.0f;   // +percent per connected hit
+};
+std::atomic<float> g_artGauge{0.0f};      // the 战技条 itself, 0..100
+std::atomic_bool g_artEnabled{false};     // config file present
+std::atomic_int g_artConsumeOnPass{1};    // drain on the released request
+std::atomic_int32_t g_artGateSet{3};
+std::vector<std::int32_t> g_artGateIds;   // requests swallowed below 100
+std::vector<ArtChargeRow> g_artChargeRows;
+std::mutex g_artMutex;                    // guards the two vectors above
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
 // Defined near the gauge rules (default timerValue = 1.0f there);
 // PollValorLifecycle's valor-exit edge calls it.
@@ -1473,6 +1501,53 @@ void ArmGang1GaugeScope(void* controller) {
 }
 #endif // !VALOR_PROBE
 
+// --- 战技槽 helpers -----------------------------------------------------------
+bool ArtGateMatches(std::int32_t set, std::int32_t id) {
+    if (set != g_artGateSet.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    std::scoped_lock lock(g_artMutex);
+    return std::find(g_artGateIds.begin(), g_artGateIds.end(), id) !=
+           g_artGateIds.end();
+}
+
+// Weapon gate WITHOUT the session lock, so the very first combo press of a
+// scene is already gated (iron rule 11: local player + weapon gate). The
+// local-player side of that rule comes from IsLocalPlayerActionController.
+bool ArtWeaponGate(void* controller) {
+    if (!controller) {
+        return false;
+    }
+    auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (!IsReadable(player + 0x76B0, sizeof(void*))) {
+        return false;
+    }
+    auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+    return weapon && IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+           *reinterpret_cast<const volatile std::uint32_t*>(weapon + 0x9F8) ==
+               g_modWeaponType.load(std::memory_order_relaxed);
+}
+
+// Exact charge row wins over the wildcard; 0 = no row (or non-positive).
+float ArtChargePercentFor(std::int32_t set, std::int32_t id) {
+    float wildcard = 0.0f;
+    {
+        std::scoped_lock lock(g_artMutex);
+        for (const auto& row : g_artChargeRows) {
+            if (row.set != set) {
+                continue;
+            }
+            if (row.id == id && id != 0) {
+                return row.percent;
+            }
+            if (row.id == 0 && wildcard == 0.0f) {
+                wildcard = row.percent;
+            }
+        }
+    }
+    return wildcard;
+}
+
 bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     const bool validAction = controller && action && IsReadable(action, sizeof(ActionInfo));
     g_insideDoAction.store(true, std::memory_order_release);
@@ -1545,6 +1620,34 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
         read32(0x6274, "fsmTarget"); read32(0x6278, "fsmId");
         read32(0x6284, "deriveSet"); read32(0x6288, "deriveId");
         Log(special.str().c_str());
+    }
+#endif
+
+#ifndef VALOR_PROBE
+    // ARTGATE (战技槽): below a full gauge the art combo request is swallowed
+    // BEFORE the tracker and the original DoAction see it - it never becomes
+    // current, never lands in the buffer, and no node on the request path can
+    // enter. At 100% the request passes; the accept path drains the gauge.
+    bool artPass = false;
+    if (validAction && g_artEnabled.load(std::memory_order_relaxed) &&
+        ArtGateMatches(action->actionSet, action->actionId) &&
+        IsLocalPlayerActionController(controller) && ArtWeaponGate(controller)) {
+        if (g_artGauge.load(std::memory_order_relaxed) >= 100.0f) {
+            artPass = true;
+        } else {
+            static std::atomic_uint32_t artBlockLogs{0};
+            const auto n = artBlockLogs.fetch_add(1, std::memory_order_relaxed);
+            if (n < 8 || (n % 600) == 0) {
+                std::ostringstream m;
+                m << "ARTGATE swallow 3:" << action->actionId << " gauge="
+                  << static_cast<int>(g_artGauge.load(std::memory_order_relaxed) +
+                                      0.5f)
+                  << "% (n=" << n << ")";
+                Log(m.str());
+            }
+            g_insideDoAction.store(false, std::memory_order_release);
+            return false;
+        }
     }
 #endif
 
@@ -1670,6 +1773,14 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     }
     const bool result = g_originalDoAction(controller, action) != 0;
 #ifndef VALOR_PROBE
+    if (result && artPass && g_artConsumeOnPass.load(std::memory_order_relaxed)) {
+        // The released art request was accepted: spend the gauge.
+        const float spent = g_artGauge.exchange(0.0f);
+        std::ostringstream m;
+        m << "ART released: 3:" << action->actionId << " accepted, gauge "
+          << static_cast<int>(spent + 0.5f) << "% -> 0";
+        Log(m.str());
+    }
     if (result && validAction && controller == g_lockedPlayerController &&
         action->actionSet == 3) {
         // Stamina control: one-shot cost (见切) + reset the empty-exit latch.
@@ -2758,6 +2869,28 @@ void NotifyPlayerHitConnected(long long attacker) {
                         m << "GAUGERULE gainhit act=" << actSet << ':' << actId
                           << " +" << amount << (valor ? " (valor)" : "")
                           << " gauge=" << before << "->" << after;
+                        Log(m.str());
+                    }
+                }
+            }
+            // ARTGAIN (战技槽): connected hits charge the external gauge -
+            // exact row wins over the wildcard, whiffs never reach this code.
+            // Capped at 100; the FULL crossing is logged once per fill.
+            if (g_artEnabled.load(std::memory_order_relaxed)) {
+                const float pct = ArtChargePercentFor(actSet, actId);
+                if (pct > 0.0f) {
+                    const float before = g_artGauge.load(std::memory_order_relaxed);
+                    const float next = std::min(100.0f, before + pct);
+                    g_artGauge.store(next, std::memory_order_relaxed);
+                    static std::atomic_uint32_t artGainLogs{0};
+                    const auto n =
+                        artGainLogs.fetch_add(1, std::memory_order_relaxed);
+                    if (n < 8 || (before < 100.0f && next >= 100.0f)) {
+                        std::ostringstream m;
+                        m << "ARTGAIN act=" << actSet << ':' << actId << " +"
+                          << pct << "% gauge=" << static_cast<int>(before + 0.5f)
+                          << "->" << static_cast<int>(next + 0.5f)
+                          << (next >= 100.0f && before < 100.0f ? " FULL" : "");
                         Log(m.str());
                     }
                 }
@@ -5257,6 +5390,93 @@ void LoadStaminaConfig() {
 // time instead of 0 - the field counts SECONDS at 30Hz, so TIML frame n
 // (60/s) = n/60 seconds. Skipped frames drop their TIML events, e.g. 见切's
 // f0-f12 parry window). Shift+F6 reloads this file in-game.
+// --- 战技槽 config -------------------------------------------------------------
+// nativePC/plugins/ValorGauge.art.txt (missing file = system fully off):
+//   gate <set> <id> [id...]      - requests swallowed while gauge < 100
+//                                  (default 3 87 = the R+△ / Ctrl+LMB combo)
+//   charge <set> <id> <percent>  - +percent per CONNECTED hit of the action
+//                                  (id 0 = wildcard, exact rows win). Repeatable.
+//   consume <0|1>                - drain to 0 when the released request is
+//                                  accepted (default 1). Shift+F6 reloads.
+void LoadArtConfig() {
+    std::vector<std::int32_t> gateIds;
+    std::int32_t gateSet = 3;
+    std::vector<ArtChargeRow> rows;
+    int consume = 1;
+    const bool enabled =
+        std::filesystem::exists("nativePC/plugins/ValorGauge.art.txt");
+    std::ifstream input("nativePC/plugins/ValorGauge.art.txt");
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        std::string kind;
+        if (!(ss >> kind)) {
+            continue;
+        }
+        if (kind == "gate") {
+            std::int32_t set = 0;
+            if (!(ss >> set)) {
+                continue;
+            }
+            gateSet = set;
+            std::int32_t id = 0;
+            while (ss >> id) {
+                gateIds.push_back(id);
+            }
+        } else if (kind == "charge") {
+            ArtChargeRow row;
+            if (ss >> row.set >> row.id >> row.percent) {
+                rows.push_back(row);
+            }
+        } else if (kind == "consume") {
+            int value = 0;
+            if (ss >> value) {
+                consume = value != 0;
+            }
+        }
+    }
+    if (gateIds.empty()) {
+        gateIds.push_back(87);
+    }
+    {
+        std::scoped_lock lock(g_artMutex);
+        g_artGateIds = std::move(gateIds);
+        g_artChargeRows = std::move(rows);
+    }
+    g_artGateSet.store(gateSet, std::memory_order_relaxed);
+    g_artConsumeOnPass.store(consume, std::memory_order_relaxed);
+    g_artEnabled.store(enabled, std::memory_order_relaxed);
+    std::ostringstream m;
+    m << "ART gauge " << (enabled ? "ON" : "OFF (no ValorGauge.art.txt)")
+      << ": gate " << gateSet << ":{";
+    {
+        std::scoped_lock lock(g_artMutex);
+        for (std::size_t i = 0; i < g_artGateIds.size(); ++i) {
+            if (i) {
+                m << ",";
+            }
+            m << g_artGateIds[i];
+        }
+    }
+    m << "} swallowed below 100%, charge";
+    {
+        std::scoped_lock lock(g_artMutex);
+        if (g_artChargeRows.empty()) {
+            m << " = none";
+        } else {
+            for (const auto& r : g_artChargeRows) {
+                m << " " << r.set << ':' << r.id << " +" << r.percent << "%";
+            }
+        }
+    }
+    m << ", consume=" << consume << " (Shift+F6 reloads)";
+    Log(m.str());
+}
+
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
     std::int32_t set = 0;
@@ -5298,6 +5518,7 @@ void LoadForceActionConfig() {
     LoadGaugeRulesConfig();
     LoadSheathRewriteConfig();
     LoadDrawGang1Config();
+    LoadArtConfig();
     LoadActionSoundConfig();
     LoadVitalsConfig();
     LoadHpLockConfig();
@@ -7707,6 +7928,20 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                 draw->AddText(ImGui::GetFont(), 20.0f, ImVec2(0.0f, 28.0f),
                               color, modeText);
             }
+        }
+        // ART line (战技槽, 2026-10-26): the external gauge as text for now -
+        // a drawn bar is a later milestone. Blue while charging (the future
+        // 蓝条 color), green READY at full.
+        if (g_artEnabled.load(std::memory_order_relaxed)) {
+            const float art = g_artGauge.load(std::memory_order_relaxed);
+            const int pct = static_cast<int>(art + 0.5f);
+            char artText[32]{};
+            snprintf(artText, sizeof(artText),
+                     pct >= 100 ? "ART %d%% READY" : "ART %d%%", pct);
+            draw->AddText(ImGui::GetFont(), 20.0f, ImVec2(0.0f, 52.0f),
+                          pct >= 100 ? IM_COL32(80, 255, 120, 255)
+                                     : IM_COL32(90, 180, 255, 255),
+                          artText);
         }
 #endif
     }

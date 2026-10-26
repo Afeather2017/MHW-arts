@@ -4888,3 +4888,35 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   3. 链修活后, 锁确认的 FOREIGN set-3 拒绝逻辑首次按设计生效。
 - user 局内验证通过: localPlayerMgr 链读到、气刃等级正确、HUD 到位。memory-map
   本地玩家/武器类型旁证两行已按 build 改写 (候选+覆盖纪律入档)。
+
+### 2026-10-26 战技系统 DLL 侧落地: 战技槽外置字段 + DoAction 请求闸门 (user 定案启动)
+
+- user 定案设计: 战技条=外置变量 (先文字 n%, 后画条); 玩家某动作**打中才充能**;
+  释放走 FSM (user 侧), DLL 输入侧条不满禁组合键。R+△ = 战技释放键 (键鼠 Ctrl+左键),
+  R+○ 暂不占用。
+- **方案选择**: 沿用 10-25 输入地图"纯应用层方案"——R+△ 在游戏内部生成 3:87 请求
+  (気刃突刺), DoAction 层吞 (SHEATHREWRITE 同款), 零新增游戏地址依赖。OS 层键鼠/手柄
+  拦截 (XInputGetState/DirectInput8Create 可 MinHook) 本轮不做——闸门只看请求层;
+  FSM 若接 R+△ 按键属性边会绕过闸门 (警告已写进 gauge-valor/fsm-input 两手册)。
+- **落地结构** (dllmain.cpp, mod build only):
+  1. `g_artGauge` atomic float 0..100 = 战技条本体, overlay 文字行 `ART n%`
+     (y=52, SPIRIT 行下方, 蓝=充能/绿=READY), 零游戏内存占用。
+  2. 充能挂 `NotifyPlayerHitConnected` (连接命中门, 白挥天然不充), `ArtChargePercentFor`
+     精确行>通配行, 100 封顶, ARTGAIN 日志 (满条 crossing 记 FULL)。
+  3. 闸门在 DoActionHook **tracker 之前** return false: 请求不落地/不进缓冲/不进 tracker;
+     门 = art enabled + ArtGateMatches(set,id) + IsLocalPlayerActionController +
+     ArtWeaponGate(直查 weapon+0x9F8, 不等 session lock, 首按即闸)。条满 → artPass,
+     g_originalDoAction accept 后 drain 清零 (consume 可关)。ARTGATE swallow 限频日志。
+  4. 配置 `ValorGauge.art.txt`: gate/charge/consume 三语法, 缺文件=系统全关;
+     LoadArtConfig 挂进 LoadForceActionConfig 尾链 = init + Shift+F6 双覆盖热重载。
+- **事故一次**: DoActionHook 插 drain 块时 old_string 取了前缀两行 (含原 #ifndef
+  VALOR_PROBE 开头), 替换体自带 #endif → 原 mod 块守卫被吞, C1020 意外 #endif +
+  probe C3861 ArmGang1GaugeScope; 补回裸 if 后双 target 编译过。
+- 部署 md5 `322822ea` (上任 588de89b); art.txt 首轮 `gate 3 87 / charge 3 0 2 / consume 1`。
+- **待局内验证**: (1) 充能: 打怪连接命中 ART 涨, 白挥不涨; (2) 条<100 时 Ctrl+左键无反应
+  (ARTGATE swallow 日志), 且 vanilla 気刃突刺不出; (3) 条满放行 + 清零 + FSM 侧战技节点
+  (user 接线: ActionNo=87 零入边; 属性边会绕闸); (4) lock/chain 冷启动首按是否漏过;
+  (5) art.txt 删掉 = 系统关 (Ctrl+左键回 vanilla)。
+- user 局内首测 (2026-10-26): **闸门行为验证通过** —— DoAction 吞请求只拦请求本身,
+  不截断/不扰动当前动作 (动作流照常走), 节点失步 caveat 未出现; 充能链路/满条放行清零/
+  FSM 战技节点接线仍待打怪验证。

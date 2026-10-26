@@ -110,6 +110,29 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   force 刚1。**pool+0xE4 no-hit = "游戏层面没被攻击过"**，与弹反计数互斥（帧杀保护必须
   后置于叮）。
 
+## 战技槽 / art gauge（2026-10-26 DLL 侧落地，外置字段）
+
+- **字段**：DLL 内 `g_artGauge`（atomic float 0..100，**不占游戏内存**——游戏侧无此系统，
+  不复用练气/等级任何槽）。overlay 文字行 `ART n%`（SPIRIT 行下方：充能=蓝，满=绿
+  READY）；文字先行，画条是后续里程碑。
+- **充能**：挂 `NotifyPlayerHitConnected`（= gainhit/timerhit 同一个连接命中门，白挥不充）
+  按配置行加量，100 封顶。日志 `ARTGAIN`（满条 crossing 记 FULL）。
+- **释放闸门（输入侧"user 定案：组合键不进游戏"）**：R+△（键鼠 Ctrl+左键）在游戏内部
+  生成 **3:87 请求**（気刃突刺，10-25 输入地图定案）。条 <100 时 DoAction 钩子直接**吞掉**
+  该请求（在 tracker 之前 return false）：不落地、不进缓冲、不进 tracker——vanilla 招与
+  请求路径 FSM 入边都进不来；条满放行，游戏接受即清零（`consume 1`）。日志
+  `ARTGATE swallow`（限频）/ `ART released`。本机玩家锁 + 武器门直查（不等 session lock，
+  首按即闸）。
+- **FSM 侧接线铁律**：战技节点必须走**请求路径入边**（零入边节点 ActionNo=87 匹配）；
+  **不可用按键属性链接边**（R+△ 属性读原始按键，绕过闸门——条不满也会触发）。
+- **配置 `ValorGauge.art.txt`**（缺文件=系统全关；Shift+F6 热重载）：
+  `gate <set> <id>...`（吞请求清单，默认 `3 87`）/ `charge <set> <id> <percent>`
+  （id 0=set 通配，精确行优先，可多行）/ `consume <0|1>`。首轮部署默认
+  `gate 3 87` + `charge 3 0 2`（任意 set-3 连接命中 +2%）+ `consume 1`。
+- 手柄/键鼠原始输入层**未拦截**（XInputGetState@0x14273DCC9、DirectInput8Create@0x14273DC3E
+  可 MinHook，SESSIONS 10-25 输入地图）——闸门只看请求层；若日后 FSM 要用属性边，再上
+  输入层拦截（键盘需 dinput GetDeviceState COM vtable 钩，工作量中等）。
+
 ## 退役/休眠系统（防再发明）
 
 - `hit-charge=-1`：旧"练气条→满充强制红刃"系统退役（ActivateValorMode 裸写代码保留未调）。
