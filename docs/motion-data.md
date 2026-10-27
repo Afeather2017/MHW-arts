@@ -92,6 +92,9 @@
   改前 diff 基准 `wp03.col.bak-20261007-pre343mv`）。**只做等长数值编辑+改后结构校验**。
 - **目录名带空格 = 禁用**（`collisi on/`、`sh ell/` 教训）：nativePC col 曾因此 10 天没生效。
 - LS wp03.col 档位参考：LS 原版卡肉上限 0.40（空中气刃突刺）；刚1 行49=0.4 定稿；
+  **弹反 156 也走 node89→ATK49 同一行（HitLag a/b=0.40 全冻）**——改此行卡肉会同时
+  影响刚1；156 的 0.4s=24 帧卡肉吃衔接窗，补偿配方=PI 连段窗+mFlag1 簇结束键 f41/f55
+  值改为窗内值（开到动作末尾，2026-10-27 已落，见 SESSIONS）；
   GS 真蓄 0.85 全游戏顶配。
 - 多段判定 = CTO ノードID 轨多键（第一段键通常在 f0）；多段不同伤先例 = LMT155。
 
@@ -120,6 +123,14 @@
   + `scn.freehk_tether = m_mesh Armature`（**tetherFrame 缺失 = Root 轨丢失+米值**=缩成一团
   根因）；export 前 globalCacheClear 内建；**ops 改内存 blend，导出必须同会话或先保存**；
   GUI 开着旧会话必须 File>Revert（坑⑭）；导出用新进程防 structureCache。
+- **动画改长（裁帧/加帧）必须手动同步两处元数据**：动画 action 的 `freehk.frameCount`
+  （≠-1 时 calculateFrameCount **直接用元数据**，按键算帧数只是 -1 兜底+校验）+
+  TIML Data 节点 `animLength`（=motion 时钟 0x10C）。只删键不动元数据 → 导出带定格尾巴
+  （2026-10-27 156 实例：71/70→66/65）。
+- **TIML 整链平移配方**（动画前段裁 N 帧）：entry 全部 TIMLActionNode 的全部 fcurve 键
+  -N；落负的键钳到 f0、值取裁切点现值（f0 基线键被吞；声音/特效触发=提前到 f0，
+  窗口=前段被裁）；整条 fcurve remove+new 重建（复制 LIMITS modifier 的 min_x/min_y +
+  键 interpolation/back/period）；f0 常数轨不动。导出后 timl-diff 必须只剩目标 entry。
 - **blend/部署漂移**：二进制侧调过的值必须回填 blend，否则下次导出静默回退 user 调参。
   旧谱系 blend 开新工作文件前先查关键参数块在不在（分叉事故洗掉过拖尾窗）。
 - ARP/迁移（mhgu 管线）：LMT 单位厘米；tetherFrame 绑定必设；6_tag 全量打标+min-2-keys
