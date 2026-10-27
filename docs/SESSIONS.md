@@ -4980,3 +4980,67 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 部署 md5 `43fdc01e` (上任 `2a40a855`, 备份 w03_00.lmt.bak-20261027-pre107cluster);
   产物 _blend_export_107_cluster.lmt/.txt; blend 已保存。
 - **✅ user 局内验证通过 (2026-10-27)**: 107 R+方向 → 左上一文字长(363) 贯通, md5 `43fdc01e` 定稿。
+
+### 2026-10-27(5) ART 战技条任务门：任务外隐藏+清零
+
+- user 报 bug: 玩家不在任务中 overlay 仍显示 `ART n%` 且保留上局残留。定案: 条=任务域状态,
+  任务外一律隐藏+清零。
+- 落地: `InQuestState()` 读任务态单例 `*(base+0x500ED30)`→State@+0x54==2 (HunterPie map
+  实证公式, memory-map 既有; 非钩子纯数据指针, 只走 addresses.txt `questStateMgr` 覆盖,
+  读失败/单例 null 按"不在任务"处理=只影响显示不清 gameplay); mod 构建渲染轮询链
+  (PollValorLifecycle 后) 加 `PollArtQuestGate()`: 不在任务中 `g_artGauge.exchange(0)` 非
+  零打 `ART gauge wiped (not in quest)`; overlay ART 行显示条件加 `InQuestState()`。
+- 设计取舍: 充能路径不另加门 (任务外无怪可充, 轮询只兜离开边); DoActionHook 闸门不看
+  任务态 (任务外条恒 0<100, R+△ 照吞, 行为不变)。
+- 部署 md5 `f4b0d797` (上任 `322822ea`); ValorProbe 同步编译未部署。待 user 局内验证:
+  任务内显示/充能不受扰, 回城后行消失+清零, 下一任务从 0 起。
+
+### 2026-10-27(6) ART 任务门特例修正：训练场/探索 = 战斗区白名单
+
+- user 局内反馈: 训练场、野外探索不是"任务"（State@0x54 非 InQuest），但可拔刀打架，
+  ART 必须显示。首轮 `InQuestState()==2` 单判据过窄。
+- 考古 HunterPie 源码（本仓 HunterPie/ 完整源树 + 421810 map）: `QUEST_DATA_ADDRESS
+  0x500ED30`+State@0x54 枚举 int (0 None/1 Ready/2 InQuest/3..7 结算态)；`ZONE_OFFSET
+  0x500ECA0`+`ZoneOffsets 0xAED0` 读 int32 stage id；`Stage.cs` 枚举: 101..109 猎场+
+  导之地（任务图=探索图同 id）、201..203 竞技场、301..306 据点、401..417 剧情特殊区、
+  501..506 房间、**训练场=504**、主菜单=0。
+- 修法: `InCombatZone()` = `InQuestState()` ∪ `PlayableStageId()` 白名单（101-109/
+  201-203/401-417/504）；PollArtQuestGate 与 overlay 行都换用。日志措辞改 "not in
+  combat zone"。`zoneMgr` addresses.txt 覆盖同 questStateMgr。
+- 设计取舍: 白名单而非黑名单（未知 stage 默认区外，防误显；mod 新区报 case 再补）；
+  State==2 仍保留短路（HunterPie `isQuestInvalid=Id<=0` 判定暗示部分非任务区 State 也
+  读 2，两路并上无论探索读几都工作）。
+- 部署 md5 `0373d7d5` (上任 `f4b0d797`)。待 user 局内验证: 训练场/探索显示+充能+满放行，
+  据点/房间/主菜单隐藏+清零。
+
+### 2026-10-27(7) ART 门补边沿：探索→同图任务清零（quest id 边）
+
+- user bug: 探索攒的条带进任务不清。根因: 探索与普通任务**共用猎场 stage id**(101..108,
+  HunterPie Stage 枚举只有一套猎场 id), 任务态 State 也可能两边都读 2(quest 框架空 id
+  跑探索)——区外门全程不触发。user 问"stage 应该会变啊": 只有剧情特殊版图(401..417, 如
+  AncientForest2=406)才换 id, 普通调查/自由任务不换。
+- 修法: 读 quest 结构补 id 字段(+0x4C, 探索/训练场 id=0, HunterPie `isQuestInvalid=
+  Id<=0` 同源); `ReadQuestInfo`/`ReadStageId` 拆出复用。`PollArtQuestGate` 三触发器:
+  ①进入真任务边沿(State==2 && id>0 的 false→true, 唯一能抓同图探索→任务的信号) ②换区
+  边沿(stage 有效值变化; -1 不参与, 加载画面不误触发) ③战斗区外(原有)。跟踪变量
+  g_artLastInRealQuest/g_artLastStageId(Present 线程专用, -1 哨兵首读不触发)。
+- 地址读全挂时边沿静默退化只剩区外门; DoActionHook 闸门不受影响。
+- 构建 md5 `efa2dc7f` (上任 `0373d7d5`); ✅已部署 (游戏退出后覆盖, md5 核对一致)。待验证: 探索攒条→接同图任务清零、任务间切换清零、训练场/探索显示不受扰。
+
+### 2026-10-27(5) 早按 R+方向被判成 R（3:72=lmt107 / 3:109=lmt342）：[R] 门 b30 推迟到簇档 + 342 补簇
+
+- **现象 (user)**: 两招上 R+方向按早了 → 系统只判到 R（107 走短版、342 走刚一 cond311），
+  晚按才判到方向。机制 = 方向属性只在簇窗内写入，而 [R] 门 b30 在早期键（107 f22 /
+  342 f36）已开 → 早按 R+方向时输入层只写 [R]，R 路线吃掉输入。
+- **342 (纳刀一文字, node72 ActionNo=109, 动画=LMT342)**: 原本根本没簇（mFlag1 只有
+  vanilla 形状键），方向永远判不到。按纪律补簇 f56=0xCFFC30CC（342 的 vanilla 見切り档 =
+  特殊派生窗 b17+b31 开启帧）+ f110 续到末尾（132f）；vanilla 中段键 f46(0x4001) 的
+  b16+b30 一并剥掉（否则 b30 提前 10 帧回归）→ 连段窗 [36,110)→[56,110)。
+- **107**: mFlag f22 高位 0x4001(b16+b30) 剥零 → 连段窗 [22,100)→[42,100)，与 f42 簇档对齐。
+- **语义后果（user 知悉）**: 两招上 [R] 系路线（107=短版/気刃斬り3、342=刚一）现在从
+  档帧才开始可输入，早期按 R 不再缓冲——与长版对称，"档前输入一律不收"。
+- 注意: node72 无 R+方向 FSM 边（刚一/接上挑之外），342 的簇目前只让方向"可判"；
+  要在 3:109 上接方向路线 = FSM 侧加边（边已在 38 节点模式的 cond308 模板可抄）。
+  106/110 若也发现早按误判，同一旋钮（剥早期键高位 b16/b30）即可。
+- 部署 md5 `39f0925d` (上任 `43fdc01e`, 备份 w03_00.lmt.bak-20261027-pre107342rdir);
+  产物 _blend_export_107342_rdir_fix.lmt/.txt; blend 已保存。待 user 冷启动验证。
