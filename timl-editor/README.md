@@ -43,7 +43,28 @@ bpy.ops.freehk.timl_attack_window(action_name=..., slot=3, start=50, end=70)
 bpy.ops.freehk.timl_input_paint(action_name=..., track=0, bit=8, start=10, end=30, on=True)
 bpy.ops.freehk.timl_gate(action_name=..., frame=0)
 bpy.ops.freehk.timl_list_windows(action_name=...)   # 清单 → 控制台
+bpy.ops.freehk.timl_rdir_switch_window(action_name="TIML::nTimelineParam::PlMotionInput.150", start=42)
+# ↑ 方向路线切换窗一键全套 (见下文专节)
 ```
+
+## 方向路线切换窗 (2026-10-27 定案, freehk.timl_rdir_switch_window)
+
+给招式接 R+方向路线 (如 一文字长) 的 TIML 侧一键全套，替代手工"开簇"+补剥：
+**基线位 b12/b26 ([R]/△/○ 的 FSM 属性写入门) + 方向簇 0xCFFC30CC + 连段缓冲位
+b14/b16/b30 三者必须与簇同帧开启**，档前 R/R+方向 一律不收（对称死区）。档前不剥齐的
+后果：漏基线 → 早按 R+方向只判到 R（误出短版/刚一）；漏连段 → R 被动作层缓冲提前
+捕获消耗，方向显得更晚（占先手）。
+
+```python
+bpy.ops.freehk.timl_rdir_switch_window(action_name="TIML::nTimelineParam::PlMotionInput.150", start=42)
+```
+
+- 参数 = PlMotionInput action + 档帧。档取 **vanilla 特殊派生窗帧** (106=f44/110=f58/
+  107=f42) 或攻击结束+1；FSM 侧另需 cond308 模板方向边（本 op 只动 TIML）。
+- 行为：mFlag1 start 前全部键清零、start 起全部键统一簇值（无 start 键则插入，插值
+  继承邻键）；mFlag start 前全部键剥 b14/b16/b30（其余位保留）、start 处无键则插入
+  （现值|连段位）。幂等：已正确配置再跑无变化。
+- 部署实证：107=f42 / 110=f58 / 106=f44（106 未剥早期连段，user 时机下无碍）。
 
 ## 窗口配方 (实证来源: LMT_TIML research + AGENTS.md 局内验证)
 
@@ -123,11 +144,11 @@ b15 = 见切成功锁存/纳刀态信号 [推断]; mTrigger: 2048=无敌门 [确
 | 轨 | 位 | 语义 | 置信度 |
 |---|---|---|---|
 | mFlag | b8 | 翻滚接受 | 确证 |
-| mFlag | b14/b16/b30 | 连段预输入 | 确证 |
+| mFlag | b14/b16/b30 | 连段预输入 (动作层缓冲; 剥到簇档可消R路线占先手) | 确证 |
 | mFlag | b17+b31 | 特殊派生窗 (见切→必殺攻撃, 成对) | 确证 |
 | mFlag | b9/b15/b0 | 伴出位/未知 | 未解 |
 | mFlag1 | 位簇 b2/b3/b6/b7/b18-b25/b30/b31 | R2+方向组合键解锁簇 (整簇实证, 单位未拆) | 确证 |
-| mFlag1 | b12+b26 | 基线位 (原版动作自带, 非解锁成分) | 确证 |
+| mFlag1 | b12+b26 | 普通按键 ([R]/△/○) FSM 属性写入门 (非"恒有基线"; 推迟到簇档防早按误判) | 确证 |
 | mFlag1 | b27/b28/b29/b13 | 簇次级位 (仅中段键出现, 作用未解) | 未解 |
 | mFlag2 | b4-b9, b22/b23 | 未解 (值族 0x150/0x3F0/0x3C300) | 未解 |
 | mFlag3-6 | — | 未解 (mFlag4 在 342 见 4键) | 未解 |
@@ -175,6 +196,8 @@ blend 侧定位: entry 的 PlMotionInput action 走节点树接线查 (106/110/1
 - `_acceptance_run.py` — 验收脚本 (单会话 ops+export)
 - `_test_combo_unlock.py` — 组合键解锁工具无头自测 (幂等/关簇/还原/操作符/错误分支,
   2026-10-17 ALL PASS)
+- `_test_rdir_switch_window.py` — 方向路线切换窗无头自测 (幂等/误配归位/合成新建键/
+  操作符/错误分支, 2026-10-28 ALL PASS)
 - `_verif_001/002.lmt`, `_verif_diff_001_002.txt`, `_acceptance.*` — 验证产物
 - `E:\MHW-arts\TIML-Studio\` — 二进制解析/序列化 + `timl-diff.js` 比对器
   (`npm test` 27 项: 解析/规范序列化字节对照 vanilla/回环/配方/保存校验)
