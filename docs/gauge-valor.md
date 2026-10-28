@@ -125,6 +125,19 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   首按即闸）。
 - **FSM 侧接线铁律**：战技节点必须走**请求路径入边**（零入边节点 ActionNo=87 匹配）；
   **不可用按键属性链接边**（R+△ 属性读原始按键，绕过闸门——条不满也会触发）。
+- **任务门/战斗区门（2026-10-27，三轮）**：条是**战斗区会话状态**。显示判定
+  `InCombatZone()` = `InQuestState()`（`*(base+0x500ED30)`→State@+0x54==2，`questStateMgr`
+  可覆盖）**∪** 可战斗 stage 白名单 `PlayableStageId()`（`*(base+0x500ECA0)`→int32
+  stage@+0xAED0，`zoneMgr` 可覆盖）：101..109 猎场+导之地（**任务图=探索图同 id**）、
+  201..203 竞技场、401..417 剧情特殊区、**504 训练场**（不是任务也能打——user 定案）。
+  排除：主菜单 0、据点 301..306、房间 501..503/505/506。
+  **清零判定 `PollArtQuestGate()` 三个触发器**：①进入**真任务**边沿（quest id
+  @+0x4C 跨 0→正——探索/训练场跑在 quest 框架里但 id 空，HunterPie `isQuestInvalid=
+  Id<=0` 同源；**探索→同图任务 stage 与 State 都可能不变，只有 id 边能抓到**，user bug
+  实证）②换区边沿（stage 变化；-1 读数不参与边沿，加载画面不误触发）③战斗区外（原有）。
+  日志 `ART gauge wiped (quest start / zone change / not in combat zone)`。地址读全挂
+  （游戏更新 RVA 滑掉）时边沿全静默、只剩区外门退化工作。闸门本身不看区域态（条 <100
+  照吞 R+△）。
 - **配置 `ValorGauge.art.txt`**（缺文件=系统全关；Shift+F6 热重载）：
   `gate <set> <id>...`（吞请求清单，默认 `3 87`）/ `charge <set> <id> <percent>`
   （id 0=set 通配，精确行优先，可多行）/ `consume <0|1>`。首轮部署默认

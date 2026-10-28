@@ -21,7 +21,7 @@
 | 动作控制器 | `player + 0x61C8`（slot0；slot1 = +0x6878，stride 0x6B0） |
 | 当前动作 set:id | `player + 0x6274 / 0x6278`（= controller+0xAC/+0xB0） |
 | 武器指针 | `*(player + 0x76B0)`（equipment 块） |
-| 武器类型旁证 | HunterPie v2 装备链独立路线（本机 build **421810**，其日志实证）：`*(mgr全局 0x50139A0)+0x50` → `+0xC0`→`+0x8`→`+0x78`→`+0x2E8` 读 **byte**（LS=3；0..13 枚举）——首两级与本项目 manager 链同址；旧版 421471 该全局=0x5073ED0（旧常量出处）。任务态=`*(0x500ED30)`→State@0x54（InQuest=2），区域=`*(0x500ECA0)`→+0xAED0 |
+| 武器类型旁证 | HunterPie v2 装备链独立路线（本机 build **421810**，其日志实证）：`*(mgr全局 0x50139A0)+0x50` → `+0xC0`→`+0x8`→`+0x78`→`+0x2E8` 读 **byte**（LS=3；0..13 枚举）——首两级与本项目 manager 链同址；旧版 421471 该全局=0x5073ED0（旧常量出处）。任务态=`*(0x500ED30)`→State@0x54（枚举 int：0 None/1 Ready/**2 InQuest**/3 Success/4 Completed/5 Failed/6 Abandon/7 Quit），区域=`*(0x500ECA0)`→+0xAED0 读 **int32 stage id**（0 主菜单；101..109 猎场+导之地=任务图与探索同 id；201..203 竞技场；301..306 据点；401..417 剧情特殊区；501..506 房间/训练场，**训练场=504**；枚举出处 HunterPie.Core `Game/Enums/Stage.cs`）。DLL `InCombatZone()` = InQuestState ∪ PlayableStageId 白名单，消费为 ART 任务门（2026-10-27；`questStateMgr`/`zoneMgr` addresses.txt 覆盖；读失败按区外处理） |
 | gauge mgr | `*(player + 0x7D20)`；no-hit 池 `mgr+0x28`，注入槽 `pool+0xE4` |
 | 动画组件 | `*(player + 0x468)`；**motion 时钟 = `*(float*)(anim+0x10C)`**（TIML 60fps 帧，动作重启归零；instance+8 是秒线 30Hz 纯记账） |
 | 参数表 | `*(*(weapon + 0x9B0) + 0x7810)`（getter FUN_14211c060；**player+0x7810 是另一物**=位置缓存，勿混） |

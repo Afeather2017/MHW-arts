@@ -73,9 +73,9 @@ export const PC_BITS: BitInfo[] = [
 // PlMotionInput.mFlag (input accept windows)
 export const PI_BITS: BitInfo[] = [
   { bit: 8, label: '翻滚接受 (roll accept)', short: '翻滚', color: '#4fd1c5' },
-  { bit: 14, label: '连段预输入 (combo buffer)', short: '连段', color: '#63b3ed' },
-  { bit: 16, label: '连段预输入 (combo buffer)', short: '连段', color: '#63b3ed' },
-  { bit: 30, label: '连段预输入 (combo buffer)', short: '连段', color: '#63b3ed' },
+  { bit: 14, label: '连段预输入 (动作层缓冲; 剥到簇档防R占先 2026-10-27)', short: '连段', color: '#63b3ed' },
+  { bit: 16, label: '连段预输入 (动作层缓冲; 剥到簇档防R占先 2026-10-27)', short: '连段', color: '#63b3ed' },
+  { bit: 30, label: '连段预输入 (动作层缓冲; 剥到簇档防R占先 2026-10-27)', short: '连段', color: '#63b3ed' },
   { bit: 17, label: '特殊派生窗 (见切→必殺攻撃, pairs with b31)', short: '特殊', color: '#f6ad55' },
   { bit: 31, label: '特殊派生窗 (pairs with b17)', short: '特殊', color: '#f6ad55' },
   { bit: 9, label: '未知 (与 b8 伴出)', short: 'b9?', color: '#8a8a8a' },
@@ -87,13 +87,15 @@ export const PI_BITS: BitInfo[] = [
 // 位簇整簇置位后动作期间组合键属性 (如 R+↑) 才被输入层写入, FSM R+方向 链接才能路由。
 // 实证 = 气刃二家族 entry 106/110/156 中段置簇, user 局内 A/B + r+up_dash 参考逐字节复现;
 // 簇键值 0xC7FC10CC / 0xCFFC10CC(+27/28/29) / 0xCFFC30CC(+13) / 末键回落。逐位语义未拆。
+// 2026-10-27: b12/b26 实证 = 普通按键([R]/△/○)FSM 属性写入门 (非"恒有基线") — 306 恒定
+// 全开事故链 + 107/110 早按误判三修; 基线与簇须同帧在 vanilla 特殊派生档开启 (切换窗)。
 export const PI_MFLAG1_BITS: ReadonlyMap<number, string> = new Map([
   [2, '组合键解锁簇'], [3, '组合键解锁簇'], [6, '组合键解锁簇'], [7, '组合键解锁簇'],
   [18, '组合键解锁簇'], [19, '组合键解锁簇'], [20, '组合键解锁簇'], [21, '组合键解锁簇'],
   [22, '组合键解锁簇'], [23, '组合键解锁簇'], [24, '组合键解锁簇'], [25, '组合键解锁簇'],
   [30, '组合键解锁簇'], [31, '组合键解锁簇'],
   [13, '簇次级位(f54段)'], [27, '簇次级位(f44-54段)'], [28, '簇次级位'], [29, '簇次级位'],
-  [12, '基线位'], [26, '基线位'],
+  [12, '普通按键写入门'], [26, '普通按键写入门'],
 ]);
 // PI.mFlag2 = 事件位写入轨候选 (值族 0x150/0x3F0/0x3C300, 未解)
 export const PI_MFLAG2_BITS: ReadonlyMap<number, string> = new Map([

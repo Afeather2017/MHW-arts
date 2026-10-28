@@ -591,6 +591,138 @@ void ActivateValorMode(void* controller) {
     Log(message.str());
 }
 
+// Quest-state singleton slot (HunterPie map, build 421810): *(base+RVA) ->
+// quest struct: int32 id at +0x4C (0 = no real quest: explorations and the
+// training area run through the quest framework with an empty id - HunterPie's
+// isQuestInvalid = Id <= 0 exists exactly for those), state int at +0x54
+// (2 = InQuest). Feeds ReadQuestInfo(); NOT hook-resolved - a plain data
+// pointer, so only the addresses.txt override backs it up.
+std::uintptr_t g_addrQuestStateMgr = 0x500ED30;
+// Zone singleton slot (HunterPie ZONE_OFFSET): *(base+RVA) -> int32 stage id
+// at +0xAED0. Feeds InCombatZone()'s whitelist for combat areas that are not
+// quests (训练场) or whose quest-state bit does not read InQuest (探索).
+std::uintptr_t g_addrZoneMgr = 0x500ECA0;
+
+// Quest singleton read: *(base+g_addrQuestStateMgr) -> +0x4C id / +0x54 state.
+// Returns false on any unreadable link (title screen, post-update RVA drift);
+// callers must treat that as "no quest info".
+bool ReadQuestInfo(std::int32_t* questId, std::int32_t* state) {
+    if (!g_addrQuestStateMgr ||
+        !IsReadable(reinterpret_cast<void*>(g_addrQuestStateMgr), sizeof(void*))) {
+        return false;
+    }
+    const void* inst =
+        *reinterpret_cast<void* const*>(g_addrQuestStateMgr);
+    if (!inst || !IsReadable(static_cast<const std::uint8_t*>(inst) + 0x4C,
+                             sizeof(std::int32_t) * 3)) {
+        return false;
+    }
+    const auto* base =
+        static_cast<const volatile std::int32_t*>(inst);
+    *questId = base[0x4C / sizeof(std::int32_t)];
+    *state = base[0x54 / sizeof(std::int32_t)];
+    return true;
+}
+
+// True only while the local session is inside a quest (state 2). Explorations
+// and the training area may ALSO read state 2 (empty quest id) - state alone
+// never distinguishes them from a real quest; the id does.
+bool InQuestState() {
+    std::int32_t questId = 0;
+    std::int32_t state = 0;
+    return ReadQuestInfo(&questId, &state) && state == 2;
+}
+
+// Stage ids you can draw a weapon and fight in (HunterPie Stage enum):
+// 101..109 hunting fields incl. Guiding Lands (quest maps AND 自由探索 share
+// the same ids - the stage alone cannot tell them apart either), 201..203
+// arenas, 401..417 story specials, 504 the training area - which is NOT a
+// quest at all, yet everything there works (user 2026-10-27: ART must show
+// there). Explicitly excluded: main menu 0, peace zones 301..306 and player
+// rooms 501..503/505/506.
+bool PlayableStageId(const std::int32_t stage) {
+    if (stage >= 101 && stage <= 109) return true;
+    if (stage >= 201 && stage <= 203) return true;
+    if (stage >= 401 && stage <= 417) return true;
+    return stage == 504;
+}
+
+// Zone singleton read: *(base+g_addrZoneMgr) -> +0xAED0 stage id.
+// Returns -1 when any link is unreadable (callers must not edge-detect on -1).
+std::int32_t ReadStageId() {
+    if (!g_addrZoneMgr ||
+        !IsReadable(reinterpret_cast<void*>(g_addrZoneMgr), sizeof(void*))) {
+        return -1;
+    }
+    const void* inst = *reinterpret_cast<void* const*>(g_addrZoneMgr);
+    if (!inst || !IsReadable(static_cast<const std::uint8_t*>(inst) + 0xAED0,
+                             sizeof(std::int32_t))) {
+        return -1;
+    }
+    return *reinterpret_cast<const volatile std::int32_t*>(
+        static_cast<const std::uint8_t*>(inst) + 0xAED0);
+}
+
+// The ART gate's real predicate: quests cover the common case, and the zone
+// whitelist catches the combat areas whose quest-state bit is not InQuest
+// (training area, possibly free explorations). Either path showing true keeps
+// the gauge visible/charged; both false (hub, rooms, main menu, garbage reads)
+// hides it and wipes.
+bool InCombatZone() {
+    if (InQuestState()) {
+        return true;
+    }
+    return PlayableStageId(ReadStageId());
+}
+
+// DrawGauge(Present)-thread only. Last poll's combat-zone facts, for the
+// wipe edges below; -1 = stage never read yet (no edge until first read).
+bool g_artLastInRealQuest = false;
+std::int32_t g_artLastStageId = -1;
+
+// ART quest gate (2026-10-27): the 战技 gauge is combat-zone-scoped state.
+// Three wipe triggers, so a part-charged bar never crosses a session boundary:
+// - entering a REAL quest (quest id crosses 0 -> positive). The 探索->任务
+//   same-map case changes neither the stage id (both are 101..108) nor
+//   necessarily the InQuest bit, only the id - this edge is the one that
+//   catches it (user bug report 2026-10-27).
+// - zone change (探索A -> 探索B, hub -> anywhere). Real zones only: a -1
+//   read (loading screen) arms nothing until a valid id returns.
+// - being outside a combat zone at all (hub / rooms / main menu).
+// Quest-id and stage reads failing wholesale (post-update RVA drift) never
+// edges - the gate just degrades to the combat-zone test. The DoActionHook
+// gate keeps swallowing the art combo regardless of all this.
+void PollArtQuestGate() {
+    if (!g_artEnabled.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    std::int32_t questId = 0;
+    std::int32_t questState = 0;
+    const bool inRealQuest =
+        ReadQuestInfo(&questId, &questState) && questState == 2 && questId > 0;
+    const std::int32_t stage = ReadStageId();
+
+    const bool questEdge = inRealQuest && !g_artLastInRealQuest;
+    const bool zoneEdge =
+        stage >= 0 && g_artLastStageId >= 0 && stage != g_artLastStageId;
+    g_artLastInRealQuest = inRealQuest;
+    g_artLastStageId = stage;
+
+    if ((questEdge || zoneEdge) &&
+        g_artGauge.exchange(0.0f, std::memory_order_relaxed) > 0.0f) {
+        std::ostringstream m;
+        m << "ART gauge wiped ("
+          << (questEdge ? "quest start" : "zone change") << ')';
+        Log(m.str());
+    }
+
+    if (!InCombatZone() &&
+        g_artGauge.exchange(0.0f, std::memory_order_relaxed) > 0.0f) {
+        Log("ART gauge wiped (not in combat zone)");
+    }
+}
+
 void PollValorLifecycle() {
     void* controller = nullptr;
     {
@@ -971,6 +1103,16 @@ void InitMemoryMap() {
         g_addrPropName = base + v;
     } else {
         g_addrPropName = base + g_addrPropName;
+    }
+    if (const std::uintptr_t v = OverrideOrZero("questStateMgr")) {
+        g_addrQuestStateMgr = base + v;
+    } else {
+        g_addrQuestStateMgr = base + g_addrQuestStateMgr;
+    }
+    if (const std::uintptr_t v = OverrideOrZero("zoneMgr")) {
+        g_addrZoneMgr = base + v;
+    } else {
+        g_addrZoneMgr = base + g_addrZoneMgr;
     }
 }
 
@@ -7742,6 +7884,7 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     g_f6WasDown = f6Down;
 #else
     PollValorLifecycle();
+    PollArtQuestGate();
     PollModTriggers();
     PollGaugeLock();
     PollSheathWatch();
@@ -7931,8 +8074,10 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         }
         // ART line (战技槽, 2026-10-26): the external gauge as text for now -
         // a drawn bar is a later milestone. Blue while charging (the future
-        // 蓝条 color), green READY at full.
-        if (g_artEnabled.load(std::memory_order_relaxed)) {
+        // 蓝条 color), green READY at full. Hidden outside combat zones -
+        // quests AND training area / exploration (InCombatZone); PollArtQuestGate
+        // wipes the gauge there.
+        if (g_artEnabled.load(std::memory_order_relaxed) && InCombatZone()) {
             const float art = g_artGauge.load(std::memory_order_relaxed);
             const int pct = static_cast<int>(art + 0.5f);
             char artText[32]{};
