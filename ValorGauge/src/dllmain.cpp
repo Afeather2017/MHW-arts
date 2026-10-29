@@ -2977,6 +2977,15 @@ bool IsLargeMonsterId(std::int32_t id) {
     return false;
 }
 
+// The chargeable-target set: large monsters plus the training-area practice
+// targets. Vanilla refills the spirit gauge on the training barrels too
+// (user call 2026-10-29: normal attacks on them must keep charging) - their
+// em ids are 57/58 (log: DDART id=57/58 suppressed before this exception,
+// id=59 pillar already inside the bitset).
+bool IsChargeableTargetId(std::int32_t id) {
+    return IsLargeMonsterId(id) || id == 57 || id == 58;
+}
+
 void NotifyPlayerHitConnected(long long attacker) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
@@ -3155,7 +3164,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
         g_lastAppliedTargetMonster.store(false, std::memory_order_relaxed);
         return;
     }
-    const bool monster = IsLargeMonsterId(emId);
+    const bool monster = IsChargeableTargetId(emId);
     // Latch BEFORE any charging - the native spirit refill (GaugeAddHook,
     // +0x2124f13) fires later within this same hit and reads this.
     g_lastAppliedTargetMonster.store(monster, std::memory_order_relaxed);

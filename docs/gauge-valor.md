@@ -133,7 +133,9 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   **原生练气回充同杀**：游戏自己的命中回充（GaugeAddHook，caller +0x2124f13，val>0）
   对地形命中照样发（log: GAUGEEVT val=0.26 跟在地形命中后）→ 按 DealDamage 锁存
   `g_lastAppliedTargetMonster` 归零（负值消耗/见切回填/rewrite 不碰；锁存默认 true=
-  未判定前放行）。日志 `DDART em= id= dmg= latch=`（前 8 条）/ `GAUGERULE terrain:
+  未判定前放行）。**练习目标特例（10-29 user 定案：原版打中木桶也回充）**：放行名单
+  = bitset ∪ {57,58}（训练场木桶，`IsChargeableTargetId`；59 大桩本就在 bitset）。
+  日志 `DDART em= id= dmg= latch=`（前 8 条）/ `GAUGERULE terrain:
   suppressed native gain`（限 40 条），计数 `g_nonMonsterSkips`。
 - **释放闸门（输入侧"user 定案：组合键不进游戏"）**：R+△（键鼠 Ctrl+左键）在游戏内部
   生成 **3:87 请求**（気刃突刺，10-25 输入地图定案）。条 <100 时 DoAction 钩子直接**吞掉**

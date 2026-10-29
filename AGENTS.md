@@ -23,9 +23,10 @@
   主菜单排除；✅user 局内验证通过 10-28）。缺 art.txt=系统关；Shift+F6 热重载。
   目标过滤（10-29 两轮）：所有充能（含原生练气回充）统一挂 DealDamage 钩子 em 直读门
   （arg1=em，+0x12280 查 bitset；dmgCalc a2 三候选探测已退役——a2 非 em，log 实锤）；
-  原生回充 +0x2124f13 按 `g_lastAppliedTargetMonster` 锁存归零；DealDamage arg2=伤害
-  int 已进 ARTGAIN 日志=按伤害充能地基。
-  部署 DLL md5 `aa794daf`。
+  原生回充 +0x2124f13 按 `g_lastAppliedTargetMonster` 锁存归零；放行=bitset ∪ 训练场
+  木桶 {57,58}（user 定案原版等价）；DealDamage arg2=伤害 int 已进 ARTGAIN 日志=按伤害
+  充能地基。
+  部署 DLL md5 `ac853959`。
   详见 `docs/gauge-valor.md` 战技槽节。
 - **勇气模式 plan B（现行，user 定案，局内验证通过）**：白刃=充能相位，红刃=勇气模式。
   普通/纳刀链命中充勇气条（=等级计时器 0x2374），白刃满条跨域 → DLL `SetSpiritLevel(3)`

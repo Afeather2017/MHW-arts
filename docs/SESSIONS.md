@@ -5190,3 +5190,15 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   a2 语义注释修正（a2≠em）。
 - 部署 md5 `f95d5a24` → `aa794daf`。待 user 冷启动验证：打地形/木桶 art 条、勇气条、
   练气红条全不涨；打怪三者照常；log 见 GAUGERULE terrain: suppressed。
+
+### 2026-10-29(4) 训练场木桶放行：{57,58} 进可充名单
+
+- **user 局内验证(3)**：地形命中战技/练气/气刃全不涨 ✓✓✓；但训练场**木桶**得照涨——
+  原版普通攻击打中木桶回充（user 干净测试：冷启动 4 击=2 木桶+2 敌）。
+- **log 挖出练习目标三件套 em id**：57/58=木桶（被拦，DDART id=57/58 + terrain
+  suppressed）、59=大桩（本在 HunterPie bitset，ARTGAIN dmg=139 正常充）。HunterPie
+  只放了 59，57/58 是它家没统计的木桶。
+- **修法**：`IsChargeableTargetId(id)` = `IsLargeMonsterId(id) || id==57 || id==58`，
+  NotifyAppliedHitCharges 的判定换用之——art/勇气/练气/原生回充一处放行全生效。
+- 部署 md5 `aa794daf` → `ac853959`。待 user 冷启动验证：训练场木桶三条全涨，
+  真地形照旧不涨。
