@@ -66,12 +66,12 @@
 - ACTIONSND（`ValorGauge.action-sound.txt`：`<set> <id> <frame60> <wavPath>`）：motion 时钟
   ≥cue 帧时 PlaySoundA（PCM wav；无音量/3D 参数；同刻多规则互斥）。武装-取消语义：动作
   切换/被打飞即取消；mot 倒退=重新武装。文件缺失=内置默认规则（3:108 f50 swo_fx.wav）。
-- **clang 触发模式**（`<set> <id> clang <wavPath>`，2026-10-30）：cue 帧走 motion 时钟会被
-  卡肉（hitstop）一起拖慢——计数动作的声音改在**防御触发瞬间**播。信号=negrEvent 钩子
-  （FUN_1421038B0 事件 8 递送，游戏播 0x7D4 叮特效的同一链），owner==本地玩家过滤，
-  每次动作实例只发一声（fired 随动作离开复位）；事件逐帧 tick，时序竞态自愈。**只对
-  86/101/102 家族槽有效**（非家族无效化=查询层静默，E3 定案）——自定义反击招必须骑这些槽。
-  日志 `ACTIONSND clang fire` / 取消时 `clang not delivered`。
+- **enter 触发模式**（`<set> <id> enter <wavPath>`，2026-10-30）：cue 帧走 motion 时钟会被
+  卡肉（hitstop）一起拖慢——**动作一成为当前动作（phase 2 首帧）立即发声**，完全不走时钟，
+  卡肉免疫，每次动作实例一声（动作离开即复位，可重复触发）。用途：防御帧反击 = FSM 自动
+  转移落地进 35~40 的那一帧就是防御触发瞬间，给 35~40 配 enter 行即在触发时机出声。
+  日志 `ACTIONSND enter fire`。~~clang/negrEvent 方案~~（10-30 当日否决：86/101/102 家族
+  专用，现行防御帧体系不用该链）。
 - TIML 声音轨家族（数据侧）：EG02=喊声 / EG06=金属摩擦（**触发语义存疑，收编触发曾全灭，
   动前先单触发 A/B**）/ GameParameter=连续参数轨（刀风声=逐帧采样，灭声=归零或删 action）
   / EffectParameter1=踏步 FX（3 槽使能窗+id 切换）。

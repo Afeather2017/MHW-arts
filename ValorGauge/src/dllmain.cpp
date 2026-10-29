@@ -381,7 +381,6 @@ bool g_clangLatch = false; // one force per 见切 action
 void TryQueuedForceWrite(const void* entity);
 void TryQueuedFx(const void* entity);
 void TryFrameSeek(const void* entity);
-void FireClangActionSounds(const void* weaponState);
 
 bool IsNormalModeChargingAction(const ActionInfo& action) {
     if (action.actionSet != 3) {
@@ -2914,8 +2913,6 @@ void __fastcall NegrEventHook(void* weapon, void* event) {
     if (g_originalNegrEvent) {
         g_originalNegrEvent(weapon, event);
     }
-    // clang-mode action sounds ride this exact delivery (the FX 0x7D4 moment)
-    FireClangActionSounds(weapon);
     // Diagnostic build: log the first 40 arrivals UNFILTERED with the full
     // pointer identity (handler weapon vs *(player+0x76B0) vs owner) - the
     // own==weapon filter silently ate every call in the first deployment.
@@ -4832,23 +4829,23 @@ void PollTrailRules(const void* entity) {
 // of the move cancels it (无双斩 can be interrupted mid-swing).
 // Config nativePC/plugins/ValorGauge.action-sound.txt, one rule per line:
 //   <set> <id> <frame60> <wavPath>    frame cue (TIML frames at 60fps)
-//   <set> <id> clang <wavPath>        fire on the negation delivery (叮)
+//   <set> <id> enter <wavPath>        fire the moment the action starts
 // The frame cue rides the motion clock, so hitstop (卡肉) delays it with the
-// animation. The clang cue instead fires from the negrEvent hook the moment
-// the game delivers the negation (the FUN_1421038B0 chain that plays FX
-// 0x7D4) while the rule's action is current - real-time, hitstop-immune.
-// That delivery only exists for the 86/101/102 family slots (见切/居合;
-// non-family nullification is query-level silent, E3 10-05), so clang rules
-// are only meaningful on slot-reused counter moves. Path relative to the game
-// root (the DLL's CWD). Missing file = the built-in default (3:108 @ 50, the
-// 气刃无双斩 MHGU swoosh; user pinned fsm id 108 2026-10-22 - the gauge-rules
-// comment that calls 107 无双斩 is stale) so deploying the wav alone works.
+// animation. The enter cue instead fires the first frame the configured
+// action becomes the current one (phase 2) - real-time, hitstop-immune. The
+// defense-frame counter system rides this: the FSM auto-transitions into the
+// 35-40 family the instant the defense triggers, so an enter rule on the
+// counter move plays at exactly that moment (motion clock never involved).
+// Path relative to the game root (the DLL's CWD). Missing file = the built-in
+// default (3:108 @ 50, the 气刃无双斩 MHGU swoosh; user pinned fsm id 108
+// 2026-10-22 - the gauge-rules comment that calls 107 无双斩 is stale) so
+// deploying the wav alone works.
 struct ActionSoundRule {
     std::int32_t set = 0;
     std::int32_t id = 0;
     float frame = 0.0f;      // TIML frames (60fps), frame mode only
     std::string path;
-    bool onClang = false;    // fire on negation delivery instead of frame cue
+    bool onEnter = false;    // fire when the action starts, not at a frame
     bool armed = false;      // armed for the current occurrence of the action
     bool fired = false;
     float armMot = 0.0f;     // motion-clock snapshot taken at arm time
@@ -4883,8 +4880,8 @@ void LoadActionSoundConfig() {
         if (!(ss >> rule.set >> rule.id >> trigger)) {
             continue;
         }
-        if (trigger == "clang") {
-            rule.onClang = true;
+        if (trigger == "enter") {
+            rule.onEnter = true;
             if (!(ss >> path)) {
                 continue;
             }
@@ -4914,8 +4911,8 @@ void LoadActionSoundConfig() {
     msg << "Action sounds: " << rules->size() << " rule(s)";
     for (const auto& rule : *rules) {
         msg << " [" << rule.set << ':' << rule.id << ' '
-            << (rule.onClang ? "clang" : "frame") << ' ';
-        if (!rule.onClang) {
+            << (rule.onEnter ? "enter" : "frame") << ' ';
+        if (!rule.onEnter) {
             msg << '@' << rule.frame << "f ";
         }
         msg << rule.path
@@ -4956,38 +4953,43 @@ void PollActionSounds(const void* entity) {
     for (auto& rule : *rules) {
         const bool matches =
             set == rule.set && id == rule.id && phase == 2 &&
-            (rule.onClang || mot >= 0.0f);
+            (rule.onEnter || mot >= 0.0f);
         if (!matches) {
             if (rule.armed && !rule.fired) {
                 std::ostringstream m;
                 m << "ACTIONSND cancel act=" << rule.set << ':' << rule.id
-                  << " left the action at mot=" << mot;
-                if (rule.onClang) {
-                    m << " (clang not delivered)";
-                } else {
-                    m << " (cue " << rule.frame << "f not reached)";
-                }
+                  << " left the action at mot=" << mot << " (cue "
+                  << rule.frame << "f not reached)";
                 Log(m.str());
             }
             rule.armed = false;
             rule.fired = false;
             continue;
         }
+        if (rule.onEnter) {
+            // the action becoming current IS the trigger (e.g. the FSM
+            // auto-transition landing into the 35-40 counter the instant the
+            // defense frames trigger): fire on the first observed frame,
+            // once per occurrence - fired resets above when the action leaves
+            if (!rule.fired) {
+                rule.fired = true;
+                PlaySoundA(StableActionSoundPath(rule.path), nullptr,
+                           SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
+                std::ostringstream m;
+                m << "ACTIONSND enter fire act=" << set << ':' << id
+                  << " -> " << rule.path;
+                Log(m.str());
+            }
+            continue;
+        }
         if (!rule.armed) {
-            // frame mode: arm only while the clock is still before the cue so
-            // a poll that first observes the action late cannot fire a stale
-            // sound. clang mode: arm unconditionally - the fire is
-            // event-driven from the negrEvent hook, not clock-based.
-            if (rule.onClang || mot <= rule.frame) {
+            // arm only while the clock is still before the cue so a poll that
+            // first observes the action late cannot fire a stale sound
+            if (mot <= rule.frame) {
                 rule.armed = true;
                 rule.fired = false;
                 rule.armMot = mot;
             }
-            continue;
-        }
-        if (rule.onClang) {
-            // per-frame bookkeeping only; the sound fires from
-            // FireClangActionSounds when the game delivers the negation
             continue;
         }
         if (mot < rule.armMot - 1.0f) {
@@ -5004,71 +5006,6 @@ void PollActionSounds(const void* entity) {
               << " -> " << rule.path;
             Log(m.str());
         }
-    }
-}
-
-// clang-mode ACTIONSND fire: called from the negrEvent hook right after the
-// original negation handler returns - the same delivery that plays the FX
-// 0x7D4 clang, on the game thread at the defense moment (hitstop-immune, the
-// event keeps ticking every negated frame so a phase race self-heals). Fires
-// each clang rule whose action is still current, once per action occurrence
-// (the fired flag resets in PollActionSounds when the action leaves).
-// weaponState = the weapon STATE object (0x3190 family, owner at +0xB40):
-// filter on owner == locked local player so other hunters' negations stay
-// silent in multiplayer.
-void FireClangActionSounds(const void* weaponState) {
-    const auto rules = g_actionSounds.load();
-    if (!rules || rules->empty() || !weaponState) {
-        return;
-    }
-    bool pending = false;
-    for (const auto& rule : *rules) {
-        if (rule.onClang && !rule.fired) {
-            pending = true;
-            break;
-        }
-    }
-    if (!pending) {
-        return;
-    }
-    auto* wp = static_cast<const std::uint8_t*>(weaponState);
-    if (!IsReadable(wp + 0xB40, sizeof(void*))) {
-        return;
-    }
-    const void* owner = *reinterpret_cast<void* const*>(wp + 0xB40);
-    void* ctrl = nullptr;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        ctrl = g_lockedPlayerController;
-    }
-    if (!ctrl || !ModWeaponActive()) {
-        return;
-    }
-    if (owner != static_cast<const void*>(
-                      static_cast<std::uint8_t*>(ctrl) - 0x61C8)) {
-        return;
-    }
-    auto* bytes = static_cast<std::uint8_t*>(ctrl);
-    const std::int32_t phase =
-        *reinterpret_cast<volatile std::int32_t*>(bytes + 0xA8);
-    const std::int32_t set =
-        *reinterpret_cast<volatile std::int32_t*>(bytes + 0xAC);
-    const std::int32_t id =
-        *reinterpret_cast<volatile std::int32_t*>(bytes + 0xB0);
-    if (phase != 2) {
-        return;
-    }
-    for (auto& rule : *rules) {
-        if (!rule.onClang || rule.fired || set != rule.set || id != rule.id) {
-            continue;
-        }
-        rule.fired = true;
-        PlaySoundA(StableActionSoundPath(rule.path), nullptr,
-                   SND_FILENAME | SND_ASYNC | SND_NODEFAULT);
-        std::ostringstream m;
-        m << "ACTIONSND clang fire act=" << set << ':' << id << " -> "
-          << rule.path;
-        Log(m.str());
     }
 }
 
