@@ -3330,11 +3330,18 @@ void __fastcall AtkCtxBuilderHook(long long mgr, long long interaction,
 // is not a large-monster id, so timerhit/gainhit/chargehit/art/legacy all
 // drop here for them; the native spirit refill is latched off via
 // g_lastAppliedTargetMonster (GaugeAddHook zeroes +0x2124f13 gains).
-void NotifyAppliedHitCharges(long long targetEm, int damage) {
+void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
         return;
     }
+    // Crit-normalized damage (2026-10-29, user request): the charge should
+    // not swing with crit RNG. World crits are x1.25 physical, so divide the
+    // crit draws back down before any damage-scaled charging. Non-crit
+    // negative-affinity draws (x0.75) have no flag here - rare, left as is.
+    const float critDiv = isCrit ? 1.25f : 1.0f;
+    const float dmgNorm =
+        static_cast<float>(damage) / critDiv;
     auto* localPlayerBytes =
         static_cast<std::uint8_t*>(controller) - 0x61C8;
     if (g_atkScansLeft.load(std::memory_order_relaxed) > 0) {
@@ -3359,6 +3366,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
         std::ostringstream m;
         m << "DDART em=0x" << std::hex << std::uppercase << targetEm << std::dec
           << " id=" << emId << " dmg=" << damage
+          << " crit=" << isCrit << " dmgNorm=" << dmgNorm
           << " latch=" << (localAttacker ? "MATCH" : "skip");
         const float scale = g_artDmgScale.load(std::memory_order_relaxed);
         m << " dmgScale=" << scale;
@@ -3531,13 +3539,13 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
                     float amount =
                         (rule->hasValor && valor) ? rule->b : rule->a;
                     // chargehit-dmg: scale the resolved amount (any tier)
-                    // with the applied damage; capped in bar units.
+                    // with the crit-normalized damage; capped in bar units.
                     const float chScale =
                         g_chargeHitDmgScale.load(std::memory_order_relaxed);
                     if (chScale > 0.0f) {
                         amount = std::min(
                             g_chargeHitDmgCap.load(std::memory_order_relaxed),
-                            amount * damage / chScale);
+                            amount * dmgNorm / chScale);
                     }
                     auto* timer =
                         reinterpret_cast<volatile float*>(weapon + 0x2374);
@@ -3572,7 +3580,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
         const float scale = g_artDmgScale.load(std::memory_order_relaxed);
         if (scale > 0.0f) {
             pct = std::min(g_artDmgCap.load(std::memory_order_relaxed),
-                           pct * damage / scale);
+                           pct * dmgNorm / scale);
         }
         if (pct > 0.0f) {
             const float before = g_artGauge.load(std::memory_order_relaxed);
@@ -3619,7 +3627,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
 void __fastcall DealDamageHook(long long targetEm, int damage, float* position,
                                int isTenderized, int isCrit, int unk0, int unk1,
                                char unk2, int attackId) {
-    NotifyAppliedHitCharges(targetEm, damage);
+    NotifyAppliedHitCharges(targetEm, damage, isCrit);
     g_originalDealDamage(targetEm, damage, position, isTenderized, isCrit,
                          unk0, unk1, unk2, attackId);
 }

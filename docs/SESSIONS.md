@@ -5321,3 +5321,16 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   dump（前 10 次）+ 锁存 g_lastStatsObj 备最终除数。
 - 部署 md5 `3a8e1ec9` → `15f84281`。待 user 冷启动打 10 下内回传 STATSOBJ 行，对照
   1366/1399（或 /3.3 的 414/424）找字段。
+
+### 2026-10-29(14) 暴击标志接入=user 要的"有没有触发暴击"一直在签名里
+
+- **user 定案**：会心率影响积累，希望能检测暴击。事实：DealDamage 签名（HunterPie
+  typedef）第 5 参就是 BOOL isCrit（第 4 参 isTenderized 软化也在），零逆向成本。
+- **实现**：NotifyAppliedHitCharges 加 isCrit 参；crit 抽出 dmgNorm = damage÷1.25
+  （MHW 世界物理暴击 ×1.25；负会心 ×0.75 无标志，罕见放行），charge-dmg/chargehit-dmg
+  两条伤害缩放路径全部改用 dmgNorm——暴击不再使充能摆动。DDART 加 crit=/dmgNorm=
+  字段可对照验证（暴击刀 dmg≈1.25× 邻刀而 dmgNorm 持平）。
+- 顺带：user 猜想 1.18/1.25 的 dmg/atkMV 恒定项=锋利度补正——两 session 间 1.18→1.25
+  漂移吻合斩味变化，采纳；常数项最终折进 K。
+- 部署 md5 `15f84281` → `dacf428f`。待 user 冷启动验证：暴击刀充电与平刀一致
+  （DDART crit=1 的 dmgNorm 应≈邻刀 dmg）。
