@@ -5979,6 +5979,14 @@ void LoadAtkScanConfig() {
             values.push_back(v);
         }
     }
+    // The UI attack is the DISPLAY value = true raw x weapon multiplier
+    // (Long Sword x3.3, MHW kept the hidden class multipliers). Memory most
+    // likely stores the TRUE raw - scan the display value AND its /3.3 form
+    // (values written into the file are display values).
+    const std::size_t base = values.size();
+    for (std::size_t i = 0; i < base && values.size() < 16; ++i) {
+        values.push_back(values[i] / 3.3f);
+    }
     {
         std::scoped_lock lock(g_atkScanMutex);
         g_atkScanValues = values;
@@ -5987,7 +5995,7 @@ void LoadAtkScanConfig() {
     if (!values.empty()) {
         std::ostringstream m;
         m << "ATKSCAN armed: " << values.size()
-          << " expected value(s), 3 scans on the next applied hits";
+          << " expected value(s) (display + /3.3 true-raw), 3 scans";
         Log(m.str());
     }
 }
