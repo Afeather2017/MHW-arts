@@ -3071,6 +3071,15 @@ long long g_lastHitAttacker = 0;
 // hits). DealDamage runs before the refill within one hit (DDART -> GAUGEEVT
 // ordering in the log). True = no verdict yet, vanilla behavior.
 std::atomic<bool> g_lastAppliedTargetMonster{true};
+// Latched in HitDispatchHook (the damage dispatcher's arg2 = the interaction
+// object that FUN_1402c3a60/FUN_1402c1050 feed into the damage formula).
+// Candidate attack reads (2026-10-29 atk hunt): the physical damage branch
+// multiplies MV(ctx+0x34 = atkparam+0x20) by ctx+0x7c which the context
+// builder copies from interaction+0x54 - so float@(interact+0x54) is the
+// effective-attack candidate; player+0x60/+0x64 are the stat getters
+// (0x141216920/0x141216910 = movss [rcx+0x60]/[rcx+0x64]) the fixed-damage
+// types scale with. Game thread only.
+void* g_hitInteract = nullptr;
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
 // become visible against the damage-window timeline.
@@ -3159,6 +3168,18 @@ long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) 
     return g_originalDmgCalc(a1, a2, a3);
 }
 
+// Interaction latch (see g_hitInteract): the dispatcher's arg2 feeds the
+// damage formula downstream, so the candidate attack floats must be read
+// against the SAME hit DealDamage charges.
+using HitDispatchModFn = std::int32_t* (__fastcall*)(std::int64_t*,
+                                                     std::int64_t*);
+HitDispatchModFn g_originalHitDispatchMod = nullptr;
+std::int32_t* __fastcall HitDispatchHookMod(std::int64_t* a1,
+                                            std::int64_t* a2) {
+    g_hitInteract = a2;
+    return g_originalHitDispatchMod(a1, a2);
+}
+
 // Every gauge charge lives here now (2026-10-29(2)): the applied-damage
 // point. arg1 IS the victim em - its monster id at +0x12280 reads exactly
 // (log-proven: one real hit had dmgCalc a2=0xE51F240 vs this em=0x41C2EA1D30,
@@ -3182,13 +3203,38 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
     }
     // First verdicts log the latch quality: a real player hit that ever logs
     // "skip" means the calc -> apply ordering assumption needs revisiting.
+    // atk= block: the attack-field hunt (2026-10-29) - the user reads their
+    // status-screen 攻击力 and reports which candidate tracks it (cand54
+    // should also scale when attack food/skills change it).
     static std::atomic_uint32_t ddLogs{0};
-    if (ddLogs.load(std::memory_order_relaxed) < 8) {
+    if (ddLogs.load(std::memory_order_relaxed) < 12) {
         ddLogs.fetch_add(1, std::memory_order_relaxed);
         std::ostringstream m;
         m << "DDART em=0x" << std::hex << std::uppercase << targetEm << std::dec
           << " id=" << emId << " dmg=" << damage
           << " latch=" << (localAttacker ? "MATCH" : "skip");
+        const float scale = g_artDmgScale.load(std::memory_order_relaxed);
+        m << " dmgScale=" << scale;
+        if (IsReadable(reinterpret_cast<const void*>(localPlayer + 0x60),
+                       sizeof(float) * 2)) {
+            m << " p60=" << *reinterpret_cast<const volatile float*>(
+                             localPlayer + 0x60)
+              << " p64=" << *reinterpret_cast<const volatile float*>(
+                             localPlayer + 0x64);
+        }
+        auto* interact = static_cast<std::uint8_t*>(g_hitInteract);
+        if (interact && IsReadable(interact + 0x54, sizeof(float))) {
+            m << std::fixed << std::setprecision(1)
+              << " cand54=" << *reinterpret_cast<const volatile float*>(
+                                 interact + 0x54);
+        }
+        if (interact && IsReadable(interact + 0xB8, sizeof(void*))) {
+            auto* atkParam = *reinterpret_cast<std::uint8_t**>(interact + 0xB8);
+            if (atkParam && IsReadable(atkParam + 0x20, sizeof(float))) {
+                m << " mv20=" << *reinterpret_cast<const volatile float*>(
+                                     atkParam + 0x20);
+            }
+        }
         Log(m.str());
     }
     if (!localAttacker) {
@@ -3763,6 +3809,14 @@ bool InstallPoolQueryHook() {
         Log("Deal damage hook failed (art gauge charging inactive)");
     } else {
         Log("Deal damage hook installed (art gauge on applied damage)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch]),
+                      reinterpret_cast<void*>(&HitDispatchHookMod),
+                      reinterpret_cast<void**>(&g_originalHitDispatchMod)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch])) != MH_OK) {
+        Log("Hit dispatch hook failed (attack candidate readout inactive)");
+    } else {
+        Log("Hit dispatch hook installed (interaction latch)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),

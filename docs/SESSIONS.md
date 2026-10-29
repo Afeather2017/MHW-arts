@@ -5219,3 +5219,19 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 部署 md5 `ac853959` → `bb590658`。待 user 冷启动验证：大伤害招充得快/小伤害慢/
   弹刀不充；手感不对改标定数或删行 Shift+F6 即回退。下一步（挖到攻击力字段后）：
   标定数换 攻击力×系数 = 配装免疫。
+
+### 2026-10-29(6) 攻击力字段追捕开轮：伤害公式反完，DDART 带候选值待局内收口
+
+- **user 定案**：充能不应按裸伤害，应按 伤害/攻击力；HunterPie 查证=IPlayerStatus.RawDamage
+  接口存在但 World 数据源未实现（只有 Rise/Wilds 实现）→ 自挖。
+- **静态链**（dump 反汇编+反编译）：FUN_1402c3a60(命中处理)→FUN_1402c1050(攻击上下文
+  填充)→FUN_1402bc4a0(公式)：damage = MV(ctx+0x34←atkparam+0x20) × (zone×ctx+0x7c) × …
+  其中 **ctx+0x7c ← interaction+0x54**（物理分支）= 有效攻击力候选；ctx+0x38(固定伤) ←
+  atkparam+0x24（与 memory-map col ATK 行布局吻合）。特殊伤害类型(0x2a/0x2b)走玩家统计
+  getter **0x141216910/20 = movss [rcx+0x64]/[rcx+0x60]**（X=*(damageCtx+0x10)=攻击者）
+  → player+0x60/+0x64 浮点候选。
+- **诊断落地**：mod 版新增 HitDispatchHookMod（锁存 interaction，HkHitDispatch 签名已有），
+  DDART 日志（前 12 条）扩为 `p60= p64= cand54= mv20=`。判定法：user 报状态画面攻击力 →
+  跟随 buff 变化且数值吻合者胜；cand54 应随攻击力 UP 药/猫饭同步变化。
+- 部署 md5 `bb590658` → `ef487b60`。待 user 局内：打怪几下、吃个攻击力 UP 再打几下，
+  把 DDART 行发回；钉死后把 charge-dmg/chargehit-dmg 的标定数升级为 伤害/攻击力×系数。
