@@ -874,7 +874,8 @@ std::uint8_t* FindPattern(const std::uint8_t* pattern, const char* mask, std::si
 enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch,
     HkPropInt, HkPropBool, HkPropFloat,
-    HkGaugeAdd, HkFxNotify, HkNegrEvent, HkCount
+    HkGaugeAdd, HkFxNotify, HkNegrEvent,
+    HkDealDamage, HkCount
 };
 
 struct HookSig {
@@ -952,12 +953,22 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x48, 0x8B, 0xCF, 0xFF, 0x50, 0x08, 0x83, 0xF8, 0x08, 0x0F, 0x85, 0x00,
       0x00, 0x00, 0x00, 0x48, 0x8B, 0x7F, 0x18, 0x48, 0x8B, 0xCF, 0xE8, 0x00},
      "xxxxxxxxxxxxxxxxx????xxxxxxxxxxxxxx????xxxxxxx??", 0x21038B0},
+    // dealDamage = FUN_141cc5f80 = HunterPie's FUN_DEAL_DAMAGE (map 421810,
+    // dump is the same build): the applied-damage entry, fired once per
+    // damage instance with arg1 = victim em (monster id int32 @+0x12280 -
+    // the id compare sits right in the prologue) and arg2 = int damage.
+    // Prologue carries no rel32/rip-relative in 48 bytes - all-exact mask.
+    {{0x48, 0x83, 0xEC, 0x68, 0x83, 0xB9, 0x80, 0x22, 0x01, 0x00, 0x0F, 0x75, 0x59, 0x8B, 0x84, 0x24,
+      0xB0, 0x00, 0x00, 0x00, 0xC6, 0x44, 0x24, 0x50, 0x00, 0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00,
+      0x00, 0x89, 0x44, 0x24, 0x40, 0x0F, 0xB6, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, 0x88, 0x44, 0x24},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x1CC5F80},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch",
     "propInt", "propBool", "propFloat",
     "gaugeAdd", "fxNotify", "negrEvent",
+    "dealDamage",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -2998,10 +3009,12 @@ void NotifyPlayerHitConnected(long long attacker, long long target) {
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    // Non-living targets must not charge anything (2026-10-29): every gauge
-    // below (timerhit/gainhit/art/chargehit + legacy HITCHARGE) sits behind
-    // this gate. HITTGT logs the first verdicts so one session pins whether
-    // a2's em probe lands (monster hits must show a real monster id).
+    // Non-living targets must not charge anything (2026-10-29): everything
+    // still charged here (timerhit/gainhit/chargehit + legacy HITCHARGE)
+    // sits behind this gate. ARTGAIN is charged on the DealDamage hook now,
+    // which reads the exact em id instead of this candidate probe.
+    // HITTGT logs the first verdicts so one session pins whether a2's em
+    // probe lands (monster hits must show a real monster id).
     std::int32_t emId = -1;
     const int verdict = ResolveLargeMonsterTarget(target, &emId);
     if (verdict == 0) {
@@ -3098,28 +3111,8 @@ void NotifyPlayerHitConnected(long long attacker, long long target) {
                     }
                 }
             }
-            // ARTGAIN (战技槽): connected hits charge the external gauge -
-            // exact row wins over the wildcard, whiffs never reach this code.
-            // Capped at 100; the FULL crossing is logged once per fill.
-            if (g_artEnabled.load(std::memory_order_relaxed)) {
-                const float pct = ArtChargePercentFor(actSet, actId);
-                if (pct > 0.0f) {
-                    const float before = g_artGauge.load(std::memory_order_relaxed);
-                    const float next = std::min(100.0f, before + pct);
-                    g_artGauge.store(next, std::memory_order_relaxed);
-                    static std::atomic_uint32_t artGainLogs{0};
-                    const auto n =
-                        artGainLogs.fetch_add(1, std::memory_order_relaxed);
-                    if (n < 8 || (before < 100.0f && next >= 100.0f)) {
-                        std::ostringstream m;
-                        m << "ARTGAIN act=" << actSet << ':' << actId << " +"
-                          << pct << "% gauge=" << static_cast<int>(before + 0.5f)
-                          << "->" << static_cast<int>(next + 0.5f)
-                          << (next >= 100.0f && before < 100.0f ? " FULL" : "");
-                        Log(m.str());
-                    }
-                }
-            }
+            // ARTGAIN moved 2026-10-29 to the DealDamage hook (applied-damage
+            // point, exact em id read): see NotifyArtChargeApplied above.
             // chargehit (2026-10-24 design round 2): the valor charge bar IS
             // the level-drop timer (weapon+0x2374, the user's "气刃值" - the
             // same bar timerhit 3:84 already extended). Connected hits push
@@ -3223,6 +3216,15 @@ void NotifyPlayerHitConnected(long long attacker, long long target) {
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3);
 void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id);
+// FUN_141cc5f80 = HunterPie's DealDamage signature (void, 9 args): applied-
+// damage entry, arg1 = victim em, arg2 = int damage, arg9 = attack id.
+using DealDamageFn = void(__fastcall*)(long long, int, float*, int, int, int,
+                                       int, char, int);
+DealDamageFn g_originalDealDamage = nullptr;
+// The DealDamage signature carries no attacker, so the hit's owner is the
+// attacker latched in DmgCalcHook (the dispatcher runs the calc on every
+// hunter's and monster's hit before the apply). Game thread only.
+long long g_lastHitAttacker = 0;
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
 // become visible against the damage-window timeline.
@@ -3305,9 +3307,84 @@ static void MotionTraceTick(const void* entity) {
     Log(m.str());
 }
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
+    g_lastHitAttacker = a1;  // DealDamageHook reads this as the hit's owner
     NotifyPlayerHitConnected(a1, a2);
     LogHitFrame(a1);
     return g_originalDmgCalc(a1, a2, a3);
+}
+
+// ARTGAIN lives here now (2026-10-29): the applied-damage point. Terrain and
+// destructible gimmicks reach it too and show damage numbers (user report),
+// but their em id at +0x12280 is not a large-monster id, so the exact read
+// (no candidate probing needed - arg1 IS the em) drops them here.
+void NotifyArtChargeApplied(long long targetEm, int damage) {
+    void* controller = g_lockedPlayerController;
+    if (!controller) {
+        return;
+    }
+    const auto localPlayer =
+        reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
+    const bool localAttacker = g_lastHitAttacker == localPlayer;
+    // First verdicts log the latch quality: a real player hit that ever logs
+    // "skip" means the calc -> apply ordering assumption needs revisiting.
+    static std::atomic_uint32_t ddLogs{0};
+    if (ddLogs.load(std::memory_order_relaxed) < 8) {
+        ddLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "DDART em=0x" << std::hex << std::uppercase << targetEm << std::dec
+          << " dmg=" << damage << " latch=" << (localAttacker ? "MATCH" : "skip");
+        Log(m.str());
+    }
+    if (!localAttacker) {
+        return;
+    }
+    std::int32_t emId = -1;
+    if (IsReadable(reinterpret_cast<const void*>(targetEm + 0x12280),
+                   sizeof(std::int32_t))) {
+        emId = *reinterpret_cast<const volatile std::int32_t*>(targetEm + 0x12280);
+    }
+    if (!IsLargeMonsterId(emId)) {
+        g_nonMonsterSkips.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    if (!ModWeaponActive() || !g_artEnabled.load(std::memory_order_relaxed)) {
+        return;
+    }
+    std::int32_t actSet = 0;
+    std::int32_t actId = 0;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (!g_lastLongSwordAction) {
+            return;
+        }
+        actSet = g_lastLongSwordAction->actionSet;
+        actId = g_lastLongSwordAction->actionId;
+    }
+    const float pct = ArtChargePercentFor(actSet, actId);
+    if (pct <= 0.0f) {
+        return;
+    }
+    const float before = g_artGauge.load(std::memory_order_relaxed);
+    const float next = std::min(100.0f, before + pct);
+    g_artGauge.store(next, std::memory_order_relaxed);
+    static std::atomic_uint32_t artGainLogs{0};
+    const auto n = artGainLogs.fetch_add(1, std::memory_order_relaxed);
+    if (n < 8 || (before < 100.0f && next >= 100.0f)) {
+        std::ostringstream m;
+        m << "ARTGAIN act=" << actSet << ':' << actId << " +" << pct
+          << "% dmg=" << damage << " gauge=" << static_cast<int>(before + 0.5f)
+          << "->" << static_cast<int>(next + 0.5f)
+          << (next >= 100.0f && before < 100.0f ? " FULL" : "");
+        Log(m.str());
+    }
+}
+
+void __fastcall DealDamageHook(long long targetEm, int damage, float* position,
+                               int isTenderized, int isCrit, int unk0, int unk1,
+                               char unk2, int attackId) {
+    NotifyArtChargeApplied(targetEm, damage);
+    g_originalDealDamage(targetEm, damage, position, isTenderized, isCrit,
+                         unk0, unk1, unk2, attackId);
 }
 
 #endif
@@ -3654,6 +3731,14 @@ bool InstallPoolQueryHook() {
         Log("Damage calc hook failed (hit charging inactive)");
     } else {
         Log("Damage calc hook installed (hit-based valor charging)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkDealDamage]),
+                      reinterpret_cast<void*>(&DealDamageHook),
+                      reinterpret_cast<void**>(&g_originalDealDamage)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkDealDamage])) != MH_OK) {
+        Log("Deal damage hook failed (art gauge charging inactive)");
+    } else {
+        Log("Deal damage hook installed (art gauge on applied damage)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),

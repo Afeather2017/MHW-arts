@@ -115,8 +115,15 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
 - **字段**：DLL 内 `g_artGauge`（atomic float 0..100，**不占游戏内存**——游戏侧无此系统，
   不复用练气/等级任何槽）。overlay 文字行 `ART n%`（SPIRIT 行下方：充能=蓝，满=绿
   READY）；文字先行，画条是后续里程碑。
-- **充能**：挂 `NotifyPlayerHitConnected`（= gainhit/timerhit 同一个连接命中门，白挥不充）
-  按配置行加量，100 封顶。日志 `ARTGAIN`（满条 crossing 记 FULL）。
+- **充能**：挂 **DealDamage 钩子**（`NotifyArtChargeApplied`，2026-10-29 从 dmgCalc 侧
+  搬家——FUN_141cc5f80 = HunterPie FUN_DEAL_DAMAGE 同一根"伤害落地"函数，9 参签名
+  `void(em* target, int damage, float* pos, isTenderized, isCrit, unk0, unk1, char, attackId)`；
+  arg1=受击 em 直接读 +0x12280 id 过滤（arg1 本身就是 em，无需 dmgCalc 侧的三候选探测），
+  arg2=伤害 int（**按伤害充能的地基，先行接好**），攻击者=dmgCalc 钩子锁存
+  `g_lastHitAttacker`（dispatcher 先 calc 后 apply；DDART 日志盯锁存质量））。
+  按 `ValorGauge.art.txt` charge 行加量，100 封顶。日志 `ARTGAIN`（含 dmg=；
+  满条 crossing 记 FULL）/ `DDART`（前 8 条：em/dmg/锁存）。怪打地形会出伤害数字
+  =同走此函数，靠 id bitset 淘汰；0 伤害/弹刀命中不再充。
 - **目标过滤（2026-10-29，user 报告"打怪物生成的地形也涨条"）**：连接命中充能**只认大型
   怪物目标**。非生命目标（怪物攻击改变地形生成的可破坏地形/木桶/gimmick）同样进 dmgCalc
   命中门——受击体由 hit dispatcher（FUN_141f71960 damage case）从 interaction param_2[3]
@@ -125,9 +132,10 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   保留=照常充**；小型怪 id 不在 bitset 也不充，与 HunterPie 口径一致）。a2 探测顺序
   本体→+0x20→+0x8（em 根/包裹体未完全钉死），全部读不出 = **fail-open 维持旧行为**
   （绝不静默回归；怪物命中若日志显示 fail-open 说明模型要修）。门在 NotifyPlayerHitConnected
-  本地玩家检查之后，**timerhit/gainhit/art/chargehit/旧 HITCHARGE 全在门后**——战技条/
-  勇气条/练气一把过滤。日志 `HITTGT tgt= id= verdict=`（前 16 条；verdict 1=充 0=跳
-  -1=fail-open），计数 `g_nonMonsterSkips`。
+  本地玩家检查之后，**timerhit/gainhit/chargehit/旧 HITCHARGE 仍在门后**（art 已搬到
+  DealDamage 钩子有自己更准的 em 直读门）——战技条之外的一把过滤。日志
+  `HITTGT tgt= id= verdict=`（前 16 条；verdict 1=充 0=跳 -1=fail-open），计数
+  `g_nonMonsterSkips`。
 - **释放闸门（输入侧"user 定案：组合键不进游戏"）**：R+△（键鼠 Ctrl+左键）在游戏内部
   生成 **3:87 请求**（気刃突刺，10-25 输入地图定案）。条 <100 时 DoAction 钩子直接**吞掉**
   该请求（在 tracker 之前 return false）：不落地、不进缓冲、不进 tracker——vanilla 招与

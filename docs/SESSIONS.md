@@ -5149,3 +5149,24 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 部署 md5 `efa2dc7f` → `a6da7295`。待 user 冷启动验证：打大型怪 HITTGT verdict=1
   （id=真怪物 id）+ 战技条照涨；打地形 verdict=0、条不涨。若怪物命中显示 verdict=-1
   fail-open，下一步把 em resolver 0x140a16d00 拉进 sig 补真正的解析调用。
+
+### 2026-10-29(2) art 充能读取点搬到 DealDamage 钩子（按伤害充能地基）
+
+- **user 定案**：FUN_DEAL_DAMAGE 比 dmgCalc 更好——没生命的东西也能打中并**出伤害数字**，
+  说明它们走同一根函数；且充能要改按伤害算，读取点一步到位。
+- **新钩子 HkDealDamage**（FUN_141cc5f80 = HunterPie FUN_DEAL_DAMAGE，dump 与其 map
+  421810 同构建已实证）：9 参 void 签名照抄 HunterPie typedef（em*, int damage, float* pos,
+  BOOL isTenderized, BOOL isCrit, unk0, unk1, char, attackId）。序言 48 字节零通配
+  （`cmp dword [rcx+0x12280], 0xF` 内嵌怪物 id 偏移，无 rel32/rip-rel），sig_check 单点
+  唯一命中，--emit/--verify 全绿（TARGETS 补 dealDamage 条目）。
+- **充能逻辑搬家**：ARTGAIN 块从 NotifyPlayerHitConnected（dmgCalc 门）整体搬到
+  `NotifyArtChargeApplied`：arg1 就是 em → +0x12280 直读 + IsLargeMonsterId，无三候选
+  无 fail-open；arg2=damage 进日志（ARTGAIN 带 dmg=）为下一轮 charge-dmg 语法做地基；
+  攻击者=新增 `g_lastHitAttacker` 锁存（DmgCalcHook 入口记录——DealDamage 无攻击者参数，
+  dispatcher 先 calc 后 apply，DDART 日志前 8 条盯锁存质量）。timerhit/gainhit/chargehit/
+  旧 HITCHARGE 留在 dmgCalc 门（HITTGT 三候选门）不动，少一层重新验证。
+- **行为变化**：0 伤害/弹刀命中不再充（DealDamage 只在伤害落地时发）；多段每段各发一次
+  与原先一致。残留风险：环境伤害（落石砸怪）若不经过 dmgCalc，锁存是上一击的——DDART
+  日志能暴露； HunterPie 链式共存无冲突。
+- 部署 md5 `a6da7295` → `f95d5a24`。待 user 冷启动验证：打怪条照涨（DDART latch=MATCH、
+  ARTGAIN 带 dmg 数值）；打地形/木桶不涨；log 出现 "Deal damage hook installed"。

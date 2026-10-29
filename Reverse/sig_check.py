@@ -20,6 +20,7 @@ TARGETS = {
     "condEval": 0x118BDA0,
     "poolQuery": 0xAEE050,
     "dmgCalc": 0x1F66DD0,
+    "dealDamage": 0x1CC5F80,
     "hitDispatch": 0x1F71960,
     "postEventId": 0x28B8DD0,
     "soundPost": 0x26D4C50,
