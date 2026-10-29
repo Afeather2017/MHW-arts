@@ -117,6 +117,17 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   READY）；文字先行，画条是后续里程碑。
 - **充能**：挂 `NotifyPlayerHitConnected`（= gainhit/timerhit 同一个连接命中门，白挥不充）
   按配置行加量，100 封顶。日志 `ARTGAIN`（满条 crossing 记 FULL）。
+- **目标过滤（2026-10-29，user 报告"打怪物生成的地形也涨条"）**：连接命中充能**只认大型
+  怪物目标**。非生命目标（怪物攻击改变地形生成的可破坏地形/木桶/gimmick）同样进 dmgCalc
+  命中门——受击体由 hit dispatcher（FUN_141f71960 damage case）从 interaction param_2[3]
+  透传成 dmgCalc **a2**。修法=HunterPie 伤害统计同款（Games/World/Damage/Hooks.cpp +
+  WorldUtils.cpp）：em+0x12280 的 int32 怪物 id 查大型怪 bitset（**训练场大桩 id59 特意
+  保留=照常充**；小型怪 id 不在 bitset 也不充，与 HunterPie 口径一致）。a2 探测顺序
+  本体→+0x20→+0x8（em 根/包裹体未完全钉死），全部读不出 = **fail-open 维持旧行为**
+  （绝不静默回归；怪物命中若日志显示 fail-open 说明模型要修）。门在 NotifyPlayerHitConnected
+  本地玩家检查之后，**timerhit/gainhit/art/chargehit/旧 HITCHARGE 全在门后**——战技条/
+  勇气条/练气一把过滤。日志 `HITTGT tgt= id= verdict=`（前 16 条；verdict 1=充 0=跳
+  -1=fail-open），计数 `g_nonMonsterSkips`。
 - **释放闸门（输入侧"user 定案：组合键不进游戏"）**：R+△（键鼠 Ctrl+左键）在游戏内部
   生成 **3:87 请求**（気刃突刺，10-25 输入地图定案）。条 <100 时 DoAction 钩子直接**吞掉**
   该请求（在 tracker 之前 return false）：不落地、不进缓冲、不进 tracker——vanilla 招与

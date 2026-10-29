@@ -2034,7 +2034,10 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
 // for this dispatch. Fires on the game thread at the clang frame.
 // FUN_141f66dd0 = damage calculation entry (3 args). a1 is the ATTACKER
 // entity: its body dereferences a1+0x7D20 (the player mgr pointer), and for
-// player-dealt hits a1 equals the player pointer. The hook is session-wide -
+// player-dealt hits a1 equals the player pointer. a2 is the VICTIM entity -
+// the hit dispatcher (FUN_141f71960, damage case) passes its interaction's
+// param_2[3] straight through as a2; the large-monster target filter reads
+// it (ResolveLargeMonsterTarget below). The hook is session-wide -
 // in multiplayer it fires for every hunter's and monster's connected hits -
 // so the mod filters a1 against the locked local player before charging.
 using DmgCalcFn = long long(__fastcall*)(long long, long long, std::uint32_t*);
@@ -2054,6 +2057,9 @@ long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) 
 // --- Hit-based valor charging -------------------------------------------------
 // Hits from other entities in multiplayer, counted for diagnostics only.
 std::atomic_uint32_t g_hitChargeSkips{0};
+// Connected hits on non-living targets (destructible terrain spawned by
+// monster attacks, barrels, gimmicks), counted for diagnostics only.
+std::atomic_uint32_t g_nonMonsterSkips{0};
 
 // nativePC/plugins/ValorGauge.hit-charge.txt: "<percent>"
 //   >0  charge percent per CONNECTED hit of a whitelisted normal-mode move
@@ -2913,7 +2919,62 @@ static const GaugeRule* ResolveChargeHit(std::int32_t actSet,
     return nullptr;
 }
 
-void NotifyPlayerHitConnected(long long attacker) {
+// Large-monster target filter (2026-10-29): destructible terrain spawned by
+// monster attacks reaches the connected-hit gate like any other hit and was
+// charging every gauge. HunterPie's damage meter solves the same problem with
+// an id bitset on the enemy instance (Games/World/Utils/WorldUtils.cpp; id is
+// int32 @ em+0x12280 - the game's own DealDamage FUN_141cc5f80 reads it right
+// there). Our a2 is the victim entity the dispatcher hands down; whether it
+// is the em itself or a root wrapper is not fully pinned, so the em is probed
+// through candidate offsets and an unreadable layout fails OPEN (charge as
+// before) - only a positively-read non-large-monster id skips charging.
+constexpr std::uint64_t kBigMonsterBitsetLo =
+    0b1110'1000000010'0000000000'1111111111'1111111111'1111111111'1010010011ULL;
+constexpr std::uint64_t kBigMonsterBitsetHi =
+    0b00000000'0000000000'0000000011'1111111111'1110000011'1111111111'111111ULL;
+// Bit 59 (low set) is the training-area large pillar - deliberately counted,
+// the gauge is a combat-zone session state and the pillar must charge.
+
+bool IsLargeMonsterId(std::int32_t id) {
+    if (id < 0) return false;
+    const auto u = static_cast<std::uint32_t>(id);
+    if (u < 64) return (kBigMonsterBitsetLo >> u) & 1ULL;
+    if (u < 128) return (kBigMonsterBitsetHi >> (u - 64)) & 1ULL;
+    return false;
+}
+
+// 1 = target positively identified as a large monster, 0 = positively not
+// (terrain / gimmick / small monster), -1 = em unreadable (fail open). Em
+// probe order: victim itself, victim+0x20 (the module the dispatcher walks
+// for the +0x12278 field), victim+8 (what the DealDamage callers pass).
+int ResolveLargeMonsterTarget(long long victim, std::int32_t* idOut) {
+    if (!victim) return -1;
+    auto* v = reinterpret_cast<const std::uint8_t*>(victim);
+    long long candidates[3] = {victim, 0, 0};
+    if (IsReadable(v + 0x20, sizeof(void*))) {
+        candidates[1] = *reinterpret_cast<const long long*>(v + 0x20);
+    }
+    if (IsReadable(v + 8, sizeof(void*))) {
+        candidates[2] = *reinterpret_cast<const long long*>(v + 8);
+    }
+    bool anyReadable = false;
+    for (long long c : candidates) {
+        if (!c || !IsReadable(reinterpret_cast<const void*>(c + 0x12280),
+                              sizeof(std::int32_t))) {
+            continue;
+        }
+        const auto id = *reinterpret_cast<const volatile std::int32_t*>(
+            c + 0x12280);
+        if (!anyReadable && idOut) {
+            *idOut = id;
+        }
+        anyReadable = true;
+        if (IsLargeMonsterId(id)) return 1;
+    }
+    return anyReadable ? 0 : -1;
+}
+
+void NotifyPlayerHitConnected(long long attacker, long long target) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
         return;
@@ -2935,6 +2996,28 @@ void NotifyPlayerHitConnected(long long attacker) {
     if (!localAttacker) {
         // Another hunter's / monster's / follower's hit: count it, never charge.
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+    // Non-living targets must not charge anything (2026-10-29): every gauge
+    // below (timerhit/gainhit/art/chargehit + legacy HITCHARGE) sits behind
+    // this gate. HITTGT logs the first verdicts so one session pins whether
+    // a2's em probe lands (monster hits must show a real monster id).
+    std::int32_t emId = -1;
+    const int verdict = ResolveLargeMonsterTarget(target, &emId);
+    if (verdict == 0) {
+        g_nonMonsterSkips.fetch_add(1, std::memory_order_relaxed);
+    }
+    static std::atomic_uint32_t hitTgtLogs{0};
+    if (hitTgtLogs.load(std::memory_order_relaxed) < 16) {
+        hitTgtLogs.fetch_add(1, std::memory_order_relaxed);
+        std::ostringstream m;
+        m << "HITTGT tgt=0x" << std::hex << std::uppercase << target << std::dec
+          << " id=" << emId << " verdict=" << verdict
+          << (verdict == 1 ? " charge"
+                           : verdict == 0 ? " skip" : " fail-open");
+        Log(m.str());
+    }
+    if (verdict == 0) {
         return;
     }
     // NOTE: HITATT is NOT a 见切 success signal - the counter slash physically
@@ -3222,7 +3305,7 @@ static void MotionTraceTick(const void* entity) {
     Log(m.str());
 }
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
-    NotifyPlayerHitConnected(a1);
+    NotifyPlayerHitConnected(a1, a2);
     LogHitFrame(a1);
     return g_originalDmgCalc(a1, a2, a3);
 }

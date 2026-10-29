@@ -5125,3 +5125,27 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   行17/25 未动。col md5 `dc5b4bcf` → `76c4798e`，结构校验过（20408B/61names/13banks/59ATK）。
   col 不在 blend 内，无回填问题。待 user 冷启动局内验证。
 - 同日追加 A/B：弹反破坏仍嫌高 → 行49 Part_Modifier 1.5→1.2（MV56 不动），md5 `76c4798e` → 待查新值。
+
+### 2026-10-29 战技条打地形也充能：大型怪物目标过滤落地
+
+- **现象（user 报告）**：攻击非生命目标照样充战技条——怪物攻击改变地形生成的可破坏地形
+  （打中会碎的那类）命中也 +5%。根因：dmgCalc 连接命中门只过滤了攻击者（本地玩家锁），
+  没过滤受击方；充能（战技/勇气 chargehit/练气 gainhit/timerhit）全部只看"连接了没有"。
+- **HunterPie 对照**（E:\MHW-arts\HunterPie 源码）：Games/World/Damage/Hooks.cpp 的
+  DealDamage 钩子第一参=受击目标（Common::Monster，**id int32 @ +0x12280**），
+  `if (!Utils::IsLargeMonster(target->id)) return;` 只统计大型怪——WorldUtils.cpp 两个
+  u64 bitset（低组 bit59=训练场大桩，特意计入）。
+- **逆向链**：本地 dump 与 HunterPie map 421810 同构建（FUN_DEAL_DAMAGE=FUN_141cc5f80
+  在 dump 中存在，其第一参直接读 +0x12280）。我们的 dmgCalc=FUN_141f66dd0（≠HunterPie
+  钩的那个函数，签名不同不能照搬 a1=目标 的结论），调用者=dispatcher FUN_141f71960
+  damage case，**a2=interaction param_2[3]=受击体**直接透传。dispatcher 内可见受击体
+  +0x20 处模块带 +0x12278 指针（em 家族字段）；FUN_141bae4e0 显示游戏用 resolver
+  （func_0x000140a16d00）从实体解析出 em 再读 id——em 根/包裹体关系未完全钉死。
+- **方案**：不引入新钩子，dmgCalc a2 上做三候选探测（本体→+0x20→+0x8）逐个 IsReadable
+  后查 HunterPie bitset；任一候选命中=充，全读得出但都不命中=跳（地形正淘汰），全读不出
+  =**fail-open 照旧充**（模型错了不静默回归，HITTGT 日志一局就能钉死真相）。门在
+  NotifyPlayerHitConnected 本地玩家检查之后、所有充能块之前。日志 `HITTGT`（前 16 条）
+  + `g_nonMonsterSkips` 计数。
+- 部署 md5 `efa2dc7f` → `a6da7295`。待 user 冷启动验证：打大型怪 HITTGT verdict=1
+  （id=真怪物 id）+ 战技条照涨；打地形 verdict=0、条不涨。若怪物命中显示 verdict=-1
+  fail-open，下一步把 em resolver 0x140a16d00 拉进 sig 补真正的解析调用。
