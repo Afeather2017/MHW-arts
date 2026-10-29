@@ -107,17 +107,6 @@ std::atomic_int32_t g_lastObservedSpiritLevel = -1;
 // have to charge exactly the configured row amount.
 std::atomic<float> g_artDmgScale{0.0f};
 std::atomic<float> g_artDmgCap{15.0f};
-// --- attack-field hunt scan (2026-10-29): nativePC/plugins/ValorGauge.atkscan.txt
-// holds the status-screen attack value(s) (one or more floats per line). When
-// armed, the first 3 applied hits scan the player entity, the weapon instance
-// and the w03p param table for floats matching any expected value (tolerance
-// +-3) and log every offset. Pin the field with two attack values (before/
-// after an attack food), then wire 伤害/攻击力 into charge-dmg/chargehit-dmg.
-std::vector<float> g_atkScanValues;
-std::mutex g_atkScanMutex;
-std::atomic_int32_t g_atkScansLeft{0};
-void LoadAtkScanConfig();
-void RunAtkScanOnce(std::uint8_t* player);
 // Defined near the gauge rules (default timerValue = 1.0f there);
 // PollValorLifecycle's valor-exit edge calls it.
 void SetSpiritLevel(std::uint8_t* player, std::uint8_t* weapon,
@@ -3100,15 +3089,6 @@ long long g_lastHitAttacker = 0;
 // hits). DealDamage runs before the refill within one hit (DDART -> GAUGEEVT
 // ordering in the log). True = no verdict yet, vanilla behavior.
 std::atomic<bool> g_lastAppliedTargetMonster{true};
-// Latched in HitDispatchHook (the damage dispatcher's arg2 = the interaction
-// object that FUN_1402c3a60/FUN_1402c1050 feed into the damage formula).
-// Candidate attack reads (2026-10-29 atk hunt): the physical damage branch
-// multiplies MV(ctx+0x34 = atkparam+0x20) by ctx+0x7c which the context
-// builder copies from interaction+0x54 - so float@(interact+0x54) is the
-// effective-attack candidate; player+0x60/+0x64 are the stat getters
-// (0x141216920/0x141216910 = movss [rcx+0x60]/[rcx+0x64]) the fixed-damage
-// types scale with. Game thread only.
-void* g_hitInteract = nullptr;
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
 // become visible against the damage-window timeline.
@@ -3197,24 +3177,11 @@ long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) 
     return g_originalDmgCalc(a1, a2, a3);
 }
 
-// Interaction latch (see g_hitInteract): the dispatcher's arg2 feeds the
-// damage formula downstream, so the candidate attack floats must be read
-// against the SAME hit DealDamage charges.
-using HitDispatchModFn = std::int32_t* (__fastcall*)(std::int64_t*,
-                                                     std::int64_t*);
-HitDispatchModFn g_originalHitDispatchMod = nullptr;
-std::int32_t* __fastcall HitDispatchHookMod(std::int64_t* a1,
-                                            std::int64_t* a2) {
-    g_hitInteract = a2;
-    return g_originalHitDispatchMod(a1, a2);
-}
-
 // Attack-field hunt round 3 (2026-10-29): stop guessing offsets - hook the
 // damage formula itself and dump its attack-context struct (built by
 // FUN_1402c1050) as both float and int views. The UI attack value (user
 // reference: 1366/1399) must appear in here because the formula multiplies
 // it. First 10 formula calls after each (re)load.
-std::atomic_int32_t g_formulaDumpsLeft{10};
 using DmgFormulaFn = void(__fastcall*)(long long, long long*, int, int, int,
                                        float*);
 DmgFormulaFn g_originalDmgFormula = nullptr;
@@ -3226,101 +3193,18 @@ DmgFormulaFn g_originalDmgFormula = nullptr;
 const long long* g_lastFormulaCtx = nullptr;
 void __fastcall DmgFormulaHook(long long context, long long* hitCtx, int a3,
                                int a4, int a5, float* out) {
+    // Keepalive latch only: the atkMV route (charge = damage x MV / (ctx+0x34
+    // x 100), attack cancels exactly) is dormant - 2026-10-29 concluded on
+    // the manual charge-dmg divisor instead. The latch costs one store per
+    // hit and keeps that route one config line away from resurrection.
     g_lastFormulaCtx = hitCtx;
-    if (g_formulaDumpsLeft.load(std::memory_order_relaxed) > 0) {
-        g_formulaDumpsLeft.fetch_sub(1, std::memory_order_relaxed);
-        if (hitCtx && IsReadable(reinterpret_cast<const void*>(hitCtx),
-                                 0x110)) {
-            auto* bytes = reinterpret_cast<const std::uint8_t*>(hitCtx);
-            std::ostringstream mf;
-            mf << "FORMULACTXf";
-            std::ostringstream mi;
-            mi << "FORMULACTXi";
-            for (int off = 0x30; off < 0x110; off += 4) {
-                float v = 0.0f;
-                std::memcpy(&v, bytes + off, 4);
-                std::int32_t i = 0;
-                std::memcpy(&i, bytes + off, 4);
-                if (v != 0.0f && std::fabs(v) < 1.0e6f) {
-                    mf << " " << std::hex << off << std::dec << ":" << v;
-                }
-                if (i != 0) {
-                    mi << " " << std::hex << off << std::dec << ":" << i;
-                }
-            }
-            Log(mf.str());
-            Log(mi.str());
-            // MVPTR probe: the ctx may carry the per-hit atkParam pointer
-            // (its +0x20 = the move's plain MV, e.g. 24 for 踏込斬り). Scan
-            // the ctx pointer fields; log every candidate whose +0x20 float
-            // lands in the MV value range (col: 4..126).
-            std::ostringstream mp;
-            mp << "MVPTR";
-            for (int off = 0; off < 0x40; off += 8) {
-                long long p = 0;
-                std::memcpy(&p, bytes + off, 8);
-                if (p < 0x10000 || p > 0x7FFFFFFEFFFFll) {
-                    continue;
-                }
-                auto* pb = reinterpret_cast<const std::uint8_t*>(p);
-                if (!IsReadable(pb + 0x24, sizeof(float))) {
-                    continue;
-                }
-                const float mv =
-                    *reinterpret_cast<const volatile float*>(pb + 0x20);
-                if (mv > 4.0f && mv < 130.0f) {
-                    mp << " +" << std::hex << off << "->0x" << p << std::dec
-                       << ":mv=" << mv;
-                }
-            }
-            Log(mp.str());
-        }
-    }
     g_originalDmgFormula(context, hitCtx, a3, a4, a5, out);
 }
 
-// Attack-field hunt round 4: FUN_1402c1050's param_1+0x10 (X) is the
-// attacker stats object whose +0x60/+0x64 the game reads for stat-scaled
-// damage types. Dump X's mid-struct floats/int bytes per hit - the combined
-// attack (user ref 1366/1399 display or ~414/424 true) should be in here.
-// Also latch g_lastStatsObj for the final damage/attack divisor.
-const std::uint8_t* g_lastStatsObj = nullptr;
-std::atomic_int32_t g_statsDumpsLeft{10};
-using AtkCtxBuilderFn = void(__fastcall*)(long long, long long, long long);
-AtkCtxBuilderFn g_originalAtkCtxBuilder = nullptr;
-void __fastcall AtkCtxBuilderHook(long long mgr, long long interaction,
-                                  long long outCtx) {
-    const long long stats = *reinterpret_cast<const long long*>(mgr + 0x10);
-    if (stats > 0x10000 &&
-        IsReadable(reinterpret_cast<const void*>(stats), 0x100)) {
-        g_lastStatsObj = reinterpret_cast<const std::uint8_t*>(stats);
-        if (g_statsDumpsLeft.load(std::memory_order_relaxed) > 0) {
-            g_statsDumpsLeft.fetch_sub(1, std::memory_order_relaxed);
-            auto* bytes = reinterpret_cast<const std::uint8_t*>(stats);
-            std::ostringstream mf;
-            mf << "STATSOBJ 0x" << std::hex << stats << std::dec;
-            for (int off = 0x40; off < 0x100; off += 4) {
-                float v = 0.0f;
-                std::memcpy(&v, bytes + off, 4);
-                if (v != 0.0f && std::fabs(v) < 1.0e7f) {
-                    mf << " " << std::hex << off << std::dec << ":" << v;
-                }
-            }
-            std::ostringstream mi;
-            mi << "STATSOBJi";
-            for (int off = 0x40; off < 0x100; off += 4) {
-                std::int32_t i = 0;
-                std::memcpy(&i, bytes + off, 4);
-                if (i != 0) {
-                    mi << " " << std::hex << off << std::dec << ":" << i;
-                }
-            }
-            Log(mf.str());
-            Log(mi.str());
-        }
-    }
-    g_originalAtkCtxBuilder(mgr, interaction, outCtx);
-}
+// Attack-field hunt round 4 retired (2026-10-29): FUN_1402c1050's stats
+// object X (= *(mgr+0x10), read by getters 0x141216910/920 at X+0x64/X+0x60)
+// holds +0x60=300.0/+0x64=1.0 constant - not the combined attack either.
+// Sig stays in sig_check.py (atkCtxBuilder, RVA 0x2C1050) for any revival.
 
 // Every gauge charge lives here now (2026-10-29(2)): the applied-damage
 // point. arg1 IS the victim em - its monster id at +0x12280 reads exactly
@@ -3342,13 +3226,8 @@ void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
     const float critDiv = isCrit ? 1.25f : 1.0f;
     const float dmgNorm =
         static_cast<float>(damage) / critDiv;
-    auto* localPlayerBytes =
-        static_cast<std::uint8_t*>(controller) - 0x61C8;
-    if (g_atkScansLeft.load(std::memory_order_relaxed) > 0) {
-        RunAtkScanOnce(localPlayerBytes);
-    }
-    const auto localPlayer =
-        reinterpret_cast<long long>(localPlayerBytes);
+    const auto localPlayer = reinterpret_cast<long long>(
+        static_cast<std::uint8_t*>(controller) - 0x61C8);
     const bool localAttacker = g_lastHitAttacker == localPlayer;
     std::int32_t emId = -1;
     if (IsReadable(reinterpret_cast<const void*>(targetEm + 0x12280),
@@ -3357,9 +3236,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
     }
     // First verdicts log the latch quality: a real player hit that ever logs
     // "skip" means the calc -> apply ordering assumption needs revisiting.
-    // atk= block: the attack-field hunt (2026-10-29) - the user reads their
-    // status-screen 攻击力 and reports which candidate tracks it (cand54
-    // should also scale when attack food/skills change it).
+    // crit/dmgNorm: the charge damage is crit-normalized (see dmgNorm above).
     static std::atomic_uint32_t ddLogs{0};
     if (ddLogs.load(std::memory_order_relaxed) < 12) {
         ddLogs.fetch_add(1, std::memory_order_relaxed);
@@ -3368,48 +3245,6 @@ void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
           << " id=" << emId << " dmg=" << damage
           << " crit=" << isCrit << " dmgNorm=" << dmgNorm
           << " latch=" << (localAttacker ? "MATCH" : "skip");
-        const float scale = g_artDmgScale.load(std::memory_order_relaxed);
-        m << " dmgScale=" << scale;
-        if (IsReadable(reinterpret_cast<const void*>(localPlayer + 0x60),
-                       sizeof(float) * 2)) {
-            m << " p60=" << *reinterpret_cast<const volatile float*>(
-                             localPlayer + 0x60)
-              << " p64=" << *reinterpret_cast<const volatile float*>(
-                             localPlayer + 0x64);
-        }
-        auto* interact = static_cast<std::uint8_t*>(g_hitInteract);
-        if (interact && IsReadable(interact + 0x54, sizeof(float))) {
-            m << std::fixed << std::setprecision(1)
-              << " cand54=" << *reinterpret_cast<const volatile float*>(
-                                 interact + 0x54);
-        }
-        // The formula's own context (latched in DmgFormulaHook): +0x34 is
-        // the per-hit operand the damage multiplies - if it moves with an
-        // attack buff at a fixed move, it is attack*MV (then attack =
-        // +0x34*100/MV[col]) and the damage/attack charge gets its divisor.
-        if (g_lastFormulaCtx &&
-            IsReadable(reinterpret_cast<const void*>(g_lastFormulaCtx + 4),
-                       sizeof(float))) {
-            m << std::fixed << std::setprecision(1)
-              << " atkMV=" << *reinterpret_cast<const volatile float*>(
-                                 reinterpret_cast<const std::uint8_t*>(
-                                     g_lastFormulaCtx) +
-                                 0x34);
-        }
-        if (interact && IsReadable(interact + 0xB8, sizeof(void*))) {
-            auto* atkParam = *reinterpret_cast<std::uint8_t**>(interact + 0xB8);
-            if (atkParam && IsReadable(atkParam + 0x20, sizeof(float))) {
-                m << " mv20=" << *reinterpret_cast<const volatile float*>(
-                                     atkParam + 0x20);
-            }
-            // The other ctx+0x7c source (FUN_1402c1050 line "param_3+0x7c =
-            // plVar11[0x2b]"): if 158 tracks the UI attack across buffs it
-            // outranks cand54.
-            if (atkParam && IsReadable(atkParam + 0x158, sizeof(float))) {
-                m << " atk158=" << *reinterpret_cast<const volatile float*>(
-                                       atkParam + 0x158);
-            }
-        }
         Log(m.str());
     }
     if (!localAttacker) {
@@ -3985,29 +3820,13 @@ bool InstallPoolQueryHook() {
     } else {
         Log("Deal damage hook installed (art gauge on applied damage)");
     }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch]),
-                      reinterpret_cast<void*>(&HitDispatchHookMod),
-                      reinterpret_cast<void**>(&g_originalHitDispatchMod)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkHitDispatch])) != MH_OK) {
-        Log("Hit dispatch hook failed (attack candidate readout inactive)");
-    } else {
-        Log("Hit dispatch hook installed (interaction latch)");
-    }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkDmgFormula]),
                       reinterpret_cast<void*>(&DmgFormulaHook),
                       reinterpret_cast<void**>(&g_originalDmgFormula)) != MH_OK ||
         MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkDmgFormula])) != MH_OK) {
-        Log("Damage formula hook failed (ctx dump inactive)");
+        Log("Damage formula hook failed (atkMV latch inactive)");
     } else {
-        Log("Damage formula hook installed (ctx dump, 10 hits)");
-    }
-    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkAtkCtxBuilder]),
-                      reinterpret_cast<void*>(&AtkCtxBuilderHook),
-                      reinterpret_cast<void**>(&g_originalAtkCtxBuilder)) != MH_OK ||
-        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkAtkCtxBuilder])) != MH_OK) {
-        Log("Atk ctx builder hook failed (stats dump inactive)");
-    } else {
-        Log("Atk ctx builder hook installed (stats obj dump, 10 hits)");
+        Log("Damage formula hook installed (ctx latch)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),
@@ -6077,117 +5896,6 @@ void LoadArtConfig() {
     Log(m.str());
 }
 
-void LoadAtkScanConfig() {
-    std::vector<float> values;
-    std::ifstream input("nativePC/plugins/ValorGauge.atkscan.txt");
-    std::string line;
-    while (std::getline(input, line)) {
-        const auto hash = line.find('#');
-        if (hash != std::string::npos) {
-            line = line.substr(0, hash);
-        }
-        std::istringstream ss(line);
-        float v = 0.0f;
-        while (ss >> v && values.size() < 8) {
-            values.push_back(v);
-        }
-    }
-    // The UI attack is the DISPLAY value = true raw x weapon multiplier
-    // (Long Sword x3.3, MHW kept the hidden class multipliers). Memory most
-    // likely stores the TRUE raw - scan the display value AND its /3.3 form
-    // (values written into the file are display values).
-    const std::size_t base = values.size();
-    for (std::size_t i = 0; i < base && values.size() < 16; ++i) {
-        values.push_back(values[i] / 3.3f);
-    }
-    {
-        std::scoped_lock lock(g_atkScanMutex);
-        g_atkScanValues = values;
-    }
-    g_atkScansLeft.store(values.empty() ? 0 : 3, std::memory_order_relaxed);
-    if (!values.empty()) {
-        std::ostringstream m;
-        m << "ATKSCAN armed: " << values.size()
-          << " expected value(s) (display + /3.3 true-raw), 3 scans";
-        Log(m.str());
-    }
-}
-
-void RunAtkScanOnce(std::uint8_t* player) {
-    std::vector<float> values;
-    {
-        std::scoped_lock lock(g_atkScanMutex);
-        values = g_atkScanValues;
-    }
-    if (values.empty()) {
-        return;
-    }
-    if (g_atkScansLeft.fetch_sub(1, std::memory_order_relaxed) <= 0) {
-        return;
-    }
-    struct ScanRegion {
-        const char* name;
-        std::uint8_t* base;
-        std::size_t len;
-    };
-    std::vector<ScanRegion> regions;
-    regions.push_back({"player", player, 0x30000});
-    if (IsReadable(player + 0x76B0, sizeof(void*))) {
-        auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-        if (weapon) {
-            regions.push_back({"weapon", weapon, 0x10000});
-        }
-    }
-    if (IsReadable(player + 0x7810, sizeof(void*))) {
-        auto* w03p = *reinterpret_cast<std::uint8_t**>(player + 0x7810);
-        if (w03p) {
-            regions.push_back({"w03p", w03p, 0x4000});
-        }
-    }
-    float vScan = 0.0f;
-    int matches = 0;
-    for (const auto& r : regions) {
-        if (!IsReadable(r.base, 4)) {
-            continue;
-        }
-        for (std::size_t off = 0; off + 4 <= r.len; off += 4) {
-            // Page-granular readability check: a full IsReadable per 4-byte
-            // step is ~36k VirtualQuery calls on the game thread (measured
-            // as a visible hitch 2026-10-29). Pages are the actual mapping
-            // unit, so this is just as safe.
-            if ((off & 0xFFF) == 0 && !IsReadable(r.base + off, 4)) {
-                break;  // mapped run ended
-            }
-            std::memcpy(&vScan, r.base + off, 4);
-            for (float want : values) {
-                const auto wantInt =
-                    static_cast<std::int32_t>(want + 0.5f);
-                std::int32_t asInt = 0;
-                std::memcpy(&asInt, r.base + off, 4);
-                // Match float +-3 (the UI rounds) or int32 exact - the
-                // displayed attack may be stored either way.
-                const bool floatHit =
-                    std::fabs(vScan - want) <= 3.0f;
-                const bool intHit = asInt == wantInt && wantInt > 0;
-                if (floatHit || intHit) {
-                    std::ostringstream m;
-                    m << "ATKSCAN " << r.name << "+0x" << std::hex << off
-                      << std::dec << " = " << vScan << " (want " << want
-                      << (floatHit ? " float" : " int") << ")";
-                    Log(m.str());
-                    ++matches;
-                    break;
-                }
-            }
-            if (matches > 40) {
-                return;
-            }
-        }
-    }
-    std::ostringstream m;
-    m << "ATKSCAN done: " << matches << " match(es)";
-    Log(m.str());
-}
 
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
@@ -6228,7 +5936,6 @@ void LoadForceActionConfig() {
     LoadGaugeLockConfig();
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
-    LoadAtkScanConfig();
     LoadSheathRewriteConfig();
     LoadDrawGang1Config();
     LoadArtConfig();

@@ -124,6 +124,10 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   按 `ValorGauge.art.txt` charge 行加量，100 封顶。**charge-dmg 伤害缩放
   （2026-10-29）**：`charge-dmg <标定伤害> [封顶%]` 生效时额度 ×(伤害÷标定)，封顶截断
   （现行 `charge-dmg 100 15`：100 伤害=原额度 5%，200=10%，cap 15%；伤害 0 不充）。
+  **标定数语义 = 当前显示攻击力÷系数**（user 公式"伤害/1366×K"：1366=武器+药+猫饭组合
+  攻击力，组合值 UI 现算不落地——玩家实体/武器/w03p/公式ctx/属性对象 X 五轮猎捕全空，
+  退场纪律知识留档 sig_check）。**暴击归一化（10-29）**：DealDamage 签名第 5 参 isCrit
+  在手，dmgNorm=damage÷1.25 后进缩放，暴击不再使充能摆动（DDART crit=/dmgNorm= 可验证）。
   日志 `ARTGAIN`（含 dmg=；满条 crossing 记 FULL）/ `DDART`（前 8 条：em/dmg/锁存）。
   怪打地形会出伤害数字=同走此函数，靠 id bitset 淘汰；0 伤害/弹刀命中不再充。
 - **目标过滤（2026-10-29，两轮收敛）**：**所有充能统一挂 DealDamage 钩子的 em 直读门**

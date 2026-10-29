@@ -5334,3 +5334,22 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   漂移吻合斩味变化，采纳；常数项最终折进 K。
 - 部署 md5 `15f84281` → `dacf428f`。待 user 冷启动验证：暴击刀充电与平刀一致
   （DDART crit=1 的 dmgNorm 应≈邻刀 dmg）。
+
+### 2026-10-29(15) 攻击力追捕收官：五轮判负退场 + 暴击归一化落定 + 诊断代码清理
+
+- **追捕总结论**：组合攻击力（1366/1399=武器+药+猫饭）UI 现算不落地。猎捕轨迹：
+  ①玩家/武器/w03p float±3+int32 扫描（含 /3.3 真攻变体）0 命中；②公式 ctx=攻击力×MV×
+  部位伤害中间量（非纯攻击力）；③属性对象 X +0x60=300/+0x64=1.0 恒定；④MVPTR 候选
+  120.588 常量假阳性；⑤cand54=伤害/1.18 无独立信息。sig 全部留档 sig_check.py
+  （atkCtxBuilder 0x2C1050 / dmgFormula 0x2BC4A0 / dealDamage 0x1CC5F80）。
+- **user 定案采纳**：公式=伤害/1366×K，1366 语义=显示攻击力÷系数，进 charge-dmg/
+  chargehit-dmg 标定数（手动更新：换装备/常驻攻击力变化时改一个数）。1.18/1.25 恒定项
+  =锋利度族补正（user 猜想，两 session 漂移吻合），折进 K。
+- **暴击归一化（user 需求）**：isCrit=DealDamage 签名第 5 参（零逆向成本，isTenderized
+  第 4 参亦在），dmgNorm=damage/1.25 进两条伤害缩放路径；DDART 带 crit=/dmgNorm=。
+- **退场纪律执行**：ATKSCAN 扫描器（含 plugins/ValorGauge.atkscan.txt）、FORMULACTX/
+  STATSOBJ/MVPTR dump、DDART 候选字段、HitDispatch 交互锁存钩子全部移除；保留
+  DmgFormulaHook 纯锁存一线（atkMV 路线休眠可复活）。旧 ATK trace 设施（AtkScanThread
+  等，前 session 产物）未动。
+- 部署 md5 `dacf428f` → `26eb95ca`。充电终态：目标过滤（大型怪+木桶 57/58）→ 伤害
+  标定数缩放（暴击归一）→ 封顶；攻击力漂移=手动改标定数。
