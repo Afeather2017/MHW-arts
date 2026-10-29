@@ -5248,3 +5248,15 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 已写入参考值 1366/1399。部署 md5 `ef487b60` → `6f12be17`。待 user：冷启动（或
   Shift+F6）后打 3+ 下怪 → log 发回；若攻击力已变回去，改 atkscan.txt 的值再
   Shift+F6 重扫一次，两轮交集钉死。
+
+### 2026-10-29(8) 扫描 v1 判 0 命中 → v2：int32 双模式 + 页粒度查内存
+
+- **v1 结果**（user 局内）：3 扫全 0 命中（±3 float），卡顿=逐 4 字节 IsReadable
+  ~36k 次 VirtualQuery 在游戏线程。user atkscan.txt 加到 3 个期望值仍 0。
+- **推断**：攻击力不是 float 存在被扫区域——可能 int32 存储、或区域/偏移不够大。
+- **v2**：float ±3 ∪ int32 精确双匹配；区域扩 player 0x30000/weapon 0x10000/w03p
+  0x4000；IsReadable 改页粒度（(off&0xFFF)==0 时才查，36k→40 次，卡顿消除）；
+  DDART 加第二公式源候选 atk158=*(float*)(atkParam+0x158)（ctx+0x7c 的另一来源，
+  若随 UI 攻击力跨 buff 变化则取代 cand54）。
+- 部署 md5 `6f12be17` → `0f533798`。待 user：atkscan.txt 填当前 UI 攻击力 →
+  Shift+F6 → 打 3+ 下 → ATKSCAN 行回传。

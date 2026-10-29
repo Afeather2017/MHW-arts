@@ -3250,6 +3250,13 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
                 m << " mv20=" << *reinterpret_cast<const volatile float*>(
                                      atkParam + 0x20);
             }
+            // The other ctx+0x7c source (FUN_1402c1050 line "param_3+0x7c =
+            // plVar11[0x2b]"): if 158 tracks the UI attack across buffs it
+            // outranks cand54.
+            if (atkParam && IsReadable(atkParam + 0x158, sizeof(float))) {
+                m << " atk158=" << *reinterpret_cast<const volatile float*>(
+                                       atkParam + 0x158);
+            }
         }
         Log(m.str());
     }
@@ -5948,35 +5955,49 @@ void RunAtkScanOnce(std::uint8_t* player) {
         std::size_t len;
     };
     std::vector<ScanRegion> regions;
-    regions.push_back({"player", player, 0x20000});
+    regions.push_back({"player", player, 0x30000});
     if (IsReadable(player + 0x76B0, sizeof(void*))) {
         auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
         if (weapon) {
-            regions.push_back({"weapon", weapon, 0x8000});
+            regions.push_back({"weapon", weapon, 0x10000});
         }
     }
     if (IsReadable(player + 0x7810, sizeof(void*))) {
         auto* w03p = *reinterpret_cast<std::uint8_t**>(player + 0x7810);
         if (w03p) {
-            regions.push_back({"w03p", w03p, 0x2000});
+            regions.push_back({"w03p", w03p, 0x4000});
         }
     }
+    float vScan = 0.0f;
     int matches = 0;
     for (const auto& r : regions) {
         if (!IsReadable(r.base, 4)) {
             continue;
         }
         for (std::size_t off = 0; off + 4 <= r.len; off += 4) {
-            if (!IsReadable(r.base + off, 4)) {
+            // Page-granular readability check: a full IsReadable per 4-byte
+            // step is ~36k VirtualQuery calls on the game thread (measured
+            // as a visible hitch 2026-10-29). Pages are the actual mapping
+            // unit, so this is just as safe.
+            if ((off & 0xFFF) == 0 && !IsReadable(r.base + off, 4)) {
                 break;  // mapped run ended
             }
-            float v = 0.0f;
-            std::memcpy(&v, r.base + off, 4);
+            std::memcpy(&vScan, r.base + off, 4);
             for (float want : values) {
-                if (std::fabs(v - want) <= 3.0f) {
+                const auto wantInt =
+                    static_cast<std::int32_t>(want + 0.5f);
+                std::int32_t asInt = 0;
+                std::memcpy(&asInt, r.base + off, 4);
+                // Match float +-3 (the UI rounds) or int32 exact - the
+                // displayed attack may be stored either way.
+                const bool floatHit =
+                    std::fabs(vScan - want) <= 3.0f;
+                const bool intHit = asInt == wantInt && wantInt > 0;
+                if (floatHit || intHit) {
                     std::ostringstream m;
                     m << "ATKSCAN " << r.name << "+0x" << std::hex << off
-                      << std::dec << " = " << v << " (want " << want << ")";
+                      << std::dec << " = " << vScan << " (want " << want
+                      << (floatHit ? " float" : " int") << ")";
                     Log(m.str());
                     ++matches;
                     break;
