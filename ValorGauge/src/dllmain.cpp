@@ -107,6 +107,17 @@ std::atomic_int32_t g_lastObservedSpiritLevel = -1;
 // have to charge exactly the configured row amount.
 std::atomic<float> g_artDmgScale{0.0f};
 std::atomic<float> g_artDmgCap{15.0f};
+// --- attack-field hunt scan (2026-10-29): nativePC/plugins/ValorGauge.atkscan.txt
+// holds the status-screen attack value(s) (one or more floats per line). When
+// armed, the first 3 applied hits scan the player entity, the weapon instance
+// and the w03p param table for floats matching any expected value (tolerance
+// +-3) and log every offset. Pin the field with two attack values (before/
+// after an attack food), then wire 伤害/攻击力 into charge-dmg/chargehit-dmg.
+std::vector<float> g_atkScanValues;
+std::mutex g_atkScanMutex;
+std::atomic_int32_t g_atkScansLeft{0};
+void LoadAtkScanConfig();
+void RunAtkScanOnce(std::uint8_t* player);
 // Defined near the gauge rules (default timerValue = 1.0f there);
 // PollValorLifecycle's valor-exit edge calls it.
 void SetSpiritLevel(std::uint8_t* player, std::uint8_t* weapon,
@@ -3193,8 +3204,13 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
     if (!controller) {
         return;
     }
+    auto* localPlayerBytes =
+        static_cast<std::uint8_t*>(controller) - 0x61C8;
+    if (g_atkScansLeft.load(std::memory_order_relaxed) > 0) {
+        RunAtkScanOnce(localPlayerBytes);
+    }
     const auto localPlayer =
-        reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
+        reinterpret_cast<long long>(localPlayerBytes);
     const bool localAttacker = g_lastHitAttacker == localPlayer;
     std::int32_t emId = -1;
     if (IsReadable(reinterpret_cast<const void*>(targetEm + 0x12280),
@@ -5886,6 +5902,96 @@ void LoadArtConfig() {
     Log(m.str());
 }
 
+void LoadAtkScanConfig() {
+    std::vector<float> values;
+    std::ifstream input("nativePC/plugins/ValorGauge.atkscan.txt");
+    std::string line;
+    while (std::getline(input, line)) {
+        const auto hash = line.find('#');
+        if (hash != std::string::npos) {
+            line = line.substr(0, hash);
+        }
+        std::istringstream ss(line);
+        float v = 0.0f;
+        while (ss >> v && values.size() < 8) {
+            values.push_back(v);
+        }
+    }
+    {
+        std::scoped_lock lock(g_atkScanMutex);
+        g_atkScanValues = values;
+    }
+    g_atkScansLeft.store(values.empty() ? 0 : 3, std::memory_order_relaxed);
+    if (!values.empty()) {
+        std::ostringstream m;
+        m << "ATKSCAN armed: " << values.size()
+          << " expected value(s), 3 scans on the next applied hits";
+        Log(m.str());
+    }
+}
+
+void RunAtkScanOnce(std::uint8_t* player) {
+    std::vector<float> values;
+    {
+        std::scoped_lock lock(g_atkScanMutex);
+        values = g_atkScanValues;
+    }
+    if (values.empty()) {
+        return;
+    }
+    if (g_atkScansLeft.fetch_sub(1, std::memory_order_relaxed) <= 0) {
+        return;
+    }
+    struct ScanRegion {
+        const char* name;
+        std::uint8_t* base;
+        std::size_t len;
+    };
+    std::vector<ScanRegion> regions;
+    regions.push_back({"player", player, 0x20000});
+    if (IsReadable(player + 0x76B0, sizeof(void*))) {
+        auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+        if (weapon) {
+            regions.push_back({"weapon", weapon, 0x8000});
+        }
+    }
+    if (IsReadable(player + 0x7810, sizeof(void*))) {
+        auto* w03p = *reinterpret_cast<std::uint8_t**>(player + 0x7810);
+        if (w03p) {
+            regions.push_back({"w03p", w03p, 0x2000});
+        }
+    }
+    int matches = 0;
+    for (const auto& r : regions) {
+        if (!IsReadable(r.base, 4)) {
+            continue;
+        }
+        for (std::size_t off = 0; off + 4 <= r.len; off += 4) {
+            if (!IsReadable(r.base + off, 4)) {
+                break;  // mapped run ended
+            }
+            float v = 0.0f;
+            std::memcpy(&v, r.base + off, 4);
+            for (float want : values) {
+                if (std::fabs(v - want) <= 3.0f) {
+                    std::ostringstream m;
+                    m << "ATKSCAN " << r.name << "+0x" << std::hex << off
+                      << std::dec << " = " << v << " (want " << want << ")";
+                    Log(m.str());
+                    ++matches;
+                    break;
+                }
+            }
+            if (matches > 40) {
+                return;
+            }
+        }
+    }
+    std::ostringstream m;
+    m << "ATKSCAN done: " << matches << " match(es)";
+    Log(m.str());
+}
+
 void LoadForceActionConfig() {
     std::ifstream input("nativePC\\plugins\\ValorGauge.force-action.txt");
     std::int32_t set = 0;
@@ -5925,6 +6031,7 @@ void LoadForceActionConfig() {
     LoadGaugeLockConfig();
     LoadGaugeLogConfig();
     LoadGaugeRulesConfig();
+    LoadAtkScanConfig();
     LoadSheathRewriteConfig();
     LoadDrawGang1Config();
     LoadArtConfig();
