@@ -5353,3 +5353,16 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   等，前 session 产物）未动。
 - 部署 md5 `dacf428f` → `26eb95ca`。充电终态：目标过滤（大型怪+木桶 57/58）→ 伤害
   标定数缩放（暴击归一）→ 封顶；攻击力漂移=手动改标定数。
+
+### 2026-10-30 chargehit 暴击乘数（user 定案回归手写行）
+
+- **user 定案**：气刃值充能回归手写 chargehit 行（伤害缩放撤收），加一个参数=暴击触发时
+  额度的乘数。格式对齐说明：user 例"0.3(勇气) 0.01(非勇气)"顺序与现行行相反，保持现行
+  **非勇气在前、勇气在后**，暴击乘数加为第 5 可选参：
+  `chargehit <set> <id>[@prev] <非勇气额度> [勇气额度] [暴击乘数]`。
+- **实现**：GaugeRule.critMult（缺省 1.0），parser 第 5 参（>0 才收），应用在 valor 档位
+  选择与 chargehit-dmg 缩放之后（crit 刀 amount×乘数），日志 GAUGERULE chargehit 加
+  `critx1.1` 标记。chargehit-dmg 行从 live 配置撤收（伤害缩放只保留在战技条 charge-dmg，
+  暴击归一化 dmgNorm 仍在）。
+- 部署 md5 `26eb95ca` → `bff54bea`。待 user 冷启动：给要强化暴击的行手补第 5 参，
+  暴击刀 log 出 critx 标记、充能=额度×乘数。

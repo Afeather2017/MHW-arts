@@ -27,10 +27,11 @@
   木桶 {57,58}（user 定案原版等价）；DealDamage arg2=伤害 int 已进 ARTGAIN 日志=按伤害
   充能地基；**伤害缩放已启用**（`charge-dmg 100 15` / `chargehit-dmg 100 0.30`：
   额度×伤害÷100，删行回固定）。
-  **伤害充能终态（10-29）**：`charge-dmg`/`chargehit-dmg` 标定数=显示攻击力÷系数
-  （user 公式伤害/1366×K；组合攻击力 UI 现算不落地，五轮猎捕判负退场，sig 留
-  sig_check）；暴击归一化 dmgNorm=damage/1.25（isCrit=DealDamage 第 5 参）。
-  部署 DLL md5 `26eb95ca`。
+  **伤害充能终态（10-29/30）**：`charge-dmg` 标定数=显示攻击力÷系数（user 公式
+  伤害/1366×K；组合攻击力 UI 现算不落地，五轮猎捕判负退场，sig 留 sig_check）；
+  暴击归一化 dmgNorm=damage/1.25（isCrit=DealDamage 第 5 参）；**气刃值 10-30 回归
+  手写 chargehit 行（chargehit-dmg 撤收）+ 第 5 可选参暴击乘数**（✅user 验证通过）。
+  部署 DLL md5 `bff54bea`。
   详见 `docs/gauge-valor.md` 战技槽节。
 - **勇气模式 plan B（现行，user 定案，局内验证通过）**：白刃=充能相位，红刃=勇气模式。
   普通/纳刀链命中充勇气条（=等级计时器 0x2374），白刃满条跨域 → DLL `SetSpiritLevel(3)`

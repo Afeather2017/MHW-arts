@@ -233,6 +233,9 @@ bool g_fxKeyWasDown = false;
 //       normal chains, only prev tells them apart). Beats the per-move row;
 //       the chargehit block only runs when some chargehit row (wildcard ok)
 //       matches, keep that row present.
+//   chargehit ... <bar> [valorBar] [critMult] - the optional 5th token
+//       multiplies the amount on CRIT draws (2026-10-30, user format;
+//       absent or 1.0 = no crit bonus).
 //   chargehit-dmg <dmg> [cap] - damage-based scaling (2026-10-29): every
 //       RESOLVED chargehit amount (ctx cell / from default / move row /
 //       wildcard) is applied as amount*damage/<dmg>, capped at <cap> per hit
@@ -256,6 +259,8 @@ struct GaugeRule {
     float rate = 0.0f;      // Regen optional 5th token: override the rate param
     bool hasRate = false;   // (lower = faster; huge = glow without filling)
     std::uint32_t fxId = 0; // Fx: player-emitter effect id (0x prefix accepted)
+    float critMult = 1.0f;  // ChargeHit/ChargeFrom optional 5th token: the
+                            // amount multiplier on crit draws (1.0 = none)
 };
 std::vector<GaugeRule> g_gaugeRules;
 // option regen-freeze 1: while a regen timer is active the gauge never
@@ -2480,6 +2485,11 @@ void LoadGaugeRulesConfig() {
                 rule.b = valor;
                 rule.hasValor = true;
             }
+            // Optional 5th token: crit multiplier (applied on crit draws).
+            float critMult = 0.0f;
+            if (ss >> critMult && critMult > 0.0f) {
+                rule.critMult = critMult;
+            }
         } else if (kind == "chargehit-dmg") {
             // Damage-based valor charging: <damagePerScale> [capBar]. When
             // set, every RESOLVED chargehit amount (any tier incl. ctx/from)
@@ -3382,6 +3392,13 @@ void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
                             g_chargeHitDmgCap.load(std::memory_order_relaxed),
                             amount * dmgNorm / chScale);
                     }
+                    // Per-row crit multiplier: hand-written rows pay a bonus
+                    // on crit draws ("chargehit ... <amt> [valor] [critMult]").
+                    const bool critApplied =
+                        isCrit && rule->critMult != 1.0f;
+                    if (critApplied) {
+                        amount *= rule->critMult;
+                    }
                     auto* timer =
                         reinterpret_cast<volatile float*>(weapon + 0x2374);
                     const float prev = *timer;
@@ -3397,6 +3414,8 @@ void NotifyAppliedHitCharges(long long targetEm, int damage, int isCrit) {
                     std::ostringstream m;
                     m << "GAUGERULE chargehit act=" << actSet << ':'
                       << actId << " +" << amount << (valor ? " (valor)" : "")
+                      << (critApplied ? " critx" : "")
+                      << (critApplied ? std::to_string(rule->critMult) : "")
                       << " dmg=" << damage
                       << " bar=" << prev << "->" << next
                       << " prev=" << prevSet << ':' << prevId
