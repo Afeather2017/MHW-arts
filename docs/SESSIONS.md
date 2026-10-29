@@ -5260,3 +5260,16 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   若随 UI 攻击力跨 buff 变化则取代 cand54）。
 - 部署 md5 `6f12be17` → `0f533798`。待 user：atkscan.txt 填当前 UI 攻击力 →
   Shift+F6 → 打 3+ 下 → ATKSCAN 行回传。
+
+### 2026-10-29(9) 扫描 v2 判 0 → 公式现场 dump 轮
+
+- **v2 结果**：3 扫仍全 0（float±3 ∪ int32，player/weapon/w03p 三区域）→ 判定：
+  组合攻击力 1366/1399 不以单一数值落地（UI 现算），DDART atk158/mv20 组件链读法
+  也全无效（=0）。静态猜偏移路线判负。
+- **v3=钩公式本体**：新 HkDmgFormula = FUN_1402bc4a0（玩家伤害公式，写出 FUN_1402c3030
+  应用的伤害浮点对；sig 0x2BC4A0 48B 零通配唯一命中，TARGETS+json 已同步）。
+  arg2(rdx)=FUN_1402c1050 构建的攻击上下文——公式必乘攻击力，**值必在结构里**。
+  钩内 dump ctx +0x30..0x110 float/int 双视图（FORMULACTXf/FORMULACTXi，每次重载
+  前 10 击）。钉到字段后下一轮把值锁存接进 charge-dmg/chargehit-dmg 的归一化。
+- 部署 md5 `0f533798` → `9cce5b95`。待 user：冷启动打 10 下以内怪，FORMULACTX 两行
+  ×N 组发回（对照 UI 攻击力 1366/1399）。

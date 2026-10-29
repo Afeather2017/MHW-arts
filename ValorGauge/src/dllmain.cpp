@@ -904,7 +904,7 @@ enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch,
     HkPropInt, HkPropBool, HkPropFloat,
     HkGaugeAdd, HkFxNotify, HkNegrEvent,
-    HkDealDamage, HkCount
+    HkDealDamage, HkDmgFormula, HkCount
 };
 
 struct HookSig {
@@ -991,13 +991,21 @@ constexpr HookSig kHookSigs[HkCount] = {
       0xB0, 0x00, 0x00, 0x00, 0xC6, 0x44, 0x24, 0x50, 0x00, 0xC7, 0x44, 0x24, 0x48, 0x00, 0x00, 0x00,
       0x00, 0x89, 0x44, 0x24, 0x40, 0x0F, 0xB6, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00, 0x88, 0x44, 0x24},
      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x1CC5F80},
+    // dmgFormula = FUN_1402bc4a0 = the player damage formula (writes the
+    // damage float pair FUN_1402c3030 applies). arg2 (rdx) = the attack
+    // context struct built by FUN_1402c1050. Prologue has no rel32/rip-rel
+    // in 48 bytes - all-exact mask.
+    {{0x48, 0x8B, 0xC4, 0x44, 0x89, 0x48, 0x20, 0x44, 0x89, 0x40, 0x18, 0x55, 0x53, 0x56, 0x57, 0x41,
+      0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0xB8, 0x48, 0x81, 0xEC, 0x08, 0x01,
+      0x00, 0x00, 0x48, 0x8B, 0x7D, 0x78, 0x48, 0x8B, 0xF2, 0x0F, 0x29, 0x70, 0xA8, 0x4C, 0x8B, 0xF9},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x2BC4A0},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch",
     "propInt", "propBool", "propFloat",
     "gaugeAdd", "fxNotify", "negrEvent",
-    "dealDamage",
+    "dealDamage", "dmgFormula",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -3191,6 +3199,45 @@ std::int32_t* __fastcall HitDispatchHookMod(std::int64_t* a1,
     return g_originalHitDispatchMod(a1, a2);
 }
 
+// Attack-field hunt round 3 (2026-10-29): stop guessing offsets - hook the
+// damage formula itself and dump its attack-context struct (built by
+// FUN_1402c1050) as both float and int views. The UI attack value (user
+// reference: 1366/1399) must appear in here because the formula multiplies
+// it. First 10 formula calls after each (re)load.
+std::atomic_int32_t g_formulaDumpsLeft{10};
+using DmgFormulaFn = void(__fastcall*)(long long, long long*, int, int, int,
+                                       float*);
+DmgFormulaFn g_originalDmgFormula = nullptr;
+void __fastcall DmgFormulaHook(long long context, long long* hitCtx, int a3,
+                               int a4, int a5, float* out) {
+    if (g_formulaDumpsLeft.load(std::memory_order_relaxed) > 0) {
+        g_formulaDumpsLeft.fetch_sub(1, std::memory_order_relaxed);
+        if (hitCtx && IsReadable(reinterpret_cast<const void*>(hitCtx),
+                                 0x110)) {
+            auto* bytes = reinterpret_cast<const std::uint8_t*>(hitCtx);
+            std::ostringstream mf;
+            mf << "FORMULACTXf";
+            std::ostringstream mi;
+            mi << "FORMULACTXi";
+            for (int off = 0x30; off < 0x110; off += 4) {
+                float v = 0.0f;
+                std::memcpy(&v, bytes + off, 4);
+                std::int32_t i = 0;
+                std::memcpy(&i, bytes + off, 4);
+                if (v != 0.0f && std::fabs(v) < 1.0e6f) {
+                    mf << " " << std::hex << off << std::dec << ":" << v;
+                }
+                if (i != 0) {
+                    mi << " " << std::hex << off << std::dec << ":" << i;
+                }
+            }
+            Log(mf.str());
+            Log(mi.str());
+        }
+    }
+    g_originalDmgFormula(context, hitCtx, a3, a4, a5, out);
+}
+
 // Every gauge charge lives here now (2026-10-29(2)): the applied-damage
 // point. arg1 IS the victim em - its monster id at +0x12280 reads exactly
 // (log-proven: one real hit had dmgCalc a2=0xE51F240 vs this em=0x41C2EA1D30,
@@ -3840,6 +3887,14 @@ bool InstallPoolQueryHook() {
         Log("Hit dispatch hook failed (attack candidate readout inactive)");
     } else {
         Log("Hit dispatch hook installed (interaction latch)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkDmgFormula]),
+                      reinterpret_cast<void*>(&DmgFormulaHook),
+                      reinterpret_cast<void**>(&g_originalDmgFormula)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkDmgFormula])) != MH_OK) {
+        Log("Damage formula hook failed (ctx dump inactive)");
+    } else {
+        Log("Damage formula hook installed (ctx dump, 10 hits)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),
