@@ -3208,8 +3208,15 @@ std::atomic_int32_t g_formulaDumpsLeft{10};
 using DmgFormulaFn = void(__fastcall*)(long long, long long*, int, int, int,
                                        float*);
 DmgFormulaFn g_originalDmgFormula = nullptr;
+// Latched per hit: the formula's attack context. Field +0x34 read ~131-212
+// and varies per move - either pure MV or attack*MV/100 (decide by the
+// food-buff test: same move, before/after an attack change, +34 moves
+// proportionally = attack-bearing). DealDamage runs AFTER the formula, so
+// the latch is fresh when the charge reads it. Game thread only.
+const long long* g_lastFormulaCtx = nullptr;
 void __fastcall DmgFormulaHook(long long context, long long* hitCtx, int a3,
                                int a4, int a5, float* out) {
+    g_lastFormulaCtx = hitCtx;
     if (g_formulaDumpsLeft.load(std::memory_order_relaxed) > 0) {
         g_formulaDumpsLeft.fetch_sub(1, std::memory_order_relaxed);
         if (hitCtx && IsReadable(reinterpret_cast<const void*>(hitCtx),
@@ -3290,6 +3297,19 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
             m << std::fixed << std::setprecision(1)
               << " cand54=" << *reinterpret_cast<const volatile float*>(
                                  interact + 0x54);
+        }
+        // The formula's own context (latched in DmgFormulaHook): +0x34 is
+        // the per-hit operand the damage multiplies - if it moves with an
+        // attack buff at a fixed move, it is attack*MV (then attack =
+        // +0x34*100/MV[col]) and the damage/attack charge gets its divisor.
+        if (g_lastFormulaCtx &&
+            IsReadable(reinterpret_cast<const void*>(g_lastFormulaCtx + 4),
+                       sizeof(float))) {
+            m << std::fixed << std::setprecision(1)
+              << " atkMV=" << *reinterpret_cast<const volatile float*>(
+                                 reinterpret_cast<const std::uint8_t*>(
+                                     g_lastFormulaCtx) +
+                                 0x34);
         }
         if (interact && IsReadable(interact + 0xB8, sizeof(void*))) {
             auto* atkParam = *reinterpret_cast<std::uint8_t**>(interact + 0xB8);
