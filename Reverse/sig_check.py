@@ -22,6 +22,7 @@ TARGETS = {
     "dmgCalc": 0x1F66DD0,
     "dealDamage": 0x1CC5F80,
     "dmgFormula": 0x2BC4A0,
+    "atkCtxBuilder": 0x2C1050,
     "hitDispatch": 0x1F71960,
     "postEventId": 0x28B8DD0,
     "soundPost": 0x26D4C50,

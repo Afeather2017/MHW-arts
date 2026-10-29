@@ -904,7 +904,7 @@ enum HookId {
     HkCondEval, HkPoolQuery, HkDmgCalc, HkHitDispatch,
     HkPropInt, HkPropBool, HkPropFloat,
     HkGaugeAdd, HkFxNotify, HkNegrEvent,
-    HkDealDamage, HkDmgFormula, HkCount
+    HkDealDamage, HkDmgFormula, HkAtkCtxBuilder, HkCount
 };
 
 struct HookSig {
@@ -999,13 +999,23 @@ constexpr HookSig kHookSigs[HkCount] = {
       0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57, 0x48, 0x8D, 0x68, 0xB8, 0x48, 0x81, 0xEC, 0x08, 0x01,
       0x00, 0x00, 0x48, 0x8B, 0x7D, 0x78, 0x48, 0x8B, 0xF2, 0x0F, 0x29, 0x70, 0xA8, 0x4C, 0x8B, 0xF9},
      "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x2BC4A0},
+    // atkCtxBuilder = FUN_1402c1050 = the attack-context builder. Its
+    // param_1+0x10 is the attacker's STATS object (X) - the fixed-damage
+    // getters (0x141216910/920) read float@X+0x64 / float@X+0x60, and X is
+    // a dedicated stats component the earlier player/weapon/w03p scans never
+    // covered. Dumping X is where the combined attack (user ref 1366/1399)
+    // should finally show up.
+    {{0x48, 0x8B, 0xC4, 0x55, 0x57, 0x48, 0x8D, 0xA8, 0x58, 0xFE, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0x98,
+      0x02, 0x00, 0x00, 0x48, 0x89, 0x58, 0x10, 0x49, 0x8B, 0xF8, 0x48, 0x89, 0x70, 0x18, 0x4C, 0x89,
+      0x60, 0x20, 0x4C, 0x89, 0x68, 0xE8, 0x4C, 0x8B, 0xEA, 0x4C, 0x89, 0x70, 0xE0, 0x4C, 0x8B, 0xF1},
+     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 0x2C1050},
 };
 
 const char* const kHookNames[HkCount] = {
     "condEval", "poolQuery", "dmgCalc", "hitDispatch",
     "propInt", "propBool", "propFloat",
     "gaugeAdd", "fxNotify", "negrEvent",
-    "dealDamage", "dmgFormula",
+    "dealDamage", "dmgFormula", "atkCtxBuilder",
 };
 
 std::uintptr_t g_hookAddr[HkCount] = {};
@@ -3269,6 +3279,49 @@ void __fastcall DmgFormulaHook(long long context, long long* hitCtx, int a3,
     g_originalDmgFormula(context, hitCtx, a3, a4, a5, out);
 }
 
+// Attack-field hunt round 4: FUN_1402c1050's param_1+0x10 (X) is the
+// attacker stats object whose +0x60/+0x64 the game reads for stat-scaled
+// damage types. Dump X's mid-struct floats/int bytes per hit - the combined
+// attack (user ref 1366/1399 display or ~414/424 true) should be in here.
+// Also latch g_lastStatsObj for the final damage/attack divisor.
+const std::uint8_t* g_lastStatsObj = nullptr;
+std::atomic_int32_t g_statsDumpsLeft{10};
+using AtkCtxBuilderFn = void(__fastcall*)(long long, long long, long long);
+AtkCtxBuilderFn g_originalAtkCtxBuilder = nullptr;
+void __fastcall AtkCtxBuilderHook(long long mgr, long long interaction,
+                                  long long outCtx) {
+    const long long stats = *reinterpret_cast<const long long*>(mgr + 0x10);
+    if (stats > 0x10000 &&
+        IsReadable(reinterpret_cast<const void*>(stats), 0x100)) {
+        g_lastStatsObj = reinterpret_cast<const std::uint8_t*>(stats);
+        if (g_statsDumpsLeft.load(std::memory_order_relaxed) > 0) {
+            g_statsDumpsLeft.fetch_sub(1, std::memory_order_relaxed);
+            auto* bytes = reinterpret_cast<const std::uint8_t*>(stats);
+            std::ostringstream mf;
+            mf << "STATSOBJ 0x" << std::hex << stats << std::dec;
+            for (int off = 0x40; off < 0x100; off += 4) {
+                float v = 0.0f;
+                std::memcpy(&v, bytes + off, 4);
+                if (v != 0.0f && std::fabs(v) < 1.0e7f) {
+                    mf << " " << std::hex << off << std::dec << ":" << v;
+                }
+            }
+            std::ostringstream mi;
+            mi << "STATSOBJi";
+            for (int off = 0x40; off < 0x100; off += 4) {
+                std::int32_t i = 0;
+                std::memcpy(&i, bytes + off, 4);
+                if (i != 0) {
+                    mi << " " << std::hex << off << std::dec << ":" << i;
+                }
+            }
+            Log(mf.str());
+            Log(mi.str());
+        }
+    }
+    g_originalAtkCtxBuilder(mgr, interaction, outCtx);
+}
+
 // Every gauge charge lives here now (2026-10-29(2)): the applied-damage
 // point. arg1 IS the victim em - its monster id at +0x12280 reads exactly
 // (log-proven: one real hit had dmgCalc a2=0xE51F240 vs this em=0x41C2EA1D30,
@@ -3939,6 +3992,14 @@ bool InstallPoolQueryHook() {
         Log("Damage formula hook failed (ctx dump inactive)");
     } else {
         Log("Damage formula hook installed (ctx dump, 10 hits)");
+    }
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkAtkCtxBuilder]),
+                      reinterpret_cast<void*>(&AtkCtxBuilderHook),
+                      reinterpret_cast<void**>(&g_originalAtkCtxBuilder)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkAtkCtxBuilder])) != MH_OK) {
+        Log("Atk ctx builder hook failed (stats dump inactive)");
+    } else {
+        Log("Atk ctx builder hook installed (stats obj dump, 10 hits)");
     }
     if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkGaugeAdd]),
                       reinterpret_cast<void*>(&GaugeAddHook),
