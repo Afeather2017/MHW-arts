@@ -2045,10 +2045,12 @@ float __fastcall Aee050Hook(void* pool, int reactionType) {
 // for this dispatch. Fires on the game thread at the clang frame.
 // FUN_141f66dd0 = damage calculation entry (3 args). a1 is the ATTACKER
 // entity: its body dereferences a1+0x7D20 (the player mgr pointer), and for
-// player-dealt hits a1 equals the player pointer. a2 is the VICTIM entity -
-// the hit dispatcher (FUN_141f71960, damage case) passes its interaction's
-// param_2[3] straight through as a2; the large-monster target filter reads
-// it (ResolveLargeMonsterTarget below). The hook is session-wide -
+// player-dealt hits a1 equals the player pointer. a2 is a small per-hit
+// victim CONTEXT object handed down by the dispatcher (FUN_141f71960 damage
+// case passes its interaction's param_2[3]) - log-proven NOT the enemy em
+// (one real monster hit: a2=0xE51F240 vs DealDamage em=0x41C2EA1D30), which
+// is why target filtering never worked from here and moved to the
+// DealDamage hook. The hook is session-wide -
 // in multiplayer it fires for every hunter's and monster's connected hits -
 // so the mod filters a1 against the locked local player before charging.
 using DmgCalcFn = long long(__fastcall*)(long long, long long, std::uint32_t*);
@@ -2149,6 +2151,8 @@ void LoadGaugeLogConfig() {
 // the caller RVA + pending-cost slot + current action; one session maps the
 // whole move->gauge table. Rate-capped at 40 lines/s. Rewrite rules (local
 // player only) replace the delta before the original runs.
+// Defined with the DealDamage hook below; set per applied hit there.
+extern std::atomic<bool> g_lastAppliedTargetMonster;
 float __fastcall GaugeAddHook(void* weapon, float value) {
     void* returnAddress = _ReturnAddress();
     const std::uintptr_t callerRva =
@@ -2225,6 +2229,24 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
             takeoverLogs.fetch_add(1, std::memory_order_relaxed);
             std::ostringstream m;
             m << "GAUGERULE takeover: suppressed native gain +" << value
+              << " (act " << actSet << ':' << actId << ')';
+            Log(m.str());
+        }
+        value = 0.0f;
+    }
+    // Monster-only native refill (2026-10-29): the same +0x2124f13 caller
+    // also fires for terrain/gimmick applied hits and the user watches the
+    // red bar climb on them. Zero it whenever the last applied hit (DealDamage
+    // latch) was not a large monster. Costs (negative), the 见切 refill
+    // (different caller) and explicit rewrites above pass untouched.
+    if (own && !rewritten && value > 0.0f && !g_lastAppliedTargetMonster.load(
+                                                     std::memory_order_relaxed) &&
+        callerRva != 0 && callerRva == g_timlGainCallerRva) {
+        static std::atomic_uint32_t terrainGainLogs{0};
+        if (terrainGainLogs.load(std::memory_order_relaxed) < 40) {
+            terrainGainLogs.fetch_add(1, std::memory_order_relaxed);
+            std::ostringstream m;
+            m << "GAUGERULE terrain: suppressed native gain +" << value
               << " (act " << actSet << ':' << actId << ')';
             Log(m.str());
         }
@@ -2931,14 +2953,15 @@ static const GaugeRule* ResolveChargeHit(std::int32_t actSet,
 }
 
 // Large-monster target filter (2026-10-29): destructible terrain spawned by
-// monster attacks reaches the connected-hit gate like any other hit and was
+// monster attacks reaches every charging gate like any other hit and was
 // charging every gauge. HunterPie's damage meter solves the same problem with
 // an id bitset on the enemy instance (Games/World/Utils/WorldUtils.cpp; id is
-// int32 @ em+0x12280 - the game's own DealDamage FUN_141cc5f80 reads it right
-// there). Our a2 is the victim entity the dispatcher hands down; whether it
-// is the em itself or a root wrapper is not fully pinned, so the em is probed
-// through candidate offsets and an unreadable layout fails OPEN (charge as
-// before) - only a positively-read non-large-monster id skips charging.
+// int32 @ em+0x12280 - the game's own DealDamage FUN_141cc5f80 receives the
+// em as arg1 and compares it right in the prologue). All charging therefore
+// lives behind the DealDamage hook, where the em is exact - probing it from
+// the dmgCalc victim object failed in-game (log 2026-10-29: a2 is a small
+// victim context object, NOT the em - one real monster hit logged a2=0xE51F240
+// vs em=0x41C2EA1D30 - and candidate reads flipped verdicts hit to hit).
 constexpr std::uint64_t kBigMonsterBitsetLo =
     0b1110'1000000010'0000000000'1111111111'1111111111'1111111111'1010010011ULL;
 constexpr std::uint64_t kBigMonsterBitsetHi =
@@ -2954,38 +2977,7 @@ bool IsLargeMonsterId(std::int32_t id) {
     return false;
 }
 
-// 1 = target positively identified as a large monster, 0 = positively not
-// (terrain / gimmick / small monster), -1 = em unreadable (fail open). Em
-// probe order: victim itself, victim+0x20 (the module the dispatcher walks
-// for the +0x12278 field), victim+8 (what the DealDamage callers pass).
-int ResolveLargeMonsterTarget(long long victim, std::int32_t* idOut) {
-    if (!victim) return -1;
-    auto* v = reinterpret_cast<const std::uint8_t*>(victim);
-    long long candidates[3] = {victim, 0, 0};
-    if (IsReadable(v + 0x20, sizeof(void*))) {
-        candidates[1] = *reinterpret_cast<const long long*>(v + 0x20);
-    }
-    if (IsReadable(v + 8, sizeof(void*))) {
-        candidates[2] = *reinterpret_cast<const long long*>(v + 8);
-    }
-    bool anyReadable = false;
-    for (long long c : candidates) {
-        if (!c || !IsReadable(reinterpret_cast<const void*>(c + 0x12280),
-                              sizeof(std::int32_t))) {
-            continue;
-        }
-        const auto id = *reinterpret_cast<const volatile std::int32_t*>(
-            c + 0x12280);
-        if (!anyReadable && idOut) {
-            *idOut = id;
-        }
-        anyReadable = true;
-        if (IsLargeMonsterId(id)) return 1;
-    }
-    return anyReadable ? 0 : -1;
-}
-
-void NotifyPlayerHitConnected(long long attacker, long long target) {
+void NotifyPlayerHitConnected(long long attacker) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
         return;
@@ -3009,209 +3001,14 @@ void NotifyPlayerHitConnected(long long attacker, long long target) {
         g_hitChargeSkips.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    // Non-living targets must not charge anything (2026-10-29): everything
-    // still charged here (timerhit/gainhit/chargehit + legacy HITCHARGE)
-    // sits behind this gate. ARTGAIN is charged on the DealDamage hook now,
-    // which reads the exact em id instead of this candidate probe.
-    // HITTGT logs the first verdicts so one session pins whether a2's em
-    // probe lands (monster hits must show a real monster id).
-    std::int32_t emId = -1;
-    const int verdict = ResolveLargeMonsterTarget(target, &emId);
-    if (verdict == 0) {
-        g_nonMonsterSkips.fetch_add(1, std::memory_order_relaxed);
-    }
-    static std::atomic_uint32_t hitTgtLogs{0};
-    if (hitTgtLogs.load(std::memory_order_relaxed) < 16) {
-        hitTgtLogs.fetch_add(1, std::memory_order_relaxed);
-        std::ostringstream m;
-        m << "HITTGT tgt=0x" << std::hex << std::uppercase << target << std::dec
-          << " id=" << emId << " verdict=" << verdict
-          << (verdict == 1 ? " charge"
-                           : verdict == 0 ? " skip" : " fail-open");
-        Log(m.str());
-    }
-    if (verdict == 0) {
-        return;
-    }
     // NOTE: HITATT is NOT a 见切 success signal - the counter slash physically
     // connects whether or not the parry happened, and un-guarding on it let
     // the vanilla whiff clear through (user-tested: still cleared). The real
     // success latch is event bit 15, checked in PollGang1GaugeScope.
-    // timerhit rules: connected hits of the current action extend the
-    // level-drop countdown. Independent of the valor-charge gates below so
-    // it also runs in valor mode / with charging off.
-    if (!g_gaugeRules.empty() && ModWeaponActive()) {
-        std::int32_t actSet = 0;
-        std::int32_t actId = 0;
-        bool hasAct = false;
-        {
-            std::scoped_lock lock(g_actionMutex);
-            if (g_lastLongSwordAction) {
-                actSet = g_lastLongSwordAction->actionSet;
-                actId = g_lastLongSwordAction->actionId;
-                hasAct = true;
-            }
-        }
-        if (hasAct && actSet == 3) {
-            if (const auto* rule =
-                    FindGaugeRuleLoose(GaugeRule::Type::TimerHit, actSet, actId)) {
-                ExtendLevelDropTimer(
-                    static_cast<std::uint8_t*>(controller) - 0x61C8, rule->a,
-                    actSet, actId, true);
-            }
-            // gainhit: the connected-hit gate is upstream (this only runs for
-            // the local player's landed hits), so the amount goes straight
-            // through the accumulator. gainhit feeds the 练气 gauge (0x2368,
-            // the RED vanilla spirit bar) only - the 76/77 rows keep the
-            // 刚1 gauge gate topped up. The
-            // round-1 valor-entry logic (level-0 conversion, full-gauge
-            // promotion) was removed 2026-10-25: valor entry is exclusively
-            // the charge-bar crossover in the chargehit/chargestart paths.
-            if (const auto* gain =
-                    FindGaugeRuleLoose(GaugeRule::Type::GainHit, actSet, actId)) {
-                auto* player =
-                    static_cast<std::uint8_t*>(controller) - 0x61C8;
-                auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-                if (weapon && g_originalGaugeAdd &&
-                    IsReadable(weapon + 0x2368, sizeof(float)) &&
-                    IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
-                    *reinterpret_cast<const volatile std::uint32_t*>(
-                        weapon + 0x9F8) ==
-                        g_modWeaponType.load(std::memory_order_relaxed)) {
-                    const auto level =
-                        *reinterpret_cast<const volatile std::int32_t*>(
-                            weapon + 0x2370);
-                    // Defense in depth: only touch sane levels (struct-shift
-                    // alarm would read garbage).
-                    if (level >= 0 && level <= 3) {
-                        const bool valor = level >= 3;
-                        const float amount =
-                            (gain->hasValor && valor) ? gain->b : gain->a;
-                        const float before = *reinterpret_cast<volatile float*>(
-                            weapon + 0x2368);
-                        g_originalGaugeAdd(weapon, amount);
-                        // The 刚1 guard tail reverts ANY drift from its expected
-                        // gauge - including accumulator-confirmed positives (that
-                        // policy is what suppresses the 见切 refill). Account for
-                        // our own addition so counter-chain hits keep their gain.
-                        if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
-                            const float e =
-                                g_gang1Expected.load(std::memory_order_relaxed);
-                            g_gang1Expected.store(
-                                std::clamp(e + amount, 0.0f, 1.0f),
-                                std::memory_order_relaxed);
-                        }
-                        const float after = *reinterpret_cast<volatile float*>(
-                            weapon + 0x2368);
-                        std::ostringstream m;
-                        m << "GAUGERULE gainhit act=" << actSet << ':' << actId
-                          << " +" << amount << (valor ? " (valor)" : "")
-                          << " gauge=" << before << "->" << after;
-                        Log(m.str());
-                    }
-                }
-            }
-            // ARTGAIN moved 2026-10-29 to the DealDamage hook (applied-damage
-            // point, exact em id read): see NotifyArtChargeApplied above.
-            // chargehit (2026-10-24 design round 2): the valor charge bar IS
-            // the level-drop timer (weapon+0x2374, the user's "气刃值" - the
-            // same bar timerhit 3:84 already extended). Connected hits push
-            // the bar up by <amount> (optional 4th token = the amount in
-            // valor mode); a charge that CROSSES into full while WHITE
-            // promotes straight to RED = valor entry (2026-10-25 plan B:
-            // white = charge phase, red = valor mode - the FSM gates valor
-            // branches on the registered オーラレベル赤以上, driven by the
-            // SetSpiritLevel recipe; no registered "yellow over" property
-            // exists). Entering white always starts the bar near empty
-            // (PollValorLifecycle folds the red-exit drop and the yellow/red
-            // -> white drop, the level-0 conversion here handles 未开刃), so
-            // "full" is only reachable by hitting. The 练气 gauge (0x2368)
-            // stays 100% vanilla.
-            // chargehit (2026-10-25 matrix redesign): the previous action
-            // comes from the game's own controller record (+0xC4/+0xC8,
-            // written at the real transition - buffered accepts don't touch
-            // it). ResolveChargeHit picks ctx-cell > from-default > move-row
-            // > wildcard so 勇气纳刀后接的招式 can carry per-move amounts
-            // (MHGU: every stance exit has its own gauge gain).
-            const char* tier = nullptr;
-            std::int32_t prevSet = -1;
-            std::int32_t prevId = -1;
-            if (IsReadable(controller, 0xD0)) {
-                prevSet = *reinterpret_cast<const volatile std::int32_t*>(
-                    static_cast<std::uint8_t*>(controller) + 0xC4);
-                prevId = *reinterpret_cast<const volatile std::int32_t*>(
-                    static_cast<std::uint8_t*>(controller) + 0xC8);
-            }
-            if (const auto* rule = ResolveChargeHit(actSet, actId, prevSet,
-                                                    prevId, &tier)) {
-                auto* player =
-                    static_cast<std::uint8_t*>(controller) - 0x61C8;
-                auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
-                if (weapon && IsReadable(weapon + 0x2374, sizeof(float)) &&
-                    IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
-                    *reinterpret_cast<const volatile std::uint32_t*>(
-                        weapon + 0x9F8) ==
-                        g_modWeaponType.load(std::memory_order_relaxed)) {
-                    const auto level =
-                        *reinterpret_cast<const volatile std::int32_t*>(
-                            weapon + 0x2370);
-                    if (level >= 0 && level <= 3) {
-                        if (level == 0) {
-                            // 未开刃 -> 白刃, charge bar starts near empty.
-                            SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
-                        }
-                        const bool valor = level >= 3;
-                        const float amount =
-                            (rule->hasValor && valor) ? rule->b : rule->a;
-                        auto* timer =
-                            reinterpret_cast<volatile float*>(weapon + 0x2374);
-                        const float prev = *timer;
-                        const float next = std::min(1.0f, prev + amount);
-                        *timer = next;
-                        // Crossing into full is what promotes - an already-
-                        // full bar (fresh red) never re-fires.
-                        if (next >= 0.999f && prev < 0.999f &&
-                            *reinterpret_cast<const volatile std::int32_t*>(
-                                weapon + 0x2370) == 1) {
-                            SetSpiritLevel(player, weapon, 3, "charge-full");
-                        }
-                        std::ostringstream m;
-                        m << "GAUGERULE chargehit act=" << actSet << ':'
-                          << actId << " +" << amount << (valor ? " (valor)" : "")
-                          << " bar=" << prev << "->" << next
-                          << " prev=" << prevSet << ':' << prevId
-                          << " tier=" << tier;
-                        Log(m.str());
-                    }
-                }
-            }
-        }
-    }
-    const int percent = g_hitChargePercent.load(std::memory_order_relaxed);
-    if (percent <= 0 || g_valorMode.load(std::memory_order_relaxed) || !ModWeaponActive()) {
-        return;
-    }
-    if (!LockedPlayerActionChargesValor()) {
-        return;
-    }
-    const auto oldCharge = g_valorCharge.load();
-    const auto newCharge = static_cast<std::uint32_t>(
-        std::min(100, static_cast<int>(oldCharge) + percent));
-    if (newCharge == oldCharge) {
-        return;
-    }
-    g_valorCharge = newCharge;
-    static std::atomic_uint32_t hitChargeLogs{0};
-    if (hitChargeLogs.load(std::memory_order_relaxed) < 64) {
-        hitChargeLogs.fetch_add(1, std::memory_order_relaxed);
-        std::ostringstream m;
-        m << "HITCHARGE " << oldCharge << "% -> " << newCharge << "% (+" << percent << ") attacker=0x"
-          << std::hex << std::uppercase << attacker;
-        Log(m.str());
-    }
-    if (newCharge == 100) {
-        ActivateValorMode(controller);
-    }
+    // Charging moved 2026-10-29(2): every gauge charge (timerhit/gainhit/
+    // chargehit/legacy) now runs behind the DealDamage hook's exact em filter
+    // (NotifyAppliedHitCharges below). The dmgCalc victim object (a2) proved
+    // unusable for target filtering - see the IsLargeMonsterId comment block.
 }
 
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3);
@@ -3225,6 +3022,13 @@ DealDamageFn g_originalDealDamage = nullptr;
 // attacker latched in DmgCalcHook (the dispatcher runs the calc on every
 // hunter's and monster's hit before the apply). Game thread only.
 long long g_lastHitAttacker = 0;
+// Set by the DealDamage hook for every applied hit: was the victim a large
+// monster? The native spirit-gauge refill (GaugeAddHook, +0x2124f13 caller)
+// reads this to stay monster-only - the game refills 0x2368 for ANY applied
+// damage, terrain included (log-proven: GAUGEEVT val=0.26 behind terrain
+// hits). DealDamage runs before the refill within one hit (DDART -> GAUGEEVT
+// ordering in the log). True = no verdict yet, vanilla behavior.
+std::atomic<bool> g_lastAppliedTargetMonster{true};
 // MOTIONTRACE: log current-motion id changes (instance+0x30, entry|0xC000)
 // during set-3 actions so mid-action motion switches (FSM LinkMotion 衔接)
 // become visible against the damage-window timeline.
@@ -3308,16 +3112,20 @@ static void MotionTraceTick(const void* entity) {
 }
 long long __fastcall DmgCalcHook(long long a1, long long a2, std::uint32_t* a3) {
     g_lastHitAttacker = a1;  // DealDamageHook reads this as the hit's owner
-    NotifyPlayerHitConnected(a1, a2);
+    NotifyPlayerHitConnected(a1);
     LogHitFrame(a1);
     return g_originalDmgCalc(a1, a2, a3);
 }
 
-// ARTGAIN lives here now (2026-10-29): the applied-damage point. Terrain and
-// destructible gimmicks reach it too and show damage numbers (user report),
-// but their em id at +0x12280 is not a large-monster id, so the exact read
-// (no candidate probing needed - arg1 IS the em) drops them here.
-void NotifyArtChargeApplied(long long targetEm, int damage) {
+// Every gauge charge lives here now (2026-10-29(2)): the applied-damage
+// point. arg1 IS the victim em - its monster id at +0x12280 reads exactly
+// (log-proven: one real hit had dmgCalc a2=0xE51F240 vs this em=0x41C2EA1D30,
+// so the a2 candidate probing was judging the wrong object). Terrain and
+// destructible gimmicks reach it too and show damage numbers, but their id
+// is not a large-monster id, so timerhit/gainhit/chargehit/art/legacy all
+// drop here for them; the native spirit refill is latched off via
+// g_lastAppliedTargetMonster (GaugeAddHook zeroes +0x2124f13 gains).
+void NotifyAppliedHitCharges(long long targetEm, int damage) {
     void* controller = g_lockedPlayerController;
     if (!controller) {
         return;
@@ -3325,6 +3133,11 @@ void NotifyArtChargeApplied(long long targetEm, int damage) {
     const auto localPlayer =
         reinterpret_cast<long long>(static_cast<std::uint8_t*>(controller) - 0x61C8);
     const bool localAttacker = g_lastHitAttacker == localPlayer;
+    std::int32_t emId = -1;
+    if (IsReadable(reinterpret_cast<const void*>(targetEm + 0x12280),
+                   sizeof(std::int32_t))) {
+        emId = *reinterpret_cast<const volatile std::int32_t*>(targetEm + 0x12280);
+    }
     // First verdicts log the latch quality: a real player hit that ever logs
     // "skip" means the calc -> apply ordering assumption needs revisiting.
     static std::atomic_uint32_t ddLogs{0};
@@ -3332,57 +3145,209 @@ void NotifyArtChargeApplied(long long targetEm, int damage) {
         ddLogs.fetch_add(1, std::memory_order_relaxed);
         std::ostringstream m;
         m << "DDART em=0x" << std::hex << std::uppercase << targetEm << std::dec
-          << " dmg=" << damage << " latch=" << (localAttacker ? "MATCH" : "skip");
+          << " id=" << emId << " dmg=" << damage
+          << " latch=" << (localAttacker ? "MATCH" : "skip");
         Log(m.str());
     }
     if (!localAttacker) {
+        // Not our hit: the latch goes false so the native refill stays quiet
+        // if anything of ours would fire behind someone else's apply.
+        g_lastAppliedTargetMonster.store(false, std::memory_order_relaxed);
         return;
     }
-    std::int32_t emId = -1;
-    if (IsReadable(reinterpret_cast<const void*>(targetEm + 0x12280),
-                   sizeof(std::int32_t))) {
-        emId = *reinterpret_cast<const volatile std::int32_t*>(targetEm + 0x12280);
-    }
-    if (!IsLargeMonsterId(emId)) {
+    const bool monster = IsLargeMonsterId(emId);
+    // Latch BEFORE any charging - the native spirit refill (GaugeAddHook,
+    // +0x2124f13) fires later within this same hit and reads this.
+    g_lastAppliedTargetMonster.store(monster, std::memory_order_relaxed);
+    if (!monster) {
         g_nonMonsterSkips.fetch_add(1, std::memory_order_relaxed);
         return;
     }
-    if (!ModWeaponActive() || !g_artEnabled.load(std::memory_order_relaxed)) {
+    if (!ModWeaponActive()) {
         return;
     }
     std::int32_t actSet = 0;
     std::int32_t actId = 0;
+    bool hasAct = false;
     {
         std::scoped_lock lock(g_actionMutex);
-        if (!g_lastLongSwordAction) {
-            return;
+        if (g_lastLongSwordAction) {
+            actSet = g_lastLongSwordAction->actionSet;
+            actId = g_lastLongSwordAction->actionId;
+            hasAct = true;
         }
-        actSet = g_lastLongSwordAction->actionSet;
-        actId = g_lastLongSwordAction->actionId;
     }
-    const float pct = ArtChargePercentFor(actSet, actId);
-    if (pct <= 0.0f) {
-        return;
+    if (hasAct && actSet == 3) {
+        // timerhit: connected hits of the current action extend the
+        // level-drop countdown. Independent of the valor-charge gates below
+        // so it also runs in valor mode / with charging off.
+        if (const auto* rule =
+                FindGaugeRuleLoose(GaugeRule::Type::TimerHit, actSet, actId)) {
+            ExtendLevelDropTimer(
+                static_cast<std::uint8_t*>(controller) - 0x61C8, rule->a,
+                actSet, actId, true);
+        }
+        // gainhit (moved 2026-10-29(2) from the dmgCalc gate): the applied-
+        // hit gate is upstream, so the amount goes straight through the
+        // accumulator. gainhit feeds the 练气 gauge (0x2368) only - the
+        // 76/77 rows keep the 刚1 gauge gate topped up.
+        if (const auto* gain =
+                FindGaugeRuleLoose(GaugeRule::Type::GainHit, actSet, actId)) {
+            auto* player =
+                static_cast<std::uint8_t*>(controller) - 0x61C8;
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (weapon && g_originalGaugeAdd &&
+                IsReadable(weapon + 0x2368, sizeof(float)) &&
+                IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                *reinterpret_cast<const volatile std::uint32_t*>(
+                    weapon + 0x9F8) ==
+                    g_modWeaponType.load(std::memory_order_relaxed)) {
+                const auto level =
+                    *reinterpret_cast<const volatile std::int32_t*>(
+                        weapon + 0x2370);
+                // Defense in depth: only touch sane levels (struct-shift
+                // alarm would read garbage).
+                if (level >= 0 && level <= 3) {
+                    const bool valor = level >= 3;
+                    const float amount =
+                        (gain->hasValor && valor) ? gain->b : gain->a;
+                    const float before = *reinterpret_cast<volatile float*>(
+                        weapon + 0x2368);
+                    g_originalGaugeAdd(weapon, amount);
+                    // The 刚1 guard tail reverts ANY drift from its expected
+                    // gauge - including accumulator-confirmed positives (that
+                    // policy is what suppresses the 见切 refill). Account for
+                    // our own addition so counter-chain hits keep their gain.
+                    if (g_gang1Phase.load(std::memory_order_acquire) == 2) {
+                        const float e =
+                            g_gang1Expected.load(std::memory_order_relaxed);
+                        g_gang1Expected.store(
+                            std::clamp(e + amount, 0.0f, 1.0f),
+                            std::memory_order_relaxed);
+                    }
+                    const float after = *reinterpret_cast<volatile float*>(
+                        weapon + 0x2368);
+                    std::ostringstream m;
+                    m << "GAUGERULE gainhit act=" << actSet << ':' << actId
+                      << " +" << amount << (valor ? " (valor)" : "")
+                      << " gauge=" << before << "->" << after;
+                    Log(m.str());
+                }
+            }
+        }
+        // chargehit (2026-10-24 design round 2, moved 2026-10-29(2)): the
+        // valor charge bar IS the level-drop timer (weapon+0x2374, the
+        // user's "气刃值"). Connected hits push the bar up by <amount>
+        // (optional 4th token = the amount in valor mode); a charge that
+        // CROSSES into full while WHITE promotes straight to RED = valor
+        // entry (2026-10-25 plan B). Entering white always starts the bar
+        // near empty, so "full" is only reachable by hitting. The previous
+        // action comes from the game's own controller record (+0xC4/+0xC8);
+        // ResolveChargeHit picks ctx-cell > from-default > move-row >
+        // wildcard so 勇气纳刀后接的招式 can carry per-move amounts.
+        const char* tier = nullptr;
+        std::int32_t prevSet = -1;
+        std::int32_t prevId = -1;
+        if (IsReadable(controller, 0xD0)) {
+            prevSet = *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<std::uint8_t*>(controller) + 0xC4);
+            prevId = *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<std::uint8_t*>(controller) + 0xC8);
+        }
+        if (const auto* rule = ResolveChargeHit(actSet, actId, prevSet,
+                                                prevId, &tier)) {
+            auto* player =
+                static_cast<std::uint8_t*>(controller) - 0x61C8;
+            auto* weapon = *reinterpret_cast<std::uint8_t**>(player + 0x76B0);
+            if (weapon && IsReadable(weapon + 0x2374, sizeof(float)) &&
+                IsReadable(weapon + 0x9F8, sizeof(std::uint32_t)) &&
+                *reinterpret_cast<const volatile std::uint32_t*>(
+                    weapon + 0x9F8) ==
+                    g_modWeaponType.load(std::memory_order_relaxed)) {
+                const auto level =
+                    *reinterpret_cast<const volatile std::int32_t*>(
+                        weapon + 0x2370);
+                if (level >= 0 && level <= 3) {
+                    if (level == 0) {
+                        // 未开刃 -> 白刃, charge bar starts near empty.
+                        SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
+                    }
+                    const bool valor = level >= 3;
+                    const float amount =
+                        (rule->hasValor && valor) ? rule->b : rule->a;
+                    auto* timer =
+                        reinterpret_cast<volatile float*>(weapon + 0x2374);
+                    const float prev = *timer;
+                    const float next = std::min(1.0f, prev + amount);
+                    *timer = next;
+                    // Crossing into full is what promotes - an already-
+                    // full bar (fresh red) never re-fires.
+                    if (next >= 0.999f && prev < 0.999f &&
+                        *reinterpret_cast<const volatile std::int32_t*>(
+                            weapon + 0x2370) == 1) {
+                        SetSpiritLevel(player, weapon, 3, "charge-full");
+                    }
+                    std::ostringstream m;
+                    m << "GAUGERULE chargehit act=" << actSet << ':'
+                      << actId << " +" << amount << (valor ? " (valor)" : "")
+                      << " bar=" << prev << "->" << next
+                      << " prev=" << prevSet << ':' << prevId
+                      << " tier=" << tier;
+                    Log(m.str());
+                }
+            }
+        }
     }
-    const float before = g_artGauge.load(std::memory_order_relaxed);
-    const float next = std::min(100.0f, before + pct);
-    g_artGauge.store(next, std::memory_order_relaxed);
-    static std::atomic_uint32_t artGainLogs{0};
-    const auto n = artGainLogs.fetch_add(1, std::memory_order_relaxed);
-    if (n < 8 || (before < 100.0f && next >= 100.0f)) {
-        std::ostringstream m;
-        m << "ARTGAIN act=" << actSet << ':' << actId << " +" << pct
-          << "% dmg=" << damage << " gauge=" << static_cast<int>(before + 0.5f)
-          << "->" << static_cast<int>(next + 0.5f)
-          << (next >= 100.0f && before < 100.0f ? " FULL" : "");
-        Log(m.str());
+    // ARTGAIN (战技槽): exact row wins over the wildcard, whiffs never reach
+    // this code. Capped at 100; the FULL crossing is logged once per fill.
+    if (g_artEnabled.load(std::memory_order_relaxed) && hasAct && actSet == 3) {
+        const float pct = ArtChargePercentFor(actSet, actId);
+        if (pct > 0.0f) {
+            const float before = g_artGauge.load(std::memory_order_relaxed);
+            const float next = std::min(100.0f, before + pct);
+            g_artGauge.store(next, std::memory_order_relaxed);
+            static std::atomic_uint32_t artGainLogs{0};
+            const auto n = artGainLogs.fetch_add(1, std::memory_order_relaxed);
+            if (n < 8 || (before < 100.0f && next >= 100.0f)) {
+                std::ostringstream m;
+                m << "ARTGAIN act=" << actSet << ':' << actId << " +" << pct
+                  << "% dmg=" << damage << " gauge=" << static_cast<int>(before + 0.5f)
+                  << "->" << static_cast<int>(next + 0.5f)
+                  << (next >= 100.0f && before < 100.0f ? " FULL" : "");
+                Log(m.str());
+            }
+        }
+    }
+    // Legacy HITCHARGE (round-1 valor bar): dormant with hit-charge=-1,
+    // moved here so every charge shares the one applied-hit gate.
+    const int percent = g_hitChargePercent.load(std::memory_order_relaxed);
+    if (percent > 0 && !g_valorMode.load(std::memory_order_relaxed) &&
+        LockedPlayerActionChargesValor()) {
+        const auto oldCharge = g_valorCharge.load();
+        const auto newCharge = static_cast<std::uint32_t>(
+            std::min(100, static_cast<int>(oldCharge) + percent));
+        if (newCharge != oldCharge) {
+            g_valorCharge = newCharge;
+            static std::atomic_uint32_t hitChargeLogs{0};
+            if (hitChargeLogs.load(std::memory_order_relaxed) < 64) {
+                hitChargeLogs.fetch_add(1, std::memory_order_relaxed);
+                std::ostringstream m;
+                m << "HITCHARGE " << oldCharge << "% -> " << newCharge
+                  << "% (+" << percent << ") attacker=0x" << std::hex
+                  << std::uppercase << localPlayer;
+                Log(m.str());
+            }
+            if (newCharge == 100) {
+                ActivateValorMode(controller);
+            }
+        }
     }
 }
 
 void __fastcall DealDamageHook(long long targetEm, int damage, float* position,
                                int isTenderized, int isCrit, int unk0, int unk1,
                                char unk2, int attackId) {
-    NotifyArtChargeApplied(targetEm, damage);
+    NotifyAppliedHitCharges(targetEm, damage);
     g_originalDealDamage(targetEm, damage, position, isTenderized, isCrit,
                          unk0, unk1, unk2, attackId);
 }

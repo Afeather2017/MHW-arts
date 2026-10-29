@@ -21,11 +21,11 @@
   探索→同图任务只有它能抓到/换区边沿/战斗区外），显示=InCombatZone（State==2 ∪
   stage 白名单：猎场 101-109/竞技场 201-203/剧情区 401-417/**训练场 504**；据点/房间/
   主菜单排除；✅user 局内验证通过 10-28）。缺 art.txt=系统关；Shift+F6 热重载。
-  目标过滤（10-29）：dmgCalc a2=受击体（dispatcher param_2[3] 透传），em+0x12280 id 查
-  HunterPie 大型怪 bitset（三候选 fail-open，训练场桩 59 保留可充）；**art 充能同日搬到
-  DealDamage 钩子**（FUN_141cc5f80，arg1=em 直读 id、arg2=伤害、攻击者=dmgCalc 锁存——
-  按伤害充能的地基已接好）。
-  部署 DLL md5 `f95d5a24`。
+  目标过滤（10-29 两轮）：所有充能（含原生练气回充）统一挂 DealDamage 钩子 em 直读门
+  （arg1=em，+0x12280 查 bitset；dmgCalc a2 三候选探测已退役——a2 非 em，log 实锤）；
+  原生回充 +0x2124f13 按 `g_lastAppliedTargetMonster` 锁存归零；DealDamage arg2=伤害
+  int 已进 ARTGAIN 日志=按伤害充能地基。
+  部署 DLL md5 `aa794daf`。
   详见 `docs/gauge-valor.md` 战技槽节。
 - **勇气模式 plan B（现行，user 定案，局内验证通过）**：白刃=充能相位，红刃=勇气模式。
   普通/纳刀链命中充勇气条（=等级计时器 0x2374），白刃满条跨域 → DLL `SetSpiritLevel(3)`

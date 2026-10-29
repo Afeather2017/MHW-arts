@@ -5170,3 +5170,23 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   日志能暴露； HunterPie 链式共存无冲突。
 - 部署 md5 `a6da7295` → `f95d5a24`。待 user 冷启动验证：打怪条照涨（DDART latch=MATCH、
   ARTGAIN 带 dmg 数值）；打地形/木桶不涨；log 出现 "Deal damage hook installed"。
+
+### 2026-10-29(3) 练气地形漏充两路全堵：充能总汇聚到 DealDamage 门 + 原生回充锁存归零
+
+- **user 局内反馈**：art 条地形不涨了 ✓，但"我们补充的涨练气的还是涨"。
+- **读 log 定案两路漏**：①dmgCalc 三候选门在漏——HITTGT 同指针 0xD52F240 判定翻转
+  （verdict 0/1 都出现过，id=6357090 垃圾值），且同一次真怪物命中 log 出 a2=0xE51F240
+  vs DDART em=0x41C2EA1D30 → **a2 是小 victim 上下文对象不是 em**，候选探测在探子对象
+  上读随机小整数，误放行 gainhit/chargehit。②**游戏原生练气回充对地形命中照样发**——
+  GAUGEEVT +0x2124f13 val=0.12~0.26 跟在地形命中后面（art 门管不到游戏自己的代码）。
+- **修法**：①timerhit/gainhit/chargehit/旧 HITCHARGE 从 NotifyPlayerHitConnected 整体
+  搬进 DealDamage 侧 `NotifyAppliedHitCharges`（原 NotifyArtChargeApplied 改名扩容），
+  em 直读门一个管全部；三候选探测/ResolveLargeMonsterTarget/HITTGT 全删。
+  ②GaugeAddHook 复用 takeover 模式：caller=+0x2124f13 且 val>0 且
+  `g_lastAppliedTargetMonster`（DealDamage 每击设置，DDART→GAUGEEVT 顺序 log 实证）
+  为 false → 归零，日志 GAUGERULE terrain: suppressed（限 40）；负值消耗/见切回填
+  （不同 caller）/rewrite 全不碰；锁存默认 true=未判定前放行。
+- NotifyPlayerHitConnected slim 化（只剩 HITATT 诊断 + 他方命中计数）；DmgCalcHook
+  a2 语义注释修正（a2≠em）。
+- 部署 md5 `f95d5a24` → `aa794daf`。待 user 冷启动验证：打地形/木桶 art 条、勇气条、
+  练气红条全不涨；打怪三者照常；log 见 GAUGERULE terrain: suppressed。
