@@ -101,6 +101,12 @@ std::vector<std::int32_t> g_artGateIds;   // requests swallowed below 100
 std::vector<ArtChargeRow> g_artChargeRows;
 std::mutex g_artMutex;                    // guards the two vectors above
 std::atomic_int32_t g_lastObservedSpiritLevel = -1;
+// Damage-based art charging (2026-10-29, art.txt "charge-dmg <dmg> [cap]"):
+// when <dmg> > 0 the flat row amount is scaled by damage/<dmg>, capped per
+// hit. 0 = off (flat rows only). Calibrate <dmg> to the damage a hit must
+// have to charge exactly the configured row amount.
+std::atomic<float> g_artDmgScale{0.0f};
+std::atomic<float> g_artDmgCap{15.0f};
 // Defined near the gauge rules (default timerValue = 1.0f there);
 // PollValorLifecycle's valor-exit edge calls it.
 void SetSpiritLevel(std::uint8_t* player, std::uint8_t* weapon,
@@ -227,6 +233,11 @@ bool g_fxKeyWasDown = false;
 //       normal chains, only prev tells them apart). Beats the per-move row;
 //       the chargehit block only runs when some chargehit row (wildcard ok)
 //       matches, keep that row present.
+//   chargehit-dmg <dmg> [cap] - damage-based scaling (2026-10-29): every
+//       RESOLVED chargehit amount (ctx cell / from default / move row /
+//       wildcard) is applied as amount*damage/<dmg>, capped at <cap> per hit
+//       in bar units (default 0.30). chargestart stays flat. Delete the
+//       line = flat amounts. Shift+F6 reloads.
 struct GaugeRule {
     enum class Type { Rewrite, Cost, Gate, Regen, Timer, TimerHit, Fx, Trail, GainHit,
                       ChargeHit, ChargeFrom, ChargeStart };
@@ -260,6 +271,13 @@ std::atomic_bool g_gaugeChargeTakeover{false};
 // (GAUGEEVT +0x2124f13, inside FUN_142124b20). addresses.txt override:
 // gaugeTimlGain=0xRVA.
 std::uintptr_t g_timlGainCallerRva = 0x2124F13;
+// Damage-based valor charging (2026-10-29, gauge-rules.txt
+// "chargehit-dmg <dmg> [cap]"): when <dmg> > 0 every RESOLVED chargehit
+// amount (ctx cell / from default / move row / wildcard) is scaled by
+// damage/<dmg>, capped per hit in bar units. 0 = off (flat amounts).
+// chargestart stays flat - no damage exists at action start.
+std::atomic<float> g_chargeHitDmgScale{0.0f};
+std::atomic<float> g_chargeHitDmgCap{0.30f};
 
 const GaugeRule* FindGaugeRule(GaugeRule::Type type, std::int32_t set,
                                std::int32_t id) {
@@ -2327,6 +2345,8 @@ float __fastcall GaugeAddHook(void* weapon, float value) {
 
 void LoadGaugeRulesConfig() {
     g_gaugeRules.clear();
+    g_chargeHitDmgScale.store(0.0f, std::memory_order_relaxed);  // reload opt-out
+    g_chargeHitDmgCap.store(0.30f, std::memory_order_relaxed);
     // Valor-chain constants (2026-10-04, user-defined): the custom spirit
     // moves share one profile - 0.25 gauge cost + the spirit red body glow
     // (0x7D2) on begin. 105/106 = 一文字, 107 = 无双斩, 108 = third chain
@@ -2441,6 +2461,19 @@ void LoadGaugeRulesConfig() {
             if (ss >> valor) {
                 rule.b = valor;
                 rule.hasValor = true;
+            }
+        } else if (kind == "chargehit-dmg") {
+            // Damage-based valor charging: <damagePerScale> [capBar]. When
+            // set, every RESOLVED chargehit amount (any tier incl. ctx/from)
+            // is scaled by damage/<damagePerScale>, capped in bar units.
+            // chargestart stays flat. Delete the line = flat mode.
+            float scale = 0.0f;
+            if (ss >> scale) {
+                float cap = 0.30f;
+                if (ss >> cap) {
+                    g_chargeHitDmgCap.store(cap, std::memory_order_relaxed);
+                }
+                g_chargeHitDmgScale.store(scale, std::memory_order_relaxed);
             }
         } else if (kind == "chargestart") {
             // Unconditional bar charge when the move BEGINS - for moves that
@@ -3282,8 +3315,17 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
                         SetSpiritLevel(player, weapon, 1, "charge", 0.05f);
                     }
                     const bool valor = level >= 3;
-                    const float amount =
+                    float amount =
                         (rule->hasValor && valor) ? rule->b : rule->a;
+                    // chargehit-dmg: scale the resolved amount (any tier)
+                    // with the applied damage; capped in bar units.
+                    const float chScale =
+                        g_chargeHitDmgScale.load(std::memory_order_relaxed);
+                    if (chScale > 0.0f) {
+                        amount = std::min(
+                            g_chargeHitDmgCap.load(std::memory_order_relaxed),
+                            amount * damage / chScale);
+                    }
                     auto* timer =
                         reinterpret_cast<volatile float*>(weapon + 0x2374);
                     const float prev = *timer;
@@ -3299,6 +3341,7 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
                     std::ostringstream m;
                     m << "GAUGERULE chargehit act=" << actSet << ':'
                       << actId << " +" << amount << (valor ? " (valor)" : "")
+                      << " dmg=" << damage
                       << " bar=" << prev << "->" << next
                       << " prev=" << prevSet << ':' << prevId
                       << " tier=" << tier;
@@ -3309,8 +3352,15 @@ void NotifyAppliedHitCharges(long long targetEm, int damage) {
     }
     // ARTGAIN (战技槽): exact row wins over the wildcard, whiffs never reach
     // this code. Capped at 100; the FULL crossing is logged once per fill.
+    // charge-dmg: when enabled the row amount scales with the applied damage
+    // (damage/100 with the shipped config = row amount at a 100-damage hit).
     if (g_artEnabled.load(std::memory_order_relaxed) && hasAct && actSet == 3) {
-        const float pct = ArtChargePercentFor(actSet, actId);
+        float pct = ArtChargePercentFor(actSet, actId);
+        const float scale = g_artDmgScale.load(std::memory_order_relaxed);
+        if (scale > 0.0f) {
+            pct = std::min(g_artDmgCap.load(std::memory_order_relaxed),
+                           pct * damage / scale);
+        }
         if (pct > 0.0f) {
             const float before = g_artGauge.load(std::memory_order_relaxed);
             const float next = std::min(100.0f, before + pct);
@@ -5680,6 +5730,13 @@ void LoadStaminaConfig() {
 //                                  (default 3 87 = the R+△ / Ctrl+LMB combo)
 //   charge <set> <id> <percent>  - +percent per CONNECTED hit of the action
 //                                  (id 0 = wildcard, exact rows win). Repeatable.
+//   charge-dmg <dmg> [cap]       - damage-based scaling (2026-10-29): the
+//                                  matched row amount is applied as
+//                                  amount*damage/<dmg>, capped at <cap> per
+//                                  hit (default 15). <dmg> = the damage a hit
+//                                  needs to charge exactly the row amount.
+//                                  0-damage hits charge nothing. Delete the
+//                                  line = flat mode. Shift+F6 reloads.
 //   consume <0|1>                - drain to 0 when the released request is
 //                                  accepted (default 1). Shift+F6 reloads.
 void LoadArtConfig() {
@@ -5687,6 +5744,8 @@ void LoadArtConfig() {
     std::int32_t gateSet = 3;
     std::vector<ArtChargeRow> rows;
     int consume = 1;
+    g_artDmgScale.store(0.0f, std::memory_order_relaxed);  // reload = opt-out
+    g_artDmgCap.store(15.0f, std::memory_order_relaxed);
     const bool enabled =
         std::filesystem::exists("nativePC/plugins/ValorGauge.art.txt");
     std::ifstream input("nativePC/plugins/ValorGauge.art.txt");
@@ -5715,6 +5774,18 @@ void LoadArtConfig() {
             ArtChargeRow row;
             if (ss >> row.set >> row.id >> row.percent) {
                 rows.push_back(row);
+            }
+        } else if (kind == "charge-dmg") {
+            // Damage-based scaling: <damagePerScale> [capPercent]. When set,
+            // the matched row amount is scaled by damage/<damagePerScale>
+            // (capped) instead of applying flat. Delete the line = flat mode.
+            float scale = 0.0f;
+            if (ss >> scale) {
+                float cap = 15.0f;
+                if (ss >> cap) {
+                    g_artDmgCap.store(cap, std::memory_order_relaxed);
+                }
+                g_artDmgScale.store(scale, std::memory_order_relaxed);
             }
         } else if (kind == "consume") {
             int value = 0;

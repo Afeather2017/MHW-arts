@@ -121,9 +121,11 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   arg1=受击 em 直接读 +0x12280 id 过滤（arg1 本身就是 em，无需 dmgCalc 侧的三候选探测），
   arg2=伤害 int（**按伤害充能的地基，先行接好**），攻击者=dmgCalc 钩子锁存
   `g_lastHitAttacker`（dispatcher 先 calc 后 apply；DDART 日志盯锁存质量））。
-  按 `ValorGauge.art.txt` charge 行加量，100 封顶。日志 `ARTGAIN`（含 dmg=；
-  满条 crossing 记 FULL）/ `DDART`（前 8 条：em/dmg/锁存）。怪打地形会出伤害数字
-  =同走此函数，靠 id bitset 淘汰；0 伤害/弹刀命中不再充。
+  按 `ValorGauge.art.txt` charge 行加量，100 封顶。**charge-dmg 伤害缩放
+  （2026-10-29）**：`charge-dmg <标定伤害> [封顶%]` 生效时额度 ×(伤害÷标定)，封顶截断
+  （现行 `charge-dmg 100 15`：100 伤害=原额度 5%，200=10%，cap 15%；伤害 0 不充）。
+  日志 `ARTGAIN`（含 dmg=；满条 crossing 记 FULL）/ `DDART`（前 8 条：em/dmg/锁存）。
+  怪打地形会出伤害数字=同走此函数，靠 id bitset 淘汰；0 伤害/弹刀命中不再充。
 - **目标过滤（2026-10-29，两轮收敛）**：**所有充能统一挂 DealDamage 钩子的 em 直读门**
   ——timerhit/gainhit/chargehit/art/旧 HITCHARGE 全在 `NotifyAppliedHitCharges` 里，
   arg1 就是 em，+0x12280 直读 id 查大型怪 bitset（训练场桩 id59 在 bitset=照常充；

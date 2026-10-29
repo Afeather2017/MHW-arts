@@ -5202,3 +5202,20 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   NotifyAppliedHitCharges 的判定换用之——art/勇气/练气/原生回充一处放行全生效。
 - 部署 md5 `aa794daf` → `ac853959`。待 user 冷启动验证：训练场木桶三条全涨，
   真地形照旧不涨。
+
+### 2026-10-29(5) 基于伤害的战技条+气刃值积累落地（伤害缩放档）
+
+- **user 验收(4)**：木桶放行后整体 OK，进入下一问题=按伤害充能（战技条+气刃值 0x2374）。
+- **设计（user 早期共识：先落伤害缩放档，攻击力归一留待挖到字段后一行切换）**：保留逐招
+  权重、整体按伤害缩放——`charge-dmg <标定伤害> [封顶%]`（art.txt）/
+  `chargehit-dmg <标定伤害> [封顶条]`（gauge-rules.txt）。生效时额度=配置行额度 ×
+  (伤害÷标定)，封顶截断；伤害 0 不充；**删行=回固定额度**（解析器开头复位保证热重载
+  可退出）；chargestart（100 收刀回避起手充）不缩放。
+- **实现**：全局 `g_artDmgScale/Cap`、`g_chargeHitDmgScale/Cap`；缩放点在
+  NotifyAppliedHitCharges（em 门后、伤害现成）：ARTGAIN 的 pct 与 chargehit 的
+  resolved amount（ctx/from/move/wildcard 全档通用）；GAUGERULE chargehit 日志加 dmg=。
+- **部署标定**：按 log 典型伤害 ~100 定标——art `charge-dmg 100 15`、valor
+  `chargehit-dmg 100 0.30`（100 伤害=原额度，与上一版手感衔接）。
+- 部署 md5 `ac853959` → `bb590658`。待 user 冷启动验证：大伤害招充得快/小伤害慢/
+  弹刀不充；手感不对改标定数或删行 Shift+F6 即回退。下一步（挖到攻击力字段后）：
+  标定数换 攻击力×系数 = 配装免疫。
