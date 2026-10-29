@@ -5295,3 +5295,17 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   atkMV 按比例 1399/1366 变 = 攻击力承载字段（attack = atkMV×100/MV[col]，归一化分母
   就位）；atkMV 不变 = 纯 MV（攻击力经其他 getter 进公式，路线再定）。
 - 部署 md5 `10a1576e` → `8df3bee4`。待 user 对照实验 DDART 行。
+
+### 2026-10-29(12) atkMV 定性=攻击力×MV×部位伤害中间量；终公式成形 + MVPTR 探针
+
+- **数据判读**（user 同招 3:85 踏込斬り×12）：atkMV 95.3~171.7 连续变、dmg/atkMV 恒定
+  ≈1.18（=斩味×怒い固定项；25% 会心 12 刀无 1.25 跳=会心不在此链）。col 59 行 MV 全表
+  4~126、踏込斬り族 18/24/21/22——**没有任何 MV=95** → atkMV=运行时预合成
+  "attack×MV/100×zone"（95.3≈414×0.24×0.96 吻合）。
+- **终公式解锁**：charge = rowAmount × K × damage × MV[招式] ÷ (atkMV×100)
+  ——attack 分子分母精确抵消=伤害/攻击力，MV 保留（大招多充，MHGU 手感），部位/会心
+  成噪声透过。需要 per-招 MV：①ctx 带 atkParam 指针则零静态表（MVPTR 探针：ctx+0x0..0x40
+  每 qword 当指针试读 +0x20，值域 4~130 即候选，限前 10 击日志）②找不到则走 col 静态
+  actId→行路由表（col_tool 扩展）。
+- 部署 md5 `8df3bee4` → `3a8e1ec9`。待 user：冷启动打几下（FORMULACTX/MVPTR 行回传）；
+  攻击力承载性最终确认=吃攻击 UP 前后同招同部位 atkMV 比例变化（+2.4% 预期）。

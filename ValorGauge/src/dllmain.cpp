@@ -3240,6 +3240,30 @@ void __fastcall DmgFormulaHook(long long context, long long* hitCtx, int a3,
             }
             Log(mf.str());
             Log(mi.str());
+            // MVPTR probe: the ctx may carry the per-hit atkParam pointer
+            // (its +0x20 = the move's plain MV, e.g. 24 for 踏込斬り). Scan
+            // the ctx pointer fields; log every candidate whose +0x20 float
+            // lands in the MV value range (col: 4..126).
+            std::ostringstream mp;
+            mp << "MVPTR";
+            for (int off = 0; off < 0x40; off += 8) {
+                long long p = 0;
+                std::memcpy(&p, bytes + off, 8);
+                if (p < 0x10000 || p > 0x7FFFFFFEFFFFll) {
+                    continue;
+                }
+                auto* pb = reinterpret_cast<const std::uint8_t*>(p);
+                if (!IsReadable(pb + 0x24, sizeof(float))) {
+                    continue;
+                }
+                const float mv =
+                    *reinterpret_cast<const volatile float*>(pb + 0x20);
+                if (mv > 4.0f && mv < 130.0f) {
+                    mp << " +" << std::hex << off << "->0x" << p << std::dec
+                       << ":mv=" << mv;
+                }
+            }
+            Log(mp.str());
         }
     }
     g_originalDmgFormula(context, hitCtx, a3, a4, a5, out);
