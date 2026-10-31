@@ -5639,3 +5639,321 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - user 定案当前实践：同类问题先从基本正常的 LMT106 复制 PI 内容到目标动作，
   再按目标原版窗口调时机、局内逐项验证。106 在这轮恰好可作为模板；若再出现
   同类故障，继续逆向消费路径，不把复制法当作通用位映射。
+
+### 2026-10-31(12) 翻滚后摇勇気納刀不通：居合斬り=0x276 黑盒定案 + R+○ 边 A/B 实验（待 user 局内验证）
+
+- **症状 (user)**: 翻滚动作（act 18/19→LMT11、20→12、21→13、22→10；1005=前翻滚聚合，
+  1001=气刃斩1聚合）后摇阶段按 R 出气刃斩1 正常，同窗口按勇気納刀只出气刃斩1。
+- **FSM 侧排查（部署版 aaa856b9，FSM-Studio 无头 dump）**: 勇気納刀=节点61(act98)，
+  入边已铺满 待機2(0)/回避13-16/踏込(6)/斬り上げ(38)/スリまとめ(75)/ほぼ全攻撃(62)/
+  翻滚后摇(98,act19 零入边请求进入)，条件全部=「居合斬り」(cond232/275 同一属性)，
+  且在回避节点上排在 R 边之前——FSM 不缺边。回避族专用的翻滚后摇节点98是 mod 加的，
+  只有出边无入边。
+- **属性身份**: 居合斬り = 分武器组解析器 FUN_140b306a0 case3(LS) strcmp 0x1430b51b0
+  → **属性 id 0x276**（0x277=見切り回避成功後の攻撃ヒット；全局输入属性表
+  0x1430b9680-0x1430b9cc8 逐条 VA→id 已核：R=0x26、R+○=0x3b、R+↑=0x29 等）。
+  求值器未定位（0x277 界外 cmp 命中 0x141658aef 是另一状态机非 FSM 条件求值）。
+- **LMT PI 静态对比（部署 ad6c379b）**: 翻滚 10-13 的 mFlag1 b12 全程已开（f5/f11/f70 起），
+  排除"缺基线位"。与 106/107/110（勇気納刀可用）的差分位 mFlag b14/b15、mFlag2 b22/b23、
+  mFlag4 b28/b29 被**无勇気納刀边的原版攻击**（104/105/108/127/101/102/112）同样持有
+  → 它们是攻击链通用 profile，非居合斬り闸门。唯一与"能否居合"全吻合的信号 = **PI.mFlag6**:
+  待機 LMT1={b11} 常开（可居合）、107/110 无 mFlag6 轨（可居合）、翻滚 10-13 后摇=b13
+  （不可居合，恰在 b17+b31 特殊档同帧出现）。312={b16,b17}。按 10-18 先例（PI 位窗
+  "局内无效果"=动作类不消费），回避动作类是否消费 mFlag1 簇本身存疑，位语义冻结不猜。
+- **实验（一变量 A/B）**: 复用 FSM 里 28 条 vanilla 孤儿 R+○ 条件（cond53，零引用），
+  给节点 13/14/15/16/98 各插一条 `R+○ → 勇気納刀#61` 边置顶（原居合斬り边保留在后，
+  其余边原序后移）。R+○=全局输入属性与翻滚已验证可用的 R/○ 同族，PI 侧无需新位
+  （mFlag1 基线 b12/b26 已开）；若 R+○ 属性在回避动作上可求值即贯通，若不可求值则
+  局内零变化（原边仍在）。
+- **工具坑**: FSM-Studio FsmModel.addLink 对"单链接直存实例"节点（如 98，mpLinkList
+  非 array 而是单 link 实例）会经 list()=null → setList([新边]) **静默丢原边**——
+  必须 addLink 后 setList 回 [...linksOf(旧), 新]；conditionSummary 带 `#N: ` 前缀，
+  精确匹配属性名用 endsWith(': '+名)。无头编辑脚本 FSM-Studio/.tmp_add_rpluso_edge.ts。
+- **部署**: FSM md5 `aaa856b9`→`f25256e2`（备份 wp03_action.fsm.bak-20261031-prerollrpluso），
+  全图 dump diff=仅 5 条新边，字节校验 链接名×5、居合斬り×6 不变、LMT 未动（仍 ad6c379b）。
+  **待 user 冷启动**: 翻滚后摇按住 R+○ 应出勇気納刀；原 R/○/R+△/△ 派生应不变。
+  若无效 → 下一台阶在 blend（MHW-Valor-0.0.2-dodge-sheath.blend）给 10-13 补
+  mFlag6 b11 或攻击链 profile 位，再或 DLL 层直接改写请求。
+
+### 2026-10-31(13) 翻滚勇気納刀第二轮：R+○ 边局内判负 → TIML PI 位三件套部署（待 user 冷启动）
+
+- **第一轮判负 (user)**: FSM R+○ 边（f25256e2）局内无效——R+○ 组合属性在回避动作上
+  不被求值/消费。边保留（居合斬り 边之上的备援路径，命中任一即出勇気納刀）。
+- **旁证新线索**: FUN_14118a0c0 消费的 LS 行 0x143FD5920+0x20 表（{key,ptr,count}×0x18）
+  只键控 1012/1013/1014 三个系统状态（=有居合斬り边的三个系统状态节点），条目为
+  (set=3,id) 请求对列表+float 参数块——每系统状态的动作集，非输入使能位图；没再深挖。
+- **TIML 编辑（blend=MHW-Valor-0.0.2-dodge-sheath, MCP 会话内）**: PI 字段哈希映射实证
+  mFlag=m08FD20A6/mFlag1=m6E63FBC7/mFlag2=mF76AAA7D/mFlag6=mF0076E64（键帧值与部署
+  LMT 逐键核对）。LMT 10/11/12/13 的 PlMotionInput 各改 3 处现有键值（不加键不动插值）：
+  ① mFlag6 尾键 0x2000(b13)→0x2800(+b11, 待機 profile 叠加, b13 保留零回归)；
+  ② mFlag 尾键 OR 0xC000(+b14/b15, 对齐攻击恢复档 0xC003C3xx)；
+  ③ mFlag2 尾键高16位 OR 0xC0(+b22/b23)。尾键=各 entry 后摇起点（10:f80/11:f65(f42,f50)/12,13:f46(f42,f42)）。
+- **导出部署**: MCP exportNodeToFile(inject=True, 母本=部署 ad6c379b 拷贝, tether=m_mesh
+  Armature, globalCacheClear)，导出超时 30s 但落盘成功（大文件合并慢, MCP 调用后 sleep 轮询）。
+  语义 diff=仅 10-13 的 PI 三轨三值（433/435/437 双侧解析失败=已知盲区）。
+  LMT md5 `ad6c379b`→`bf532c83`（备份 w03_00.lmt.bak-20261031-prerolliaido）；
+  blend 已保存（dodge-sheath）。FSM 未动（仍 f25256e2）。
+- **本轮归因设计**: 三处改动同轮部署（测试轮次贵）；若贯通可选 bisect（先撤 ②③ 只留
+  mFlag6，或反之）。若仍不通 → mFlag6/攻击档位全灭，剩余解释=回避动作类根本不消费
+  居合斬り/R+○ 求值（312 无类先例同构），路线转 DLL（DoAction 层把翻滚后摇 R+○
+  改写为 {3,98}，SHEATHREWRITE 同款）。
+- **待 user 完全冷启动**: 翻滚后摇按 R+○；并复查 R/○/R+△/△ 派生无回归。
+
+### 2026-10-31(14) 翻滚勇気納刀第三轮：TIML 判负 → 真闸门=set-3 请求分类器表（user 的 LMT104 线索破案）
+
+- **第二轮判负 (user)**: PI 位三件套（bf532c83）局内无效。user 否决 DLL DoAction 改写
+  （要数帧/猜键位），给出关键线索：vanilla 很多动作都能切納刀，如 LMT::w03_00::104。
+- **破案**: 気刃斬1=动作 id 11=分类器 key 11。LS set-3 请求表顶层 VA 0x143F4D6A0
+  （113 键=动作 id 0-112，条目 {u64 key,u64 子表ptr,u64 count,pad}×0x28；文件里
+  count=0 运行时回填，key/ptr/子表行全静态）。子表行 {type,输入组合id,匹配a,匹配b,
+  set,目标id}×0x18，解析器 FUN_14026b830（-20 行=方向变体跟随、(-1,-1) 目标行连禁
+  下一行=vanilla 禁招机制）、匹配器 FUN_14026ba00（组合检查器对象+过滤链）。
+  **带 (1,23,1,0,3,98) 行的 51 键 = 全部可切纳刀动作**（7/11/12/15/29/34-40/67-89/
+  92/95/97/101-112，含 key11）；输入组合 23 全表只出现在这种行上=特殊納刀专用组合。
+  翻滚 18-22（18/19 共享子表 0x143F4EA50、20/21/22 各自 EC30/ED70/EEB0）无此行
+  → TIML/FSM 怎么改都不可能通（两轮判负的根因）。
+- **补丁设计 patch_roll_sheathe_row.py**（纯数据, count 不动, 只占死行/休眠行）:
+  key18/19 row13 (1,408,0,0,-1,-1)→纳刀行, row14 (1,288,1,0,3,66)→(1,288,0,0,-1,-1)
+  自禁用（row13 不再连禁, vanilla 刻意禁的前滚スリF 保持禁用）;
+  key20/21/22 row11 (1,278,0,1,1,532)（目标 set1:532 不存在的休眠行）→纳刀行。
+  真 exe 未加壳实锤（字符串在文件），6 处行字节逐一验证后出补丁文件
+  MonsterHunterWorld.rolliaido.exe（md5 8c39e801，41B diff 全在 5 目标行内），
+  原版 exe md5 63cdcf3d 未动。**部署待 user 定夺载体**: 换 exe（游戏须关,备份
+  现成）或既有 ValorGauge.dll 启动时内存写同 5 行（无钩子无帧数无键位猜测）。
+- **遗留**: 输入组合 23 的物理键位=用户现行切纳刀绑定（与気刃斬1 上完全同一条处理
+  链, 零猜测）。窗口问题未解: 分类器何时放行 combo23（过滤链是否读 PI 第二把锁）
+  未逆向——若局内表现为翻滚一进就纳刀（过早）, 窗口整形回 TIML/过滤链分析。
+- **部署 (user 定案换 exe)**: 游戏未运行确认后, MonsterHunterWorld.exe
+  md5 `63cdcf3d`→`8c39e801`（备份 MonsterHunterWorld.exe.bak-20261031-prerolliaido,
+  84225952B 大小不变）。FSM(f25256e2)/LMT(bf532c83) 未回退=分类器过滤链若读 PI
+  第二把锁, 上轮补的位正好供给。待 user 冷启动: 翻滚后摇切纳刀; 观察是否过早
+  （一进翻滚就能纳刀=窗口门在别处）; 回归查 翻滚→R/○/R+△ 与前滚スリF 仍禁。
+  仍不通 → 逆向 FUN_14026b670/ba00 过滤链(combo23 放行条件)。
+
+### 2026-10-31(15) exe 校验实锤 → 同 5 行改为 ValorGauge.dll 启动内存写
+
+- **exe 补丁判负 (user)**: 换补丁 exe 游戏启动失败=本体有完整性校验, 原版已还原
+  (63cdcf3d)。user 放行 DLL 载体（非 DoAction 改写: 无钩子/无数帧/无键位猜测,
+  就是把同 5 行表数据写进内存）。
+- **实现**: ValorGauge.dll InitializePlugin 最前 LoadAddressOverrides() +
+  PatchRollSheatheRows(): ModuleBaseAddr+RVA(锚点 key11 原版纳刀行 0x3F4F1F0
+  六 i32 字节校验, 不符=游戏更新整体放弃) → 5 行 old-bytes 校验后 memcpy 覆盖
+  (3F4EB88/3F4EBA0/3F4ED38/3F4EE78/3F4EFB8, RVA=VA-0x140000000, .data 可写无
+  VirtualProtect)。日志前缀 ROLLSHEATHE; addresses.txt `rollSheathePatch=0`
+  可整体停用。必须在 FSM 管理器拷静态表进 mgrCtx 之前=InitializePlugin 最前
+  (LoadAddressOverrides 提前调用一次, InitMemoryMap 里重复读同一文件无害)。
+- **部署**: dll md5 `8c2c124d`→`2319237d`（CMake Release, MSVC2022 cmake）。
+  exe 已还原原版; FSM(f25256e2)/LMT(bf532c83) 维持不回退（过滤链若读 PI 第二把锁
+  正好供给）。待 user 冷启动: 看 ROLLSHEATHE 日志 5/5 → 翻滚后摇切纳刀; 过早/
+  不通的下一层 = FUN_14026b670/ba00 过滤链放行条件。
+
+### 2026-10-31(16) 四轮全灭 → SHEATHCLSFY 探针上线（诊断分类器对翻滚的咨询链）
+
+- **第三轮判负 (user)**: ROLLSHEATHE 表行内存写在局内依然无效（user 未确认日志是否
+  5/5）。四轮(FSM 边/TIML 位/exe 补丁/内存写表)全灭 → 停止猜测, 上被动探针。
+- **探针**: 新 hook id `sheathClsfy`=FUN_14026b830(候选行匹配器, 48B 全精确签名,
+  fallbackRva 0x26B830, addresses.txt 名 "sheathClsfy")。detour 只过滤 5 张子表
+  (翻滚 18/19 共享 EA50、20 EC30、21 ED70、22 EEB0 + 基线 key11 F100), 结果/
+  firstIdx 变化才记行, 上限 300 行: `SHEATHCLSFY key=.. count=.. flag=.. ->
+  row=(..)|NOMATCH firstIdx=..`。addresses.txt `sheathClsfyProbe=1` 启用
+  (已写入游戏目录)。ROLLSHEATHE 补丁加读回校验。安装点=InstallPoolQueryHook
+  mod 分支尾(InitMemoryMap 之后, overrides 已加载)。
+- **部署**: dll md5 `2319237d`→`024b0cec`。判读表: 翻滚行不出现=分类器不咨询翻滚
+  (类级门) / NOMATCH=组合23未命中(输入态差异) / row=(1,23,..,98) 命中却无纳刀
+  =请求被下游丢弃(重映射器/DoAction)。
+
+### 2026-10-31(17) 翻滚切纳刀贯通(user确认能切) → 窗口前移到R窗口帧 (LMT bd34d085)
+
+- **贯通实锤 (log 215064+)**: 红刃期 翻滚(3:18/3:19/3:20/3:21/3:22)→{3,98}请求→
+  勇気納刀(entry306)播放→链上3:6踏込斬り。**气刃槽 0x2368=0 时不发**（前段
+  11/19 交替无 98、SHEATHWATCH 全 2368=0）=组合23的放行含槽非零门(vanilla 自带,
+  未逆向定位)。SHEATHCLSFY 探针整局 0 行 = 运行时消费不经过 b830(挂点白装,
+  机制不影响)。
+- **user 反馈时机偏晚** → 窗口对齐设计规格"R 能出气刃斩1 的时刻纳刀也能出":
+  三组位(mFlag+b14/b15、mFlag2+b22/b23、mFlag6+b11)开窗前移到各 entry 的
+  b16(R窗)键帧: 10: f80→f67(长110) / 11: f42-65→f10(长80) / 12,13: f42-46→f26(长76)。
+  mFlag6 插新键(双通道同帧, EXPO 与邻键一致), 已有键改值携带新位。
+- **坑**: bigFlags 双通道 idx0=低16/idx1=高16——entry11 f50 我把 0xC000 敲成
+  0x1000(0x331C0D, b11≠b14), 语义 diff 揪出后修正 idx0=0xC10D(idx1=0x33 不动)。
+  ordered=False 假警报=浮点比较, snap 后全序。
+- 导出 diff=仅 10-13 PI 三轨(433/435/437 已知盲区), LMT md5 `bf532c83`→
+  `bd34d085`(备份 w03_00.lmt.bak-20261031-prerolliaido2), blend 已存
+  (dodge-sheath)。DLL(024b0cec)/FSM(f25256e2) 不动。
+- 待 user 冷启动: ①时机体感=R 可用即纳刀可用, 过早/过晚单键微调(mFlag6/mFlag2/
+  mFlag 的插入键帧); ②前滚(3:19)日志里从未出过 98——前滚位面缺 b31/mFlag2 b4,b6,
+  若前滚仍切不出单独处理; ③气刃槽空切不出=v内建门, 观感待定。
+
+### 2026-10-31(18) 窗口对齐R帧判"太早"(没落地就切, 组合23活值即开即切) → 落地帧近似 v1 (bd34d085→e2f050b2)
+
+- **user 实测**: 能切了, 但翻滚没落地就能切(按住方向键翻滚玩家不落地的阶段就被
+  切走); 気刃斬1(R)的时机看着是对的。→ 组合23=活值属性(10-27(3) 同款), 窗一开
+  即点火, 开窗帧=切出帧, 不能借用 R 的预输入缓冲窗口。
+- **新锚点**: R 窗(10:f67/11:f10/12,13:f26)=太早, 二轮尾窗(10:f80/11:f42-65/
+  12,13:f42-46)=偏晚 → 落地帧近似取中: **10:f72 / 11:f28 / 12,13:f34**。
+  三组位(mFlag+b14,15/mFlag2+b22,23/mFlag6+b11)统一挪到该帧, 早段键还原。
+- **坑(通道语义再踩)**: bigFlags idx0=低16/idx1=高16——idx1 的"携带值"必须是
+  高半段原值(如 0x4001=b30+b16), 不能写全 u32(0x40010000); 又漏一处 revert
+  (129 mFlag[0] f70)。导出 diff 全对后部署。
+- LMT `bd34d085`→`e2f050b2`(备份 prerolliaido3); blend 已存。**调时机=单键**:
+  每种翻滚一把钥匙(10:mFlag6+ins@72 / 11:@28 / 12,13:@34, 加 mFlag/mFlag2 同帧
+  ins 与早段还原), user 报"早/晚"即挪。
+- 待 user 冷启动: 落地前后手感; 每种翻滚分别报。
+
+### 2026-10-31(19) "直接不切"破案: 双通道 idx1 超写 16 位被 TIMLJoin 截断 + 崩溃重建丢键 (LMT 898b2314)
+
+- **user 报告不切** → 位置单调性反证(f26 切/f42 切/f34 不可能不切) → dump 部署文件
+  实锤 entry12/13 mFlag2 f34=0x150(idx1=0), 设计应 0xC00150。两个根因:
+  ① **idx1(高16位通道)键值只能写 16 位半段**(0xC0), 我写成全 u32 风格 0xC00000 →
+  parseBigFlag 的 TIMLJoin(pl,pr)=(pr<<16)|pl 高位溢出截断, f34 只剩 0x150,
+  b22/b23 缺席 → 与 mFlag b14/b15 不同帧不成立 → 不切。entries 10/11 同类键写的
+  0xC0 没踩。修复+全轨 16bit 扫描(已 clean)。
+  ② 重建脚本在 Blender4.x 撞 `Keyframe.select` 不存在(改 select_control_point/
+  直接删行), 崩溃时 129 mFlag2[0] 已 remove+new 只插到第 1 键 → 后 3 键丢失
+  (f70/f72/f80 idx0), 补回。中间态还出过 ordered=False 假警报(浮点噪声)。
+- 教训入册: **PI 双通道位键: idx0=低16 位值, idx1=高16 位值, 都是 16 位半段**;
+  插键后必查 fcurves 数组序 + remove+new 重建脚本要放异常安全位(先加完键再整理)。
+- 终版 diff = 仅 12/13 mFlag2 f34 修复。LMT `e2f050b2`→`898b2314`(备份
+  prerolliaido4); blend 已存。窗口= 10:f72 / 11:f28 / 12,13:f34 不变。
+- 待 user 冷启动: 落地时机体感 + 每种翻滚分别报。
+
+### 2026-10-31(20) 数据侧放弃 → DLL 方案定稿: 组合23检查器轮询 + DoAction 发 {3,98} (dll 218b9262)
+
+- **TIML 修复版(898b2314) 仍不切 (user)** → 数据侧彻底放弃, 转用户点名的方向:
+  "知道游戏按什么键进特殊納刀就无需用户配置"。**解 = 分类器自己的组合23检查器**:
+  mgrCtx+0xD0 槽表[23*8] → 检查器对象, +8 flag byte 置 bit0(行 field2=1 的按压
+  语义), vtable[6](+0x30) 无参求值 → -1=未按/其它=组合成立。键盘/手柄同链零配置。
+- **mgrCtx 捕获**: 新 hook `sheathCap`=FUN_14026c0f0(RVA 0x26C0F0, 分类器入口,
+  调用链 14118e4a0←FSM tick), detour 仅存 param_1。调用链静态爬到 141f78663 断
+  (未定义区), 改运行时捕获。
+- **轮询 PollRollSheathe** (PropIntHook=游戏更新线程, 仿 TryQueuedForceWrite):
+  当前动作∈{18,19,20,21,22} 且 motion 帧(anim+0x10C)≥阈值 且 检查器成立 且
+  (可关)气刃槽 2368>0 → DoAction({3,98}) 经 g_originalDoAction 直呼 + tracker
+  同步。一次翻滚一发(帧回卷重武装)。配置 ValorGauge.roll-sheathe.txt:
+  enable/gaugeGate/18..22 阈值, 默认 28/28/34/34/72=TIML 调参近似值。
+- 阈值本质 = 组合活值无缓冲, 必须给个"何时接受按压"的帧门——就是当初"数帧"
+  反对的部分, 但现在只剩这一个可调参数且用户可改, 键位部分已零配置。
+- **部署**: dll `024b0cec`→`218b9262`; 配置 roll-sheathe.txt 已建(9b4382f5)。
+  ROLLSHEATHE 表行补丁仍留(其 f80/f42 尾窗=vanilla 路径备用)。FSM(f25256e2)/
+  LMT(898b2314) 维持。日志行 ROLLSHEATHE/SHEATHCUT。
+- 待 user 冷启动: 翻滚(各向)后段按特殊納刀键 → SHEATHCUT accepted + 勇気納刀。
+  调时机 = 改 txt 里对应动作阈值(无需重编)。若 SHEATHCUT rejected 或 chk 恒 -1
+  → 检查器求值语义/参数再逆向。
+
+### 2026-10-31(21) 轮询首次进翻滚即崩 → 加固: 武装bit1/vtable界校验/SEH兜底 (dll 2a2f76f6)
+
+- **崩溃定位**: 日志止于首个 act=3:19, 无 SHEATHCUT = 轮询第一次走检查器求值即崩。
+  主嫌: ba00 流程里检查器 flag byte bit1(武装)由游戏逐帧对"已武装组合"置位, 翻滚
+  从不武装组合23 → 求值解引用未初始化内部态; 或 flag/页写/野 vtable。
+- **加固**: ①arm |= 3(bit1 武装+bit0 按压) 且 VirtualQuery 查页可写才写;
+  ②checker vtable/求值函数必须在主模块界内(base..+96M)才继续;
+  ③求值隔离进 SheathEvalSafe(SEH), 崩溃降级为"未按"+一次性日志;
+  ④PropIntHook 每次调用都会跑轮询(高频)——结构上暂不加节流, SEH 已兜底。
+- 过程坑: 上轮的编辑把 SheathEvalSafe 插进了 PollRollSheathe stub 体内造成嵌套
+  定义/重复定义, 已清理(5267 using 前置, 单一定义 5286)。
+- dll `218b9262`→`2a2f76f6`。待 user 冷启动: 崩溃应消失; 看日志 ROLLSHEATHE
+  (checker evaluate faulted = SEH 接住了, 求值语义需换路) 或 SHEATHCUT。
+
+### 2026-10-31(22) 检查器求值 SEH 实证必崩 → PROPTRACE: 属性层抓居合斬り真值源 (dll 13b8ae8d)
+
+- **加固版结论 (user: 没崩但还是气刃斩)**: 日志 `ROLLSHEATHE: checker evaluate
+  faulted - treated as no-press (SEH)` — 组合23检查器求值**必崩**(未武装态内部
+  不完整), 调用路线判死。
+- **新路线**: 待機/気刃斬1 的切納刀走 FSM「居合斬り」属性 (cond232/275), 属性求值
+  经过 mod 已挂钩的 propInt/propBool getter → **PROPTRACE**: 三个属性钩子加
+  变化即记 (本地玩家+结果非零+0→非0跳变, 上限120), addresses.txt `propTrace=1`
+  开关, InitMemoryMap 置位。一次成功的待机切納刀即可暴露居合斬り的真值 id/源。
+  mod 构建新增 PropBoolHookMod (HkPropBool 签名表里本来就有, 之前只装 int)。
+- **过程坑 (本轮三次编译失败全在这)**: dllmain 是匿名命名空间单文件, 函数/变量
+  定义位置 vs #ifndef VALOR_PROBE 分支归属极易错位——PropTraceRecord 先后落进
+  (a) 误编辑吞掉 PropIntHook 头、(b) enclosing #ifndef VALOR_PROBE(force path
+  区, 止于 "force path via prop getter" #endif)内 probe 不可见、(c) extern 局部
+  声明 C7631。终态: atomics 在 InitMemoryMap 前, 函数定义在 force-path #endif
+  后(无条件区), #ifndef 内前置声明。
+- **部署**: dll `2a2f76f6`→`13b8ae8d`; addresses.txt 追加 propTrace=1。
+  待 user: ①待機切一次納刀(成功) ②翻滚中按一次(失败) → 看 PROPTRACE 行:
+  成功切時出现的 id(预期 0x276 或邻近)=真值源 → 轮询该源或直呼 getter。
+
+### 2026-10-31(23) 属性路线判死(会话仅 3 行环境噪声, 居合斬り不走属性 getter=事件锁存同款) → SHEATHCHK 字节踪迹 (dll 765cb787)
+
+- **PROPTRACE 结果**: 仅 kind=0 id=0x15 ret=50 / kind=1 id=0xB2,0xBA 三行环境翻转,
+  无 0x276/邻近 id → 居合斬り条件与气刃条件同款=事件锁存真值(存储未定位), 不走
+  属性 getter。属性路线判死。
+- **新探针 SHEATHCHK**: PollRollSheathe 重构——检查器获取+字节踪迹前置(待机/翻滚
+  都采样, 先于动作门), 400ms 节流读检查器前 48B, 变化即记行(≤80); arm 写挪到
+  发射路径前(不污染观测); evaluate 求值 SEH 升级为记录异常码+地址(前5次)。
+- **待 user 冷启动**: ①待机按切纳刀键数次(基线=按压态字节) ②翻滚后段按数次。
+  日志 SHEATHCHK 行逐字节 diff → 定位"按压位" → 轮询该位=最终形态。
+- dll `13b8ae8d`→`765cb787`。
+
+### 2026-10-31(24) SHEATHCHK 首轮: 双 mgrCtx 交替 + 按压不在前 48B → 探针升级 v2 (dll a118a634)
+
+- **首轮解读**: 捕获的 mgrCtx 在两个对象间交替(0x7e46edd0 静态样=+0x28=24(组合数?),
+  0x41e5325e60 堆样=玩家翻滚上下文); 发射路径 arm 写痕出现(8=03, 门全过), 求值返回
+  未按(本构建无 fault 行); **按压在前 48B 无痕** → 状态在子对象或更深处。
+- **探针 v2**: prev 按对象指针分键(修 A/B 互刷); 宽度 48→96; +0x10/+0x18/+0x20
+  三个子对象指针各跟 48B; 行内附 act/mot 对齐按压时刻; SEH 升级记录异常码+地址
+  (前5次, 上一版已带)。dll `765cb787`→`a118a634`。
+- 待 user 重复测试(待机按数次+翻滚后段按数次) → 逐字节 diff 定位按压位。
+
+### 2026-10-31(25) 检查器字节踪迹判死(按压不入前48B/子对象) → 按住语义假设 + SHEATHEVAL 轨迹 (dll 4836c237)
+
+- **SHEATHCHK v2 结果**: 4 个 mgrCtx 上下文交替; 96B+三子对象 400ms 采样无按压痕迹;
+  arm 写痕出现(门全过)但求值 -1。→ 调用路线死因新假设: **bit0 语义错** — ba00 按
+  行 field2 置/清 bit0 (1=按压沿, 0=按住), 我恒置 1 (沿) — 翻滚期间无按压事件可吃。
+- **改按住语义假设**: flag=(flag|2)&~1 (清沿置武装), evaluate = "组合当前按住?"。
+  pressEdge=1 可切回沿语义 (config)。加 SHEATHEVAL 轨迹 (翻滚内求值返回值变化即记,
+  cap60) — 一次测试同时校准: -1 恒定=按住也不行(检查器路线判死, 转读原始 pad 态);
+  r 有值但不切=门问题; r 值与按压相关=活。
+- **顺带**: 阈值 config 化后时机调整 = 改 txt 重启, 不再动 TIML/重编。
+- dll `a118a634`→`4836c237`。待 user: 翻滚中**按住**切纳刀键不放(过阈值前后都行),
+  试各向; 日志看 SHEATHEVAL/SHEATHCUT。
+
+### 2026-11-01(1) 重大转折: 直接翻滚切納刀其实已经能用 (前滚 prev=18 的 3:98 实锤) → Log 加时间戳 (dll 7c2a281f)
+
+- **user 关键反馈**: "有时候翻滚按慢了才出气刃一" = **按时按 → 勇気納刀直接出,
+  按晚 → 气刃斬1** — 直接切已在工作, 有时机窗口! 推翻"翻滚不处理组合23"的判死。
+- **序列复查**: 本会话两次 3:98 — prev=11 (气刃斬1, 按晚) / **prev=18 (前滚直接切)**。
+  按=按住语义 (pressEdge=0) 下 vanilla 消费路径在 LMT 窗口 (f34/f28/f72) 内吃组合。
+- **Log() 加 [hh:mm:ss.mmm] 时间戳** (全部行) — 对齐 按压(SHEATHCHK)/触发(MOTIONTRACE
+  3:98) 时序, 量化窗口边界。dll `4836c237`→`7c2a281f`。
+- 待 user: 再测若干次 (早按/晚按/各向), 时间戳对齐后量化: 窗口实际开闭帧,
+  "晚按出气刃一" = 窗口关闭后按 = 符合预期还是需放宽窗口尾部。
+
+### 2026-11-01(2) 4 次 98 触发全解剖 → 多实体 mgrCtx 竞争实锤+修复 (dll 7bd75cdc)
+
+- **时间戳日志全量解析**: 4 次 98 = prev=1(前滚收敛后)/prev=22(后滚直接切!)/prev=1/
+  prev=22 — **后滚(act22)两次直接切实锤**, 前滚(18/19)/侧滚(20/21)零触发。
+- **根因**: mgrCtx 非唯一 — 日志实证 4+ 个对象随实体 tick 交替(捕获存"最后调用者"
+  = 随机实体), 轮询评估的是**别人的组合23检查器**(别人的输入恒未按)。后滚两次
+  = 碰巧赶上玩家上下文。也一并解释了此前所有"非单调"怪象。
+- **修复**: SheathCapHook 改为 (mgrCtx, actionObj) 成对入表(mutex, 8 槽, 按 mgr
+  去重); actionObj = *(owner+0xD90)+0x61C8 与 mod controller(player+0x61C8) 同源
+  同偏移 → PollRollSheathe 按 controller 匹配认领**玩家自己的** mgrCtx。
+- dll `7c2a281f`→`7bd75cdc`。待 user: 各向翻滚+按住切纳刀 — 预期全向可切。
+  SHEATHCHK/SHEATHEVAL 探针保留可复诊。
+
+### 2026-11-01(3) 时间戳日志定量: 机制全解 + 现状行为定案 (LMT 898b2314 + dll 4836c237)
+
+- **最新会话测量** (逐翻滚段): roll18/19/21/20 全部 dur=483-585ms 后出 11(气刃斬1,
+  R 分量在 R 窗检查点点出); **roll22 dur=1250/1300ms → nxt=98 @+0ms**(按住到后滚
+  结束, 勇気納刀在窗口开启帧=动作末尾切出) — 两次后滚直切实锤。
+- **机制定案 (hold 语义)**: 按住 R+○ → 居合斬り边[0](优先级最高)在 PI 窗口开启后
+  首个检查点火 → 勇気納刀; 未按/按晚(动作已结束) → R 边[4] → 気刃斬1。
+  窗口=LMT PI 位(10:f72-80 / 11:f28-80 / 12,13:f34-76), 槽门 2368>0。
+- **"按慢了出气刃一"** = 按压落在动作结束之后(窗口已关) — 侧滚实测 583ms 处 R 出
+  気刃斬1 vs 窗口 567ms 开启, 差 16ms 的竞速也在(按住时 [0] 边胜出)。
+- **待决 (user 选)**: (a) 现状接受(按住=翻滚任意时刻, 窗口开即切; 按晚=气刃斬1);
+  (b) 窗口提前(TIML 单键前移, 按住则更早切, 落地前松手则不切); (c) 窗口延后到
+  收敛动作(act1, 需给 key1 子表+LMT4 补行/位)。
+- 本轮另: Log() 全行 [hh:mm:ss.mmm] 时间戳; PROPTRACE 判死(居合斬り不走属性
+  getter); 检查器调用路线判死(未武装必崩, SEH 兜底); 组合23按压态不落在检查器
+  对象前 96B/子对象(v2 探针实证) — 输入检测底层(游戏如何读键)仍未逆向, 不影响
+  使用(vanilla 自己检测)。
+
+### 2026-11-01(4) 定稿收尾: 鼠标侧键轮询版部署 (dll d089847a) + 结论归档
+
+- PollRollSheathe 终版: GetAsyncKeyState(VK_XBUTTON1/2) 按住 + 翻滚动作 + 帧阈值
+  → DoAction({3,98})。删除 检查器/字节踪迹/mgrCtx 表/sheathCap 捕获残留依赖
+  (捕获 hook 仍装但无害), gaugeGate/pressEdge 配置废除。config 重写(阈值表)。
+- 部署 dll `d089847a`; 配置 d2e8adc3。LMT 898b2314 / FSM f25256e2 维持。
+- 结论入 gauge-valor.md 翻滚切勇気納刀节。代码整理归 user。

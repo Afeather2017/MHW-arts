@@ -182,3 +182,30 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
 - GUARD 防御帧 + sheath-counter 弹反：10-23 整体删除（转换全转 FSM 内置）；guard.txt/
   sheath-counter.txt 是死配置留盘。
 - 勇气纳刀按住检测的 DLL GetAsyncKeyState 路线：可退役（`R押してない` 纯数据边，见 fsm-input.md）。
+
+## 翻滚切勇気納刀 (ROLLSHEATHE, 2026-10-31~11-01 定稿)
+
+**行为**：翻滚(动作 18/19=前滚 LMT11、20/21=侧滚 LMT12/13、22=后滚 LMT10)中按住
+**鼠标侧键**(VK_XBUTTON1/2 任一)且 motion 帧 ≥ 阈值 → DoAction {3,98} 勇気納刀。
+阈值默认 18/19=28、20/21=34、22=72(动作帧)，配置 `nativePC/plugins/
+ValorGauge.roll-sheathe.txt`(enable/各 id 阈值)，改后重启生效。
+
+**实现**：ValorGauge.dll `PollRollSheathe()`(PropIntHook=游戏更新线程)：本地玩家
+controller 读当前动作(0xAC/0xB0) + motion 时钟(anim+0x10C) + GetAsyncKeyState
+侧键 → g_originalDoAction 直呼 + tracker 同步(仿 TryQueuedForceWrite)。
+
+**为什么是这条路 (5 轮数据侧全灭的教训，勿重蹈)**：
+1. FSM 边(居合斬り cond232/275 已铺) — 属性不走 getter(PROPTRACE 实证)，真值=
+   事件锁存(存储未定位)。
+2. TIML PI 位(mFlag b14/15、mFlag2 b22/23、mFlag6 b11) — 位喂进去组合 23 也
+   不被消费：**回避动作类不处理该组合的输入**。
+3. 分类器表行(LS 0x143F4D6A0+key18-22 子表加 (1,23,1,0,3,98)) — vanilla 消费
+   者能吃(后滚实锤)但窗口=活值即点即切，且帧位/槽值竞速难控。
+4. 组合23检查器对象调用 — 未武装态求值必崩(0xC0000005 @ .rdata, SEH 实证)，
+   按压态也不落在对象前 96B/子对象。
+
+**注意**：侧键按住期间游戏侧 ○ 绑定(如_attr 派生)可能与 {3,98} 竞速，实测以
+納刀为准；気刃槽 0x2368 无门槛(气刃 0 亦切，旧观察有误)。ROOLLSHEATHE 分类器
+表行补丁仍留(vanilla 按住路径备用)，FSM 居合斬り边/LMT PI 位残留无害。
+排查工具：Log 全行时间戳；addresses.txt `propTrace=1`/`sheathClsfyProbe=1`
+探针；`patch_roll_sheathe_row.py`(exe 表补丁, 已弃用仅存档)。
