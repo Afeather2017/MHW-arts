@@ -5366,3 +5366,256 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   暴击归一化 dmgNorm 仍在）。
 - 部署 md5 `26eb95ca` → `bff54bea`。待 user 冷启动：给要强化暴击的行手补第 5 参，
   暴击刀 log 出 critx 标记、充能=额度×乘数。
+
+### 2026-10-31 勇気納刀触发变晚诊断 + 107/110 "106 化"修复（簇窗结构终案）
+
+- **现象 (user)**: 新 blend（R+方向组合版）下 fsm70(lmt110 気刃踏込斬り)/fsm72(lmt107 気刃斬り上げ)
+  勇気納刀"没失效但触发变晚"; 其余动作（127/101/105/104…）全部符合预期。user A/B（FSM 不动换 LMT）
+  排除接线; 旧 LMT 下两招纳刀时机准确。
+- **诊断链**: ①新导出 `w03_00-r+dir-but-shealth-failed.lmt` md5=`23503aa8`=当时部署版=10-27(9)
+  symmetric 态（无谱系漂移）。②新旧 LMT 全轨 diff：107/110 差异**仅** PlMotionInput mFlag/mFlag1
+  （无 mTrigger/防御位/时长变化）；其余 entry 逐字节同——与"只有这两招变晚"完全吻合。
+  ③机制 = 10-27(8)(9) 把 107/110 早期键的 **mFlag1 基线 b12/b26** 与 **mFlag 连段缓冲 b14/b16/b30**
+  全剥到 0、推迟到簇档（107 f42/110 f58）→ [R] 写入门关闭 → 勇気納刀（[R] 按住→特殊纳刀代码路由，
+  FSM 无边、纯输入层——部署 FSM node6/38 无→61 边实锤）档前死区 20 帧（107 0.37s→0.70s、
+  110 0.63s→0.97s）。106 逃过是因为 (3) 只剥簇**留了 b12**（f24=0x00001000）——user 指认
+  "106 既能 R+方向又能正常纳刀"即此。
+- **106 结构解码（标准答案）**: 基线 b12 早开 + 缓冲位 vanilla 早开 + **簇=引擎取消点**
+  （106 攻击结束 f43→簇 f44）+ FSM 边序 cond308(长版, R+方向) 在 cond307(短版, 裸 R) 之上
+  → 检查点上方向必赢：无误判（(5)-(8) 问题）、无硬切（(3) 问题）、无死区（今天的问题）。
+  10-27(7) "106 能分辨纯属按键时机落档后" 的判读修正为**结构性成立**。
+- **修法（blend=MHW-Valor-0.0.2-damage-modification.blend 活会话 MCP 改键，.150=107/.153=110，
+  16 位通道整轨重建 EXPO）**: 107 mFlag1 f22/f30→0x00001000、簇 f42→**f34**(0xCFFC30CC,=取消点
+  f33+1) 尾 f100 保持; mFlag f22/f30→0x40014100(vanilla, 含 b8/b14/b16/b30)、f42/f100/f124 原
+  vanilla 值不动。110 mFlag1 f38→0x00001000、簇 f58→**f46**; mFlag f38→0x40014000、f46→0x40014100
+  (vanilla)、f58/f64/f109 不动。106(.147 实为 104 块, 未动) 与其余 165 entry diff 零变化。
+- **验证**: `_shout_semantic_diff.py` 部署版↔新导出全 167 entry **仅 107/110 的 PlMotionInput
+  两条轨**差异（433/435/437 双侧解析失败=已知盲区）。三处一致：blend 已存盘 / 产物
+  `_blend_export_106style_107110.lmt` / 部署 w03_00.lmt，md5 全=`12caef7e`
+  （上任 `23503aa8`，备份 `w03_00.lmt.bak-20261031-pre106style`；blend 备份
+  `MHW-Valor-0.0.2-damage-modification.blend.bak-20261031-pre106style`）。
+- **待 user 完全冷启动验证**: ①70/72 按 R 纳刀应回到旧时机（107 f22=0.37s/110 f38=0.63s 起）;
+  ②R+方向长版切换帧 107=f34/110=f46——偏早（吞后摇）挪 f36/f38（110 挪 f50+），偏晚前移;
+  ③红刃态攻击中按住 R+方向应出长版不出短版（簇=取消点构造上无吃窗）。
+- **工具遗留**: `_dump_rdir_windows.py`（两 LMT PI 键窗对比）、`FSM-Studio/_dump_fsm_links.ts`
+  （部署 .fsm 无头全边 dump; ⚠ mConditionId→conditions() 是 **0 基直引**（card.ts:51），
+  减 1 会整体错位一格）。`_test_rdir_switch_window.py` TARGETS=弃用态，勿再跑回。
+
+### 2026-10-31(2) 勇気納刀逆向第一轮：LS 属性 id 全图 + 输入属性表 + 0x2368 写点扫描
+
+- **背景**: (106 化) 后 user 实测"不行"。两版数据修复未根治 → 启动代码逆向（user 开 Ghidra）。
+  第二版修复先行部署：107/110 基线键回填 vanilla 精确值 b12+b26=0x04001000
+  （上一版 b12-only 是我的发挥，vanilla/OLD 全是双位；部署 md5 `25601581`，产物
+  _blend_export_106style_b26.lmt；**user 未测，待冷启动**）。
+- **属性 id 全图（FUN_140b306a0=分武器组解析器, LS=case3）**: LS 块 0x269-0x277 =
+  0x269 オーラレベル白以上 / 0x26a 赤以上 / 0x26b-0x275 練気ゲージ判定(気刃斬りI,II,III,
+  大回転,踏み込み,突き,斬り上げ,J斬り,J二連,見切り,必殺) / **0x276 = 居合斬り** /
+  0x277 見切り回避成功後の攻撃ヒット。注册器 FUN_140b2a030（LS 属性描述符链表,
+  共享 stub accessor=caseD_0@0x140240720）。
+- **全局输入属性 id（FUN_140b2e4e0 strcmp 链）**: 0x26=R, Rキープ, Rリリース,
+  0x7d=R押してない, **0x28=R+レバー / 0x27=R+ノーレバー**（摇杆中立对——10-27(8)
+  设想的"レバー中立 AND 子节点"有现成属性）, 0x2b/2c/2a/29=R+←/→/↓/↑, Aim/NoAim,
+  レバー前/後/左/右キープ, レバーニュートラル(@0x1430b9ca8)。R+○ 六个变体在 0x1430b98bc+。
+- **读数据必用 vadump.read_va**: .rdata 段 raw≠RVA 分界在 0x1430ba1xx 附近，裸 VA-0x140000000
+  在其后全错（本轮两次误判的根因）。
+- **0x2368 (居合架势位) 写点扫描**: 全部 14 处 FUN_14211cc60 调用点在 0x1417d6xxx-0x1417d9xxx =
+  **Wp01(片手剑)类代码区**（vtable 注册函数 FUN_1417fa7b0 实锤 Wp03=cKijin 族在
+  0x1417fexxx 区、名字表 0x143383xxx, cKijinStepSlash vtable=0x1433846b0）——LS 类不调它。
+  LS/Wp03 区写点 0x14180abe0 = 清零函数（word [rcx+0x2368]=0, vtable 方法）; 置位走共享区
+  0x14212xxxx（0x142120a1a/120cd0/1223c2/12259b/1245b5/126fbc 六处 c7/89 写）——与 09-19
+  "架势=+0x2368"互证：LS 纳刀决策在**共享武器更新代码**，不在武器类。0xC149/C14A/C14B/
+  C0A2/C0A4 = 该区动作切换用的 motion begin 码。
+- **未解（下一步）**: ①属性值写入闸门（PlMotionInput 位→属性的映射函数本体——
+  属性 id 是运行时解析的, 常量 grep 死路; 候选=FSM 条件求值器 FUN_14118a0c0 反推值表偏移,
+  或 x64dbg 断 0x14212xxxx 写点回溯调用链）②勇気納刀物理输入到底是什么组合
+  （user 说"含 R"；R+○/R+方向/R 决定走哪条闸门位）。
+
+### 2026-10-31(3) 勇気納刀从 act70/72 被R吃：五轮 LMT 修复全败 + 逆向图谱 + 交接（重开会话）
+
+- **问题定型**: 勇気納刀(3:98→306链)在気刃踏込斬り(act70/LMT110)/気刃斬り上げ(act72/LMT107)上
+  按键(Ctrl+Space, Ctrl=R2 映射, Space 盘键身份未钉≠○)被 [R] 路线吃掉("给R判定走了"),
+  从不落 3:98; 在気刃斬2(**act67/LMT106**, node 12——注意 user 全程用 ActionNo 报招,
+  "lmt 106 是 fsm 67 名字気刃斬2")上三键(R/R+方向/纳刀)**开始帧各不相同且全部正常**。
+- **已证伪清单(每条附杀死它的测试, 新会话勿重走)**:
+  1. 107/110 PI.mFlag1 基线/簇位: b12-only(`12caef7e`)、b12+b26 vanilla(`25601581`)、
+     **OLD-exact 整块 swap**(`2dcacb89`, user 实测败)、+106 f24 回填 0xC7FC10CC(`4d6d3d28`,
+     败)——107/110 的 **TIML 全部洗清**(OLD↔NEW 全文件 diff 只有 106/107/110/156/342 五条,
+     107/110 差异仅在 PI 两轨; swap 后仍败=这两招 TIML 与纳刀无关)。
+  2. PI.mFlag4 b28@f22(`ec0633e4`, 现部署, 败)——三招相关性假说(106 f24✓/107无✗/110 f38✗)
+     被局内否决。**现部署=ec0633e4**(无害增量, 回退点 `_blend_export_106style_b26.lmt`=`25601581`)。
+  3. FSM 加边: node 6/38 →61(条件复用居合斬り cond232/275, 同翻滚后摇 node98 现役同款)——
+     user 加了, 败。→ **居合斬り(0x276)属性在 act70/72 期间根本不会被代码置真**。
+  4. 类表读数: 0x142EF5C30 + 0x20 stride 对当前 dump **错位**(act67 给 cJumpSlashLanding,
+     act86 给 SNS 类名)——9 月旧版地址, 修复前别信; SPIRIT_SHOT §1 早已警告"类名不可靠"。
+- **逆向图谱(新会话直接用)**:
+  - LS 属性 id(FUN_140b306a0 case3): 0x269 白/0x26a 赤/0x26b-0x275 練気ゲージ判定(気刃斬りI,
+    II,III,大回転,踏み込み,突き,斬り上げ,J斬り,J二連,見切り,必殺)/**0x276=居合斬り**/0x277
+    見切り回避成功後の攻撃ヒット。注册器 FUN_140b2a030。
+  - 全局输入属性(FUN_140b2e4e0 strcmp 链): 0x26=R, 0x7d=R押してない, **0x28=R+レバー /
+    0x27=R+ノーレバー**, 0x29-0x2c=R+↑↓←→, レバー前後左右キープ, レバーニュートラル
+    (@0x1430b9ca8), R+○ 六变体(@0x1430b98bc+, 无 code xref=指针表间接引用)。
+  - +0x2368(架势位): setter FUN_14211cc60 的 14 个调用点全在 **Wp01(片手剑)区**
+    (0x1417d6xxx-d9xxx); LS 区(0x1417fexxx, cKijinStepSlash vtable=0x1433846b0, 注册器
+    FUN_1417fa7b0)只有清零(0x14180abe0 word=0); LS 置位走共享区 0x14212xxxx 六个写点:
+    **0x142120a1a/120cd0/1223c2/12259b/1245b5/126fbc**。
+  - 原生链考古(LMT_TIML_Research): 特殊納刀/構え=**原生驱动状态**, vanilla FSM 无 98/99/306;
+    更新器 FUN_1421237B0: "动作∈{6,9,98,99} 且缓冲请求==100→起 101; 缓冲请求==1→起 100"
+    ——纳刀输入走**请求缓冲系统**(与 △/○ 预输入同族), 非 FSM 边非活值属性。
+  - 日志实证(ValorGauge.log): 3:19(翻滚后摇)→3:98 直达✓(该 node 有→61 边); 3:72→恒
+    3:106/3:105(一文字短/长 ACT, R 路线)从无 3:98; 1000 系不过 DoAction 日志(1013 判定
+    时机查不到 DoAction 层); SHEATHWATCH 里 3:98 期间 2368=151 跳动、3:72 期间 2368=0。
+- **模型(当前最优)**: "类代码 × TIML 信号, 按类分别门控"(SPIRIT_SHOT 定案同构)——act67 的类
+  有原生纳刀/请求路由, act70/72 的类没有; 输入层只写 [R], 另一组件的分类由类代码完成。
+  106 三键三帧=类内三套独立门的实测表现。全轨 diff(106 vs 107/110)剩两个未测候选:
+  **PMC.mFlag2 b31 窗(107/110 有 f15/f23=0x8000, 106 整轨缺失!)** 与 PMC.mFlag 107 早期
+  0x00400006 形状(106/110=0x02400006)。
+- **下一步(按性价比)**:
+  1. **x64dbg 动态**: 断 0x142120a1a 等六写点(或 DoAction 0x140269CE0 过滤 id=98/1013),
+     act67(成功) vs act70/72(失败) 各按一次纳刀, diff 调用栈=直接拿到门函数;
+  2. 静态: Ghidra 反编译 cKijin 系类 update(部分区域未被分析, 需本地 capstone 补;
+     vtable 0x1433846b0 槽位已列表)找类内输入处理差;
+  3. 工程兜底: DLL krel 同款"按下边沿→force {3,98}"(动作∈{70,72,...} 可配置, 绕开全链);
+  4. 钉输入: Space 的盘键身份(键位设定页看图标/納刀态试按)——决定走哪条属性。
+- **现场状态**: 部署 `ec0633e4`; master blend=MHW-Valor-0.0.2-damage-modification.blend
+  (同步, 备份 .bak-20261031-pre106style); 备胎 `_swap_107110_OLD_exact.lmt`(2dcacb89);
+  工具 `_dump_rdir_windows.py`/`FSM-Studio/_dump_fsm_links.ts`(⚠ mConditionId 0 基直引
+  card.ts:51)/`_fsm_deployed_links.txt`; 本会话遗留未清: `_tmp_107110_old_exact.blend`、
+  各 `_blend_export_*.lmt`。motion-data 簇窗定案节已打证伪标记。
+
+### 2026-10-31(4) PlMotionInput 静态读取链第一轮（以 LMT106/act67 为正常对照）
+
+- 解密 dump 的 `.data` `0x14500102c` 唯一出现类型 hash `0x6FCCD10E`；
+  Ghidra xref 指向 `FUN_141921e80`，该函数以名称 `nTimelineParam::PlMotionInput`
+  注册大小 `0x60` 的 TIML 参数对象，构造器 `FUN_14231eb50` 清零。
+- 参数类 vtable `0x1433c6b50` 的字段反射入口经 `0x140435a90` 跳转
+  `FUN_14231f190`：`mFlags[0..7]` 按 4 字节排在对象 `+0x08..+0x24`，
+  `mTriggers[0..7]` 排在 `+0x28..+0x44`；字符串表明确含 `mFlag7` / `mTrigger7`，
+  旧工具列出的 mFlag..mFlag6 不是该类型的全部反射字段。
+- `FUN_141f710a0` 以 `0x60` 步长复制该对象数组，调用方 `FUN_141f4d0f0`
+  为玩家对象初始化两个 PlMotionInput 实例（数组头位于玩家 `+0xe480`）。
+  这一步只确认实例布局和初始化，不代表已找到每帧的消费函数。
+- OLD/NEW 的 106/107/110 PI 轨复核：旧 107 早期 `mFlag1=0x04001000`、
+  110 早期 `0xC7FC10CC`，两招旧版纳刀正常；新 106 早期 `mFlag1=0x00001000`
+  仍三键正常。结合 OLD-exact swap 败，单靠 mFlag1 基线位解释不了故障。
+- 未闭合：每帧求值后各 mFlag 位如何进入输入属性/请求缓冲；以及 Ctrl+Space
+  的 Space 对应盘键。当前未运行游戏，无法做 act67 对照动态断点；静态结果不能推出
+  “某位就是纳刀门”。后续从 PI 实例/请求缓冲消费点同时采样 67 与 70/72。
+
+### 2026-10-31(5) 107/110 共引 106 的 PlMotionInput 实验（待局内验证）
+
+- user 指定实验：不复制曲线，在 Blender 节点图中保留 LMT107/110 各自的
+  TIMLActionNode，只把其 `input_action` 指针改指向 LMT106 的同一个
+  `TIML::nTimelineParam::PlMotionInput.149`。对应节点：106=.1644、107=.1656、
+  110=.1696；原 PI Action `.150`/`.153` 未删除，便于回退。其余节点连线未动。
+- Blender 打开的是 `MHW-Valor-0.0.2-damage-modification.blend`，修改前 `is_dirty=True`；
+  先备份磁盘版 `*.blend.bak-20261031-prePI106share`，再用 `save_as_mainfile(copy=True)`
+  保存内存态 `*.blend.bak-20261031-prePI106share-live.blend`。实验态另存
+  `MHW-Valor-PI106share-test.blend`；主 blend 磁盘文件未覆盖，当前活会话保留共享引用。
+- 树导出 `_blend_export_PI106share.lmt`；全 167 entry TIML 语义 diff 相对部署版
+  `ec0633e4` 仅 107/110 的 PlMotionInput 四轨不同，导出轨与 106 完全相同。
+  433/435/437 两侧均解析失败，为既有盲区；导出日志无 UNSOLVED/CRITICAL。
+  110 动作长 116 帧，所引 106 PI 有 f120 末键，导出保留此键；早期窗口仍在动作范围内。
+- 游戏未运行时部署；`w03_00.lmt` md5 `ec0633e4` → `2936c09b`，备份
+  `w03_00.lmt.bak-20261031-prePI106share`。待 user 完全冷启动对比 act67/70/72
+  的 Ctrl+Space→3:98、R→短版、R+方向→长版；若纳刀仍败，106 与 107/110
+  已使用同一 PI Action，可排除 PI 曲线内容差异，转查动作类/请求路由。
+
+### 2026-10-31(6) 共引 106 PI 局内成功；旧“PI 洗清”结论撤回
+
+- **user 局内反馈**：act70/72 纳刀已正常，R/R+方向切招也基本正常；残余问题是
+  切招稍早。当前部署 md5 `2936c09b` 保持，未再改 LMT。
+- 导出 LMT 的 TIML 数据地址 106=`0xB0B10`、107=`0xB7CA0`、110=`0xD5E20`
+  （各自 PI type 地址 `0xB0B70/0xB7D00/0xD5E80`）：Blender 三节点共指一个 Action，
+  **游戏文件中是三份独立 PI 记录**。因此有效的是所写 PI 内容，非运行时指针别名。
+- 成功版相对前版 `ec0633e4` 全 167 entry TIML 语义 diff 仅 107/110 PI 四轨变化。
+  成功版两者早期均 f24: mFlag=`0x40014000`、mFlag1=`0xC7FC10CC`、
+  mFlag2=`0x00400150`、mFlag4=`0x10000000`。前版 107 f22:
+  `0x40014100/0x04001000/0x00400150/0x10000000`；110 f38:
+  `0x40014000/0x04001000/0x00400150/0x10000000`。差异集中于 mFlag1
+  完整位簇提前打开及 110 的整体开窗提前 14 帧；107 mFlag 早期还少了 b8。
+- `2dcacb89` OLD-exact 失败版 107 PI 只有三轨（无 mFlag4），110 早期 f38
+  mFlag1=`0xC7FC10CC`，仍败。它不能证明 PI 无关；10-31(3) 的“107/110 TIML
+  全部洗清 / 类代码唯一门控”结论撤回。当前只能说 106 PI 全套内容足以修复，
+  **具体起效位、开窗帧、是否需要 mFlag4 联合作用均未单独验证**。
+- 切招偏早的直接候选：成功版 mFlag1 方向位簇 f24 开，而取消点为
+  107=f34 / 110=f46；需把纳刀有效位与方向使能位拆开做 A/B，不能直接把整簇
+  推迟（早先推迟整簇曾杀纳刀）。下一轮先在实验独立 Action 上按位族 bisect，
+  保留 106 原版 PI 及当前成功部署作为对照。
+
+### 2026-10-31(7) PI 方向位分组延后实验：107=f34、110=f46（待冷启动验证）
+
+- user 同意复制后调时机。Blender 活会话先以 `save_as_mainfile(copy=True)` 保存
+  `MHW-Valor-PI106share-live-preTiming.blend`；107/110 各从 106 PI `.149`
+  `Action.copy()` 得到独立 Action `PI106-window-split-107/110` 并重指各自
+  TIMLActionNode，106 `.149` 不动。实验工程另存 `MHW-Valor-PI106-window-split-test.blend`；
+  主 blend 磁盘文件未覆盖。
+- 首轮只动 `PlMotionInput.mFlag1` 的 b18-b25 组（mask `0x03FC0000`）：
+  107 f24 `C7FC10CC`→`C40010CC`，f34 恢复 `C7FC10CC`，f44 原值不动；
+  110 f24 同改 `C40010CC`，f44 `CFFC10CC`→`CC0010CC`，f46 恢复
+  `CFFC10CC`，f54 原值不动。其余 PI 轨和 106 全部不动。
+  目的：验证早期保留的位能否继续支持纳刀，同时让方向切招回到取消点；
+  b18-b25 是否完整承担方向门尚无实证，本版是 A/B 探针。
+- 树导出 `_blend_export_PI106_window_split.lmt`；相对已验证成功版 `2936c09b`
+  的全 167 entry TIML 语义 diff 仅 107/110 各一条 mFlag1 轨变化；433/435/437
+  两侧解析盲区照旧，导出日志无 UNSOLVED/CRITICAL。
+- user 纠正部署流程：**LMT 可在游戏运行中覆盖部署**，但读取新 LMT 仍需完全冷启动。
+  已运行时覆盖部署 `2936c09b`→`85708b26`（md5 已核对），前版备份
+  `w03_00.lmt.bak-20261031-prePI106windowSplit`。待 user 冷启动测两点：
+  ① act70/72 Ctrl+Space 是否仍进 3:98；② R+方向切招是否延后至预期取消点。
+
+### 2026-10-31(8) 110→107 接入偏早：单独延后 mFlag2 实验（待局内验证）
+
+- **user 反馈上版 `85708b26`**：107/110 两个问题动作均已修正，仅 LMT110
+  接入 LMT107 的时机稍早。部署 FSM node6(act70/LMT110)→node38(act72/LMT107)
+  的边条件为 `△ | ○`；当前 110 PI.mFlag2 f24=`0x00400150`、f44=`0x00C003F0`，
+  原 110 自身 PI 则从 f38/f58 开同值窗。mFlag2 逐位语义未钉死，本轮仅检验该轨
+  是否影响此边的切换时机。
+- Blender 活会话先保存 `MHW-Valor-PI106-window-split-live-pre110to107.blend`；
+  从已验证的 `PI106-window-split-110` 复制独立 Action
+  `PI110-to107-later-mFlag2`，只把 mFlag2 双通道的 f24→f38、f44→f58
+  （末键 f120 不动），106/107 Action 和 110 其他轨全部不动。
+  实验态另存 `MHW-Valor-PI110-to107-later-test.blend`，主 blend 磁盘版未覆盖。
+- 树导出 `_blend_export_PI110_to107_later.lmt`；相对 `85708b26` 的全 167 entry
+  TIML 语义 diff 仅 entry110 的 PI.mFlag2 一轨变化；433/435/437 双侧解析盲区照旧，
+  导出日志无 UNSOLVED/CRITICAL。已运行时覆盖部署 md5 `85708b26`→`58d0d8d9`，
+  前版备份 `w03_00.lmt.bak-20261031-pre110to107later`，部署 md5 已核对。
+- 待 user 冷启动：act70/LMT110 使用 △ 或 ○ 接入 act72/LMT107 是否延后至合适时机；
+  同时确认 Ctrl+Space 纳刀、R/R+方向仍正常。若纳刀受影响，说明 mFlag2
+  也参与纳刀输入，需缩小到 mFlag2 的具体位而非整体移窗。
+
+### 2026-10-31(9) 原版 110 输入窗核对 + PI 前中段整体后移 14 帧（待局内验证）
+
+- **user 反馈 `58d0d8d9`**：只把 110 PI.mFlag2 移回 f38/f58 无效果；整体感觉
+  110 的衔接都偏早。故不再把问题归给 node6→38 的 △|○ 单边或 mFlag2 单轨。
+- **只读基线** `chunk-extracted/chunk/hm/wp/wp03/mot/w03_00/w03_00.lmt`
+  entry110：frameCount=117、TIML 动画长 116；PI 四轨 f0 全零，首个非零键
+  **f38**（mFlag=`40014000` / mFlag1=`04001000` / mFlag2=`00400150` /
+  mFlag4=`10000000`）；mFlag **f46** 加 b8=`40014100`；主要衔接档 **f58**
+  （mFlag=`C003C100` / mFlag1=`0C003000` / mFlag2=`00C003F0` /
+  mFlag4=`30000000`），mFlag f64 再升 `C003C300`。值不同于当前 106 PI
+  模板，帧锚点可用于本轮 A/B。
+- 以此前已验证的独立 Action `PI106-window-split-110` 为来源复制
+  `PI110-all-input-plus14`，仅重指 110 TIMLActionNode；106/107 未动。
+  四条 PI 轨的所有前中段键 `0<f<100` 整体 +14，f0 与 f100/f110/f120
+  尾键保留：mFlag f24/44/45/62→f38/58/59/76；mFlag1
+  f24/44/46/54→f38/58/60/68；mFlag2 f24/44→f38/58；
+  mFlag4 f24/40→f38/54。110 PI 首窗回归原版 f38；较大簇落 f58-60，
+  但各轨值和后续细分帧仍采用 106 模板，并非原版精确回填。
+- Blender 活会话先保存 `MHW-Valor-PI110-to107-later-live-preShift14.blend`，
+  实验态另存 `MHW-Valor-PI110-all-input-plus14-test.blend`；主 blend 磁盘文件
+  未覆盖。树导出 `_blend_export_PI110_all_input_plus14.lmt`；相对部署版全 167 entry
+  TIML 语义 diff 仅 entry110 PI.mFlag/mFlag1/mFlag4 三轨变化（mFlag2 已是 f38/f58）；
+  433/435/437 两侧解析盲区照旧，导出日志无 UNSOLVED/CRITICAL。
+- 已运行时覆盖部署 md5 `58d0d8d9`→`ad6c379b`，前版备份
+  `w03_00.lmt.bak-20261031-pre110PIshift14`，部署 md5 已核对。
+  待 user 完全冷启动验证：110 的全部派生时机及 Ctrl+Space 纳刀是否仍正常。
+
+### 2026-10-31(10) PI 时机最终局内确认与工程归档
+
+- user 局内确认部署版 `ad6c379b` 的 LMT110 全部衔接时机、勇気納刀时机均符合预期。
+  LMT107 仍感觉约早两帧，user 决定保留，不再调整。本轮结果不等同于 PI 最小起效位
+  已被逆向钉死；起效位与请求缓冲的逐位映射仍待研究。
+- 最终实验工程 `MHW-valor-blender/MHW-Valor-PI110-all-input-plus14-test.blend`；
+  活会话最终状态已保存回主工程 `MHW-Valor-0.0.2-damage-modification.blend`，
+  覆盖前备份 `.blend.bak-20261031-prePI110final`。最终 LMT 仍为 `ad6c379b`，
+  未再改动游戏文件。树导出全 167 entry TIML 语义 diff 见上一条。
