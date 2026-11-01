@@ -25,6 +25,7 @@ static std::atomic<int> g_chipForce{0};   // 0 = vanilla; >0 = max(orig, N)
 static std::atomic<int> g_chipTrace{1};   // ungated-call logging
 static std::atomic<int> g_rbEnabled{1};   // GuardRollback switch
 static std::atomic<int> g_lethalVeto{1};  // drop lethal vitals writes in-guard
+static std::atomic<int> g_vetoAll{0};     // drop ALL decreasing HP writes in-guard
 static std::atomic<double> g_chipWindow{0.20};  // guard frame window (seconds)
 static std::atomic<int> g_chipGuardId{112};     // guard carrier action id (set 3)
 static std::atomic<std::int64_t> g_chipLastLogMs{0};
@@ -115,16 +116,36 @@ static bool GuardGateActive(std::int32_t guardId, double windowSec) {
 // check (reading the box) never fires - the 35-37 reaction still queues. The
 // paired non-lethal chip is handled by GuardRollback below.
 void __fastcall VitSetHook(void* box, float value, bool flag) {
-    if (g_lethalVeto.load(std::memory_order_relaxed) && !flag && value < 1.0f &&
-        GuardGateActive(g_chipGuardId.load(std::memory_order_relaxed),
-                        g_chipWindow.load(std::memory_order_relaxed))) {
+    const bool lethal = !flag && value < 1.0f;
+    const bool vetoAll = g_vetoAll.load(std::memory_order_relaxed) != 0;
+    if ((g_lethalVeto.load(std::memory_order_relaxed) && lethal) || vetoAll) {
+        if (!GuardGateActive(g_chipGuardId.load(std::memory_order_relaxed),
+                             g_chipWindow.load(std::memory_order_relaxed))) {
+            g_originalVitSet(box, value, flag);
+            return;
+        }
         void* controller = nullptr;
         {
             std::scoped_lock lock(g_actionMutex);
             controller = g_lockedPlayerController;
         }
+        if (controller == nullptr) {
+            g_originalVitSet(box, value, flag);
+            return;
+        }
         auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
         if (ProbeVitalsBox(player, kHpSlot) == box) {
+            // vetoAll: any decreasing write (lethal or chip) is dropped - the
+            // guard lands with the HP bar untouched; lethal veto keeps the
+            // death check from ever firing. Increasing writes (heals) pass.
+            if (vetoAll && !lethal) {
+                const float cur = *reinterpret_cast<const float*>(
+                    static_cast<const std::uint8_t*>(box) + 0x64);
+                if (value >= cur) {
+                    g_originalVitSet(box, value, flag);
+                    return;
+                }
+            }
             static std::int64_t lastLogMs = 0;
             const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::steady_clock::now().time_since_epoch())
@@ -304,6 +325,7 @@ void LoadChipGuardConfig() {
     int rollback = -1;
     int lethalveto = -1;
     int guardId = -1;
+    int vetoall = -1;
     while (std::getline(f, line)) {
         const auto hash = line.find('#');
         if (hash != std::string::npos) {
@@ -325,6 +347,8 @@ void LoadChipGuardConfig() {
             lethalveto = value;
         } else if (key == "guardId") {
             guardId = value;
+        } else if (key == "vetoall") {
+            vetoall = value;
         }
     }
     if (force >= 0) {
@@ -342,12 +366,16 @@ void LoadChipGuardConfig() {
     if (guardId > 0) {
         g_chipGuardId.store(guardId, std::memory_order_relaxed);
     }
+    if (vetoall >= 0) {
+        g_vetoAll.store(vetoall, std::memory_order_relaxed);
+    }
     std::ostringstream m;
     m << "CHIP config: trace=" << g_chipTrace.load()
       << " force=" << g_chipForce.load()
       << " rollback=" << g_rbEnabled.load()
       << " lethalveto=" << g_lethalVeto.load()
-      << " guardId=" << g_chipGuardId.load();
+      << " guardId=" << g_chipGuardId.load()
+      << " vetoall=" << g_vetoAll.load();
     Log(m.str());
 }
 

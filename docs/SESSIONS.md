@@ -6482,3 +6482,13 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   .hold-pre-chipguard-final), probe 撤除, ValorGauge.chipguard.txt 在位。
   LMT 维持 `898b2314` (0.2s 原版窗)。behavior: 刚一防御窗内 = 后仰+闪回
   (CHIPROLL) + 致死否决 (CHIPVETO 不死); 窗外/裸被打全原版; 強G (98/306) 原样。
+
+### 2026-11-02 (2) vetoall: 刚一真·不掉血 (写入层全拦, 血条零闪)
+
+- user 反馈 rollback 可接受但希望完全不掉血。升级: VitSetHook 同一钩子从"只拦致死
+  形态"放宽到 **vetoall=1 时窗内一切 HP 递减写全丢** (value<当前 box+0x64 即递减;
+  回血递增写放行)。安全性实证继承自 lethal veto 轮: **反应排队在伤害计算层决定,
+  写入层拦截不影响 35-37 呈现** (致死写被拦后仰照排已局内实锤)。rollback 保留作
+  保险 (vetoall 下 HP 不降自动静默)。窗 0.2s 内非格挡来源 (背后击飞) 误伤面可忽略。
+- 部署 mod md5 `408bfc5b`, 配置 vetoall=1。待 user 冷启动: 窗内吃刀 = 后仰 + 血条
+  完全不动 (CHIPVETO 行含非致死拦截)。
