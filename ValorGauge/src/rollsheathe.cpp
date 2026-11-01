@@ -393,7 +393,9 @@ std::int64_t __fastcall SheathEvalProbeHook(void* mgrCtx, void* stateCtx,
     if (combo < 0 || combo >= 512) return raw;
     if (!((combo == 23) || (result != -1))) return raw;
     SheathEvalLast& l = last[combo];
-    if (l.valid && l.result == result && l.flag == flag) return raw;
+    // 过渡键只用 result: fin 是 b830 递归标志(0/1 每帧交替), 用它会每帧刷行
+    // (11-02(3) c300 刷爆 400 行额度, stable 行/转换行全被饿死)。
+    if (l.valid && l.result == result) return raw;
     l = {result, flag, true};
     if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) > 500) return raw;
     std::ostringstream m;
@@ -553,6 +555,17 @@ void PatchRollSheatheRows() {
         {0x3F4ED38, {1, 278, 0, 1, 1, 532}, {1, 23, 1, 0, 3, 98}},   // key20 r11
         {0x3F4EE78, {1, 278, 0, 1, 1, 532}, {1, 23, 1, 0, 3, 98}},   // key21 r11
         {0x3F4EFB8, {1, 278, 0, 1, 1, 532}, {1, 23, 1, 0, 3, 98}},   // key22 r11
+        // 11-02(4): 竞争行禁用。局内实证 {3,98} 落地后 1-3 帧被 vanilla 行抢先:
+        // key19: 98→{3,1}→112(key19 r17=144→1), key20: 98→112(r9=288→1 /
+        // r10=144→1)。{3,1} 进 mod 链续成 112 = 気刃斬1 位(112=刚一动作替换気刃斬1)。
+        // type 翻 -1 = b830 直接跳过该行, 无 (-1,-1) gate 会连禁下一行的副作用。
+        {0x3F4EBB8, {1, 144, 1, 0, 3, 1}, {-1, 144, 1, 0, 3, 1}},    // key18/19 r17
+        {0x3F4ECC0, {1, 288, 1, 0, 3, 1}, {-1, 288, 1, 0, 3, 1}},    // key20 r9
+        {0x3F4ECD8, {1, 144, 1, 0, 3, 1}, {-1, 144, 1, 0, 3, 1}},    // key20 r10
+        {0x3F4EE00, {1, 288, 1, 0, 3, 1}, {-1, 288, 1, 0, 3, 1}},    // key21 r9
+        {0x3F4EE18, {1, 144, 1, 0, 3, 1}, {-1, 144, 1, 0, 3, 1}},    // key21 r10
+        {0x3F4EF40, {1, 288, 1, 0, 3, 1}, {-1, 288, 1, 0, 3, 1}},    // key22 r9
+        {0x3F4EF58, {1, 144, 1, 0, 3, 1}, {-1, 144, 1, 0, 3, 1}},    // key22 r10
     };
     // 锚点: key11(気刃斬1) 的原版纳刀行, 字节不符=游戏更新/布局漂移, 整体放弃
     const std::uintptr_t base = ModuleBaseAddr();

@@ -117,6 +117,23 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
     if (validAction && action->actionSet == 3 && IsLongSwordController(controller)) {
         ApplySheathRewrite(controller, action);
     }
+    // REQTRACE (11-02): 翻滚切納刀竞争诊断 — {3,98} 落地后 1-3 帧内出现
+    // {3,1}/{3,112}(mod 链把 1 续成 112=気刃斬1 位)。记请求级 caller RVA 区分
+    // 分类器/FSM/mod(本 DLL 的 caller RVA 会是超界巨值, 天然可辨)。
+    if (validAction && action->actionSet == 3 && IsLongSwordController(controller)) {
+        static std::atomic<int> g_reqTraceLines{0};
+        const std::uint32_t rid = static_cast<std::uint32_t>(action->actionId);
+        if ((rid == 1 || rid == 11 || rid == 66 || rid == 98 || rid == 112) &&
+            g_reqTraceLines.fetch_add(1, std::memory_order_relaxed) < 120) {
+            const std::uintptr_t reqBase = ModuleBaseAddr();
+            const std::uintptr_t callerRva =
+                reinterpret_cast<std::uintptr_t>(_ReturnAddress()) -
+                (reqBase != 0 ? reqBase : 0x140000000);
+            std::ostringstream reqm;
+            reqm << "REQTRACE 3:" << rid << " callerRVA=0x" << std::hex << callerRva;
+            Log(reqm.str().c_str());
+        }
+    }
 #endif
 
     if (validAction && IsLongSwordController(controller)) {
