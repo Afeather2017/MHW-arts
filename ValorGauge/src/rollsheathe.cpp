@@ -194,6 +194,199 @@ bool InstallSheathCapHook() {
     return true;
 }
 
+// --- COMBOPROBE (2026-11-02): 分类器检查器数组被动观测 + ba00 评估日志 ---------
+// 动机: 特殊納刀实体键因绑定而异(user 情报 R+A/B 因人而异) → combo 走逻辑动作
+// 层, 物理键不可枚举, GetAsyncKeyState 是死路。目标 = 游戏内部"特殊納刀输入态"。
+// 静态已知(反编译): mgrCtx type 槽 = {指针数组,数量} 对, ptr=+0xC0+type*0x10,
+// count=+0xC8+type*0x10 (FUN_14026b380 越界检查); 检查器 = ptr[comboId],
+// +8 旗标字节 bit1=本帧不可用(ba00 见 1 即弃), bit0 由 ba00 按 row.a 写;
+// 评估 = vtable+0x30, 候选胜出时对前方可用候选调 vtable+0x38 (FUN_14026b380)。
+// addresses.txt `comboProbe=1` 启用。两路信号(只记变化, 共享 500 行上限):
+//   COMBOPROBE/COMBOCHK = 逐帧扫四个 type 槽, 检查器 {obj,vtbl,+8 旗标u32} 变化
+//   SHEATHEVAL          = ba00 钩子, 游戏"问"某组合的行+评估结果(组合23或非-1)
+std::atomic<bool> g_comboProbe{false};
+std::atomic<int> g_comboProbeLines{0};
+
+struct ComboChkLast {
+    void* obj;
+    std::uintptr_t vtbl;
+    std::uint32_t flag;
+};
+static ComboChkLast g_comboChkLast[4][1024] = {};
+static bool g_comboBaselineDone = false;
+
+// 扫描体放 callee: __try 函数内不得有带析构的 C++ 对象 (C2712)。
+static void ComboProbeScan(std::uintptr_t mgr) {
+    for (int type = 0; type < 4; ++type) {
+        const std::uintptr_t slot = mgr + 0xC0 + type * 0x10;
+        if (!IsReadable(reinterpret_cast<const void*>(slot), 0x10)) continue;
+        void* const* arr = *reinterpret_cast<void* const**>(slot);
+        const std::uint32_t count =
+            *reinterpret_cast<const volatile std::uint32_t*>(slot + 8);
+        if (arr == nullptr || count == 0 || count > 1024) continue;
+        if (!IsReadable(reinterpret_cast<const void*>(arr),
+                        static_cast<std::size_t>(count) * sizeof(void*))) {
+            continue;
+        }
+        for (std::uint32_t i = 0; i < count; ++i) {
+            void* obj = arr[i];
+            ComboChkLast& l = g_comboChkLast[type][i];
+            if (obj == nullptr) {
+                if (l.obj != nullptr) {
+                    l = {};
+                    if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) <= 500) {
+                        std::ostringstream m;
+                        m << "COMBOCHK t" << type << " c" << i << " cleared";
+                        Log(m.str().c_str());
+                    }
+                }
+                continue;
+            }
+            if (obj == l.obj) {
+                // 快路径: 对象未换只读旗标 u32 (+8); 游戏托管内存, 换对象才复查
+                const std::uint32_t flag = *reinterpret_cast<const std::uint32_t*>(
+                    static_cast<const std::uint8_t*>(obj) + 8);
+                if (flag == l.flag) continue;
+                l.flag = flag;
+            } else {
+                if (!IsReadable(obj, 0x10)) continue;
+                l.obj = obj;
+                l.vtbl = *reinterpret_cast<std::uintptr_t*>(obj);
+                l.flag = *reinterpret_cast<const std::uint32_t*>(
+                    static_cast<const std::uint8_t*>(obj) + 8);
+            }
+            if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) > 500) return;
+            std::ostringstream m;
+            m << "COMBOCHK t" << type << " c" << i << " obj=0x" << std::hex
+              << reinterpret_cast<std::uintptr_t>(obj) << " vtbl=0x" << l.vtbl
+              << " flag=0x" << l.flag << std::dec;
+            Log(m.str().c_str());
+        }
+    }
+}
+
+static long ComboProbeFilter(std::uintptr_t mgr, EXCEPTION_POINTERS* ep) {
+    const int n = g_comboProbeLines.fetch_add(1, std::memory_order_relaxed);
+    if (n < 530 && ep && ep->ExceptionRecord) {  // 超 500 也要能看见崩溃行
+        std::ostringstream m;
+        m << "COMBOPROBE: scan fault code=0x" << std::hex
+          << ep->ExceptionRecord->ExceptionCode << " mgr=0x" << mgr;
+        Log(m.str().c_str());
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+// SEH 层独立成函数: __try 与带析构对象同函数 = C2712。
+static void ComboProbeScanSafe(std::uintptr_t mgr) {
+    __try {
+        ComboProbeScan(mgr);
+    } __except (ComboProbeFilter(mgr, GetExceptionInformation())) {
+        g_comboProbe.store(false, std::memory_order_relaxed);  // 崩一次整体停
+    }
+}
+
+void PollSheathComboProbe(const void* entity) {
+    if (!g_comboProbe.load(std::memory_order_relaxed)) return;
+    if (g_comboProbeLines.load(std::memory_order_relaxed) > 500) return;
+    const std::uintptr_t player = reinterpret_cast<std::uintptr_t>(entity);
+    std::uintptr_t mgr = 0;
+    {
+        std::scoped_lock lock(g_sheathCtxMutex);
+        for (const auto& e : g_sheathCtx) {
+            if (e.mgr != 0 && e.actionObj == player + 0x61C8) { mgr = e.mgr; break; }
+        }
+    }
+    if (mgr == 0) return;
+    if (!g_comboBaselineDone) {
+        g_comboBaselineDone = true;
+        std::ostringstream m;
+        m << "COMBOPROBE: mgr=0x" << std::hex << mgr << std::dec;
+        for (int type = 0; type < 4; ++type) {
+            const std::uintptr_t slot = mgr + 0xC0 + type * 0x10;
+            const std::uint32_t count =
+                IsReadable(reinterpret_cast<const void*>(slot), 0x10)
+                    ? *reinterpret_cast<const volatile std::uint32_t*>(slot + 8)
+                    : 0;
+            m << " t" << type << "n=" << count;
+        }
+        Log(m.str().c_str());
+    }
+    ComboProbeScanSafe(mgr);
+}
+
+// ba00 钩子: (mgrCtx, stateCtx, row, flag) -> int32 (-1 = 组合不可用/未中)
+using SheathEvalProbeFn =
+    std::int64_t (*)(void*, void*, const std::int32_t*, std::uint32_t);
+SheathEvalProbeFn g_originalSheathEvalProbe = nullptr;
+
+struct SheathEvalLast {
+    std::int32_t result;
+    std::uint32_t flag;
+    bool valid;
+};
+
+std::int64_t __fastcall SheathEvalProbeHook(void* mgrCtx, void* stateCtx,
+                                            const std::int32_t* row,
+                                            std::uint32_t flag) {
+    const std::int64_t raw =
+        g_originalSheathEvalProbe(mgrCtx, stateCtx, row, flag);
+    const std::int32_t result = static_cast<std::int32_t>(raw & 0xFFFFFFFFu);
+    if (!g_comboProbe.load(std::memory_order_relaxed) || row == nullptr) {
+        return raw;
+    }
+    if (g_comboProbeLines.load(std::memory_order_relaxed) > 500) return raw;
+    const void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (ctrl != nullptr) {
+        bool mine = false;
+        {
+            std::scoped_lock lock(g_sheathCtxMutex);
+            for (const auto& e : g_sheathCtx) {
+                if (e.mgr == reinterpret_cast<std::uintptr_t>(mgrCtx) &&
+                    e.actionObj == reinterpret_cast<std::uintptr_t>(ctrl)) {
+                    mine = true;
+                    break;
+                }
+            }
+        }
+        if (!mine) return raw;
+    }
+    static SheathEvalLast last[512] = {};
+    const std::int32_t combo = row[1];
+    if (combo < 0 || combo >= 512) return raw;
+    if (!((combo == 23) || (result != -1))) return raw;
+    SheathEvalLast& l = last[combo];
+    if (l.valid && l.result == result && l.flag == flag) return raw;
+    l = {result, flag, true};
+    if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) > 500) return raw;
+    std::ostringstream m;
+    m << "SHEATHEVAL c" << combo << " row=(" << row[0] << ',' << row[1] << ','
+      << row[2] << ',' << row[3] << ',' << row[4] << ',' << row[5]
+      << ") fin=" << flag << " -> " << result;
+    Log(m.str().c_str());
+    return raw;
+}
+
+bool InstallSheathEvalProbe() {
+    g_comboProbe.store(OverrideOrZero("comboProbe") != 0,
+                       std::memory_order_relaxed);
+    if (!g_comboProbe.load(std::memory_order_relaxed)) return false;
+    if (MH_CreateHook(reinterpret_cast<void*>(g_hookAddr[HkSheathEval]),
+                      reinterpret_cast<void*>(&SheathEvalProbeHook),
+                      reinterpret_cast<void**>(&g_originalSheathEvalProbe)) != MH_OK ||
+        MH_EnableHook(reinterpret_cast<void*>(g_hookAddr[HkSheathEval])) != MH_OK) {
+        Log("COMBOPROBE: sheathEval hook failed (passive scan only)");
+    } else {
+        Log("COMBOPROBE: sheathEval hook installed (comboProbe=1)");
+    }
+    Log("COMBOPROBE: passive checker-array watcher active - COMBOCHK=state "
+        "changes, SHEATHEVAL=game queries (cap 500 lines)");
+    return true;
+}
+
 using SheathEvalFn = std::uint32_t (*)(void*);
 
 // 求值异常详情: SEH filter 记录异常码+地址 (前 5 次)

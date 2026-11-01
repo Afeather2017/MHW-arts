@@ -99,6 +99,7 @@ int __fastcall PropIntHook(void* entity, void* id, std::uint32_t index, int defa
     PollGaugeBeginRules(entity);
     PollTrailRules(entity);
     PollRollSheathe(entity);
+    PollSheathComboProbe(entity);
     PollActionSounds(entity);
     PollDrawGang1(entity);
     PollGang1GaugeScope();

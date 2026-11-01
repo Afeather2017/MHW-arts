@@ -150,6 +150,7 @@ bool InstallPoolQueryHook() {
         Log("FX notify hook installed (FXNOTIFY logging)");
     }
     InstallSheathClsfyProbeHook();
+    InstallSheathEvalProbe();
     InstallPropBoolHookMod();
 #endif
 #ifndef VALOR_PROBE

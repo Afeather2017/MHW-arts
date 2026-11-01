@@ -10,3 +10,7 @@ bool InstallSheathCapHook();
 void PollRollSheathe(const void* entity);
 void PatchRollSheatheRows();
 bool InstallSheathClsfyProbeHook();
+// COMBOPROBE (addresses.txt comboProbe=1): 分类器检查器数组被动观测 + ba00
+// 评估钩子, 钉死"游戏内部特殊納刀输入态"用; 详见 rollsheathe.cpp 该节注释。
+void PollSheathComboProbe(const void* entity);
+bool InstallSheathEvalProbe();

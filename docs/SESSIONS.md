@@ -5983,3 +5983,36 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   连带切掉 → LNK2019, 生成器手工补定义块。
 - 构建验证: ValorGauge.dll + ValorProbe.dll Release 全绿 0 警告。部署未动
   (nativePC 仍是 d089847a), 待 user 冷启动后按需部署新 dll。
+
+### 2026-11-02(1) COMBOPROBE 探针: 特殊納刀"逻辑动作层"定调, 检查器链静态钉死, 运行期观测上线
+
+- **user 情报(本轮起点)**: 特殊納刀实体键不是固定 R+○——有手柄朋友是 R+A 或 R+B
+  看个人习惯。⇒ combo id 不是物理键掩码, 是**逻辑动作层**(键位配置→逻辑动作→
+  combo), 物理键不可枚举, GetAsyncKeyState 侧键轮询只是过渡。目标改为找到
+  游戏内部"特殊納刀输入态"字段, 直接读它(零配置、兼容任意绑定/手柄)。
+- **静态链补全(dump 反编译, 补 10-31 缺口)**:
+  - `FUN_14026c0f0` = 分类器入口: {set,id} 取自 param_2+0xAC/0xB0(同 mod 已知
+    控制器当前请求偏移, +0xBC/+0xC0 为改写位), 调 b670(匹配驱动)+bdd0。
+  - `FUN_14026b670`: mgrCtx+0x80+set*0x10 = 该 set 子表基, +0x88+set*0x10 =
+    行数; 动作记录 0x20 字节/动作, +0x10 起为候选行表指针数组, +0x18 起行数。
+  - `FUN_14026b830`(候选匹配器)→`FUN_14026ba00`(检查器评估): 检查器 =
+    `*(mgrCtx+(row.type+0xC)*0x10) + row.comboId*8`; **mgrCtx type 槽 =
+    {指针数组,数量} 对, ptr=+0xC0+type*0x10, count=+0xC8+type*0x10**
+    (b380 越界检查实证)。+8 旗标字节: **bit1=1→本帧该组合不可用(直接 -1)**,
+    bit0 由 ba00 按 row.a(按下/持续)写; 评估 = vtable+0x30; 行胜出后
+    `FUN_14026b380` 对[起点,胜出行)间旗标可用的候选逐个调 vtable+0x38(消费/复位)。
+  - 结果对象构造: 0x1f8 类(vtable 0x142e4f600, @0x144c97c70)容器管理 0x230 步长
+    元素数组(vtable 0x142e4fbf0); 0x142e4f640 为多类共享接口 vtable(无定位价值)。
+    类名路线死胡同: 0x142e4f2xx 字符串区是 aCharacterMaking 系(角色编辑), 非输入。
+  - 检查器具体类与旗标语义仍需运行期 → 本轮探针。
+- **COMBOPROBE 实现(rollsheathe.cpp, mod 段)**: ①被动扫描器
+  `PollSheathComboProbe`(挂 PropIntHook 帧轮询, SEH 包裹崩一次整体停): 按
+  SheathCapHook 认领表取玩家 mgrCtx(actionObj==player+0x61C8), 逐帧扫四 type 槽,
+  检查器 {obj,vtbl,+8 旗标u32} 变化才记 `COMBOCHK t<c> c<id>`(快路径=对象未换
+  只读旗标); 首次命中记 `COMBOPROBE` 基线行(四槽数量)。②`HkSheathEval`=
+  FUN_14026ba00(RVA 0x26BA00, 签名 48 字节全精确已 verify 唯一)评估钩子
+  `SHEATHEVAL c<combo> row=(...) fin=<flag> -> <result>`: 只记玩家 mgrCtx 且
+  (组合23 或 结果非-1)。addresses.txt `comboProbe=1` 门控, 两路共享 500 行上限。
+- 部署 dll `d089847a`→`96912a68`(mod); ValorProbe 同步绿。addresses.txt 追加
+  comboProbe=1。待 user 冷启动按键测试(见会话末测试脚本), 数据回来后钉死
+  旗标语义→用内部输入态替换 GetAsyncKeyState。

@@ -41,6 +41,7 @@ TARGETS = {
     "stamDelta": 0x1C49F10,
     "vitSet": 0x1216940,
     "vitAdd": 0x1216880,
+    "sheathEval": 0x26BA00,
 }
 JSON_PATH = "signatures.json"
 
