@@ -775,6 +775,27 @@ void PollRollSheathe(const void* entity) {
     const auto* player = static_cast<const std::uint8_t*>(ctrl) - 0x61C8;
     if (entity != static_cast<const void*>(player)) return;
 
+    // mot 读数前置 + fired 回卷复位前置 (11-02(16) 真因): 旧序把 fired 复位放在
+    // mot>=阈值 门之后 => 上一发后 lastMot 冻结 ≈ 阈值, 复位条件 mot<lastMot-5
+    // 与阈值门 mot>=阈值 永久矛盾 => fired 卡死, 后续翻滚按压全被吃 ("首按无效")。
+    // 现在所有玩家帧都跟踪 mot, 任何动作切换的 mot 落差(98/6/5/idle 均从 0 起)
+    // 都能复位 fired —— 每翻滚一发语义不变。
+    float mot = 0.0f;
+    bool motValid = false;
+    if (IsReadable(player + 0x468, sizeof(void*))) {
+        void* anim = *reinterpret_cast<void* const*>(player + 0x468);
+        if (anim != nullptr &&
+            IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) {
+            mot = *reinterpret_cast<volatile float*>(
+                static_cast<std::uint8_t*>(anim) + 0x10C);
+            motValid = true;
+        }
+    }
+    static bool fired = false;
+    static float lastMot = -1.0f;
+    if (mot < lastMot - 5.0f) fired = false;
+    lastMot = mot;
+
     const std::int32_t set =
         *reinterpret_cast<const volatile std::int32_t*>(static_cast<const std::uint8_t*>(ctrl) + 0xAC);
     const std::int32_t id =
@@ -805,49 +826,10 @@ void PollRollSheathe(const void* entity) {
             src = 's';
         }
     }
-    // SHEATHDIAG (意图存活 + 翻滚表内 + 未发刀 时每 30 帧记门状态): 定位
-    // "意图在、阈值帧过、却不发刀" 的吃门者。mot=anim+0x10C 实况。
-    if (g_rollSheathe.thresholds.count(id) != 0) {
-        const bool intentNow =
-            SheathNowMs() < g_sheathIntentUntilMs.load(std::memory_order_acquire);
-        static int s_diagTick = 0;
-        if (intentNow && (s_diagTick++ % 30) == 0) {
-            std::ostringstream m;
-            m << "SHEATHDIAG id=" << id << " set=" << set << " inDA="
-              << g_insideDoAction.load(std::memory_order_acquire)
-              << " mwa=" << ModWeaponActive()
-              << " heldInt=" << InternalSheathHeld()
-              << " ent=" << (entity == static_cast<const void*>(player) ? 1 : 0)
-              << " im=" << inputMode;
-            Log(m.str().c_str());
-        }
-    }
     if (!held) return;
-
-    // motion 帧 (anim+0x10C)
-    if (!IsReadable(player + 0x468, sizeof(void*))) return;
-    void* anim = *reinterpret_cast<void* const*>(player + 0x468);
-    if (anim == nullptr || !IsReadable(static_cast<std::uint8_t*>(anim) + 0x10C, 4)) return;
-    const float mot =
-        *reinterpret_cast<volatile float*>(static_cast<std::uint8_t*>(anim) + 0x10C);
+    if (!motValid) return;
     if (mot < thIt->second) return;
-
-    // 一次翻滚一发: 帧回卷 = 新一次翻滚
-    static bool fired = false;
-    static float lastMot = -1.0f;
-    if (mot < lastMot - 5.0f) fired = false;
-    lastMot = mot;
     if (fired) return;
-    // 补一发尾段诊断: 过了全部门、临开火前一刻的 mot 实况
-    {
-        static int s_fireDiagTick = 0;
-        if ((s_fireDiagTick++ % 30) == 0) {
-            std::ostringstream m;
-            m << "SHEATHDIAG fire-path id=" << id << " mot=" << mot
-              << " thr=" << thIt->second;
-            Log(m.str().c_str());
-        }
-    }
 
     ActionInfo force{};
     force.actionSet = 3;
