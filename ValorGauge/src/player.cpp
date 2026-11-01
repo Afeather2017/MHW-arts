@@ -172,16 +172,6 @@ bool ActionIsRoll() {
     return a && a->actionSet == 3 && a->actionId == 18;
 }
 
-#ifndef VALOR_PROBE
-// --- Mod weapon gate ---------------------------------------------------------
-// The gameplay mod (gauge / clang counter / force) only drives the Long Sword.
-// Weapon type = *(int32*)(weapon + 0x9F8) - the same value func_0x141F627F0
-// returns and FUN_14118bda0 switches on; **Long Sword = 3** (its case holds
-// the LS-only condition names 練気ゲージ判定/居合斬り/見切り回避成功後の攻撃ヒット;
-// matches wp03 data folder, w03 FSM files and action set 3). 0xFF = no weapon.
-// Override via nativePC/plugins/ValorGauge.weapon-type.txt if a patch
-// renumbers the enum.
-
 bool ModWeaponActive() {
     void* controller = g_lockedPlayerController;
     if (!controller) {
@@ -207,6 +197,17 @@ bool ModWeaponActive() {
     }
     return active;
 }
+
+
+#ifndef VALOR_PROBE
+// --- Mod weapon gate ---------------------------------------------------------
+// The gameplay mod (gauge / clang counter / force) only drives the Long Sword.
+// Weapon type = *(int32*)(weapon + 0x9F8) - the same value func_0x141F627F0
+// returns and FUN_14118bda0 switches on; **Long Sword = 3** (its case holds
+// the LS-only condition names 練気ゲージ判定/居合斬り/見切り回避成功後の攻撃ヒット;
+// matches wp03 data folder, w03 FSM files and action set 3). 0xFF = no weapon.
+// Override via nativePC/plugins/ValorGauge.weapon-type.txt if a patch
+// renumbers the enum.
 
 void LoadModWeaponTypeConfig() {
     std::ifstream input("nativePC/plugins/ValorGauge.weapon-type.txt");
@@ -280,6 +281,8 @@ bool LockedPlayerActionChargesValor() {
     return IsNormalModeChargingAction(*g_lastLongSwordAction);
 }
 
+#endif // !VALOR_PROBE
+
 void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id) {
     if (set < 0 || set >= 4 || id < 0) {
         return nullptr;
@@ -299,4 +302,3 @@ void* ResolveActionInstance(void* ctrl, std::int32_t set, std::int32_t id) {
     return inst;
 }
 
-#endif // !VALOR_PROBE

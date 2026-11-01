@@ -6284,3 +6284,201 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   复位随之前置 —— 98/6/5/idle 的 mot 均从 0 起, 任何动作切换落差即复位,
   "每翻滚一发"语义保持; 两处 SHEATHDIAG 移除(job done)。
 - 部署 dll `33f0980c`→`9c6a2552`。待验证: 连续多次翻滚按纳刀, 每次都应发刀。
+
+### 2026-11-01 刚一(345) 普通格挡→強G 化: 防掉血数据侧定案 (待 user 冷启动验证)
+
+- **起因**: user 反馈強G(39)不掉血但刚一普通格挡(35-37 削韧族)仍掉血, 要求恢复防掉血;
+  优先数据侧。考古 DLL 侧: GUARD 子系统(8f4cfb0 落地: VitSet 0x141216940 拦截+伤害否决/
+  回滚+耐力回退+转身钳制)已于 f76c937(10-23)整体移除, mod 版现无任何血量/耐力/命中钩子
+  —— DLL 复活路线存在但非首选。
+- **考古定案(重要纠偏)**: 10-13"345 加三件套→39 強G 零伤"是 **user 局内验证通过的成品**
+  (10-14 双向验证: mFlag b30 + mFlag1 b28 两处都在→38-40, 任缺→35-37; staminaParam 非判定
+  必需); 当时"回滚"只是双向验证的最后一步+防御重心移到 306 架势, **不是強G 路线有缺陷**。
+  10-24 盘点 node91/92/93(act38/39/40)零出边"播完无处可去"——306 现役強G 先例无异常,
+  先零 FSM 改动上, 体验不对再补出边。
+- **现值考古(Blender, dodge-sheath.blend=10-31 22:35 权威工程)**: entry345 →
+  `TIML::nTimelineParam::PlMotionCommon.348`(nodetree 定位, .348 是 dedup 名): mFlag idx1
+  f0=0x9008→f12=0 (=0x90080000 削韧窗), **mFlag1/mStaminaParamIndex 轨不存在**。
+- **补丁(三件套, 复刻 10-13 验证签名=长枪 entry28)**: mFlag idx1 f0 0x9008→0xD008(+b30);
+  新建 mFlag1 idx1 f0=0x1000→f12=0(b28 窗镜像); 新建 mStaminaParamIndex idx0 f0=10
+  CONSTANT(=50 耐力/秒, 306 同款)。全部 CONSTANT 插值(铁律 9)。blend 原位保存,
+  备份 `MHW-Valor-0.0.2-dodge-sheath.blend.bak-1101-pre-strongguard345`。
+- **导出坑两个**: ①`--factory-startup` 会卸载 freehk 插件→freehk_tether 属性不存在→脚本崩;
+  ②LMTFileNode **inject=True 注入模式**: filepath 必须指向已存在有效 LMT(拷部署基线注入),
+  否则 `G_MASTER_FILE_ERROR: invalid injection target` 不写文件。已入 tools-workflow。
+- **验证与部署**: timl-diff 164 TIML entries **仅 entry 345 差异**且恰为三件套(diff 工具
+  自动标签"零伤格挡?(b28)") → 部署 nativePC md5 `d31946aa`(上任 `898b2314`)。回退件
+  `_rollback_898b.lmt` = 备份 blend 重导, md5 与上任逐字节一致(**导出确定性验证通过**,
+  回退实体化)。
+- **行为预期**: 刚一防御成功 → 3:38/39/40 強G 反应(零削韧零掉血, 持续掉耐力——原普通
+  格挡路线不掉耐力, 此为行为差异点); 反应动画=定格硬直式(非小后仰)。node91/92/93 零出边,
+  反应播完的回退行为待局内确认(306 先例无问题); 备选=node91/92/93 补出边 或 DLL 侧精简
+  否决(仅叮信号+35 族反应时回滚, 吸取 d496f93 react-latch 过宽教训)。
+- 待 user: 完全冷启动 → 刚一防御窗吃刀 → 应进 38/39/40 定格格挡, **不掉血不掉韧**, 耐力
+  持续消耗; 反应结束后可正常操作。
+
+### 2026-11-01 (2) 強G 副作用确认 + chip 掉血逆向破案 + CHIP probe 实验轮部署
+
+- **強G 化副作用 (user 局内)**: 345 三件套 (d31946aa) 防御成功进 38/39/40 零伤 ✓, 但反应
+  播完后 **FSM 落到收刀回避动作** = 10-24 盘点 node91/92/93 零出边"无处可去"的实锤。
+  user 定调: 要的是**普通格挡 (35-37 反应) 不掉血**, 不是強G 化。
+- **chip 掉血逆向破案 (Ghidra, 现役 421810 dump)**: 受击主函数 **FUN_141217e50**
+  (param_1=受击上下文/+0x60=player, param_2=hit) 的玩家分支: 防御减伤公式
+  `dmg × 80/(80+def)`(fVar1=1.0@DAT_142e4fe58, +80@DAT_142f8aba4, 属性 1-5 各有
+  抗性 getter) 后有**免伤分水岭**: `threshold = FUN_1411c10c0(weaponCtrl)`;
+  `threshold==0 ∨ threshold<damage ∨ damage<1.0` → 掉血; **damage≤threshold → chip=0**
+  (35-37 反应不变)。**FUN_1411c10c0 = PropInt(propMgr,0x94) thunk**(尾跳
+  FUN_141922190, EDX=0x94 直达穿透; 属性 id 0x94=148, 非技能空间; FSM 属性注册表
+  DAT_145012048=memorymap g_addrPropRegistry 0x5012048)。**属性 0x94 原版无生产者**
+  (技能枚举 148 缺号同构) → 阈值恒 0 → 原版格挡必有 chip。**強G (38-40) 走另一分支
+  (bVar8: HP delta 写 0) 全免**——与 TIML 位观察闭环。无任何文件配置面 (EXE 静态表
+  DAT_145012048 运行时填充, 属性 148 无来源)。
+- **调用面**: FUN_1411c10c0 **全程序唯一 xref = FUN_141217e50 内 0x141218C00** (sig
+  `48 8B 49 08 45 33 C9 45 33 C0 BA 94 00 00 00 E9` 16 定值字节 dump exe 唯一命中)。
+  遗留未知: 普通被打 (非格挡) 是否也过此判定 (代码看是同一计算路径, 需局内分辨)。
+- **CHIP probe 实验轮**: 新模块 `chipguard.cpp/.h` (全 VALOR_PROBE; mod 侧空转):
+  HkChipThreshold hook (memorymap 枚举+sig+lastRva 0x11C10C0), detour 记 log
+  (`CHIP caller=+0x... threshold=N act=S:ID`, 120ms 节流), 配置
+  `ValorProbe.chipguard.txt` (`trace=` / `force=N`: 返回 max(orig,N)), **Shift+F7 热重载**。
+  坑: dllmain 79/110 的 #ifdef 分支里 152-154 三个 Install* 函数名带 Probe 实际在
+  **#else (mod) 分支**——首次 patch 落错块 C3861; probe 安装正位 =
+  InitializePlugin 的 probe 块 (InstallPropHistogramHooks 邻)。overlay probe 分支加
+  PollChipGuardHotkey()。两 target 零错误零警告。
+- **部署**: mod ValorGauge.dll (md5 `6c3e7c62`, 11-01 19:17 build) 改名
+  `.hold-chipguard-exp` 暂存; ValorProbe.dll md5 `df952a1c`; chipguard.txt trace=1 force=0。
+- **待 user 两轮实验**: ①纯 trace: 裸被打 / 刚一格挡吃刀 / 強G 吃刀 三场景看
+  CHIP 行 (caller 是否恒 +0x1218C05, threshold 恒 0, act 值); ②force=99999 (Shift+F7):
+  刚一格挡吃刀应 0 chip 且反应仍是 35-37; **同时裸被打**——若也 0 伤 = 判定需条件化
+  (防御动作族窗口), 若照常掉血 = 恒 force 即可干净落地 mod 版。
+- 后续路线: CHIP 落地 mod 后 345 回滚 0x90080000 削韧态 (普通格挡反应+零 chip 终态),
+  node91/92/93 出边不再是必选项。
+
+### 2026-11-01 (3) 345 強G 化回滚定案
+
+- user 定调: 剛一恢复普通格挡态, 零伤交给 CHIP 路线。部署 LMT 回滚 `_rollback_898b.lmt`
+  → md5 `898b2314` ✓ (拷贝时游戏在运行——LMT 只读资源无写回风险, 但铁律 4 冷启动
+  才生效, user 已知)。blend 侧同步撤三件套 (mFlag idx1 f0 0xD008→0x9008, 删 mFlag1
+  idx1/mStaminaParamIndex idx0 两轨) 并保存, **重导验证 = 898b2314 与部署逐字节一致**
+  (blend=导出=部署三方闭环)。motion-data/AGENTS 已改注"強G 化实验已回滚"。
+- 实验环境就位: 现在刚一 = 0x90080000 削韧格挡 + ValorProbe CHIP hook (trace=1),
+  正好是第一轮 trace 实验需要的形态 (普通格挡吃刀看 CHIP 行)。
+
+### 2026-11-01 (4) CHIP 第一轮局内定案 + 条件化版部署 (mod 版前的最终验证轮)
+
+- **第一轮 trace 实锤 (user 局内 + log)**: 所有掉血场景都过 chip 判定 (caller 恒
+  `+0x1218c05`, threshold 恒 0): 刚一格挡吃刀 (act=3:112)、攻击中被打 (3:11)、待机被打
+  (3:0/3:6)——**格挡与普通受击共用 chip 路径, 恒 force = 全免伤, 必须条件化**。
+  **強G 成功的受击不出 CHIP 行** (engine bVar8 分支在 chip 判定前分走, HP delta 写 0)
+  —— 22:40 两次 act=3:98 的 CHIP 行 = 架势中侧向受击掉血的那些, 与反编译互证。
+- **条件化版 (probe)**: 门 = ModWeaponActive() + 当前动作 ∈ ids (配置, 默认 112) +
+  动作帧 ≤ window (秒, instance+8 30Hz 时钟; 刚一防御窗 TIML f0-f12 = 0.20s)。
+  gated → 返回 max(orig, force); ungated → orig 原样。gated 命中不打日志 (掉血行
+  `gated=0` 供局内核对未 gate 场景)。配置 `ValorProbe.chipguard.txt` 加
+  `window=0.20` / `ids=112,86,...`, Shift+F7 热重载不变。
+- **跨模块链接两处 (470d852 模式)**: `ModWeaponActive`/`ResolveActionInstance` 从
+  player.cpp `#ifndef VALOR_PROBE` 块移出为双构建可链接 (函数体零改动, 只依赖
+  IsReadable/g_modWeaponType/IsReadable)。坑重踩: atomic int64 CAS 的 expected
+  参数必须非 const 左值 (两次编译错同一根因)。
+- **部署**: ValorProbe.dll md5 `78c3960d`, 配置 force=99999/window=0.20/ids=112。
+  mod 仍 hold (`6c3e7c62` = `.hold-chipguard-exp`)。
+- **待 user 验证 (冷启动)**: ①刚一防御窗 (出招后 0.2s 内) 吃刀 → 零掉血 + 普通
+  35-37 小后仰反应; ②刚一防御窗外 (0.2s 后) 被打 → 照常掉血 (gate 没放); ③裸被打/
+  空手挨打 → 照常掉血; ④強G (98 架势正面) → 原样零伤。日志核对: gated 场景无
+  CHIP 行, 未 gate 掉血有 `gated=0` 行。通过后 mod 版平移 (chipguard 双构建化 +
+  mod 配置 ValorGauge.chipguard.txt)。
+
+### 2026-11-01 (5) 防御窗窄窗定案 + f42 加宽 (be22e28a)
+
+- **第二轮现象 (user)**: "大部分格挡不生效, 按早才生效 + 一个没印象的特效"。
+  log 实锤: 掉血行全为 `gated=0 act=3:112` = 吃刀时动作帧已 >0.2s, 引擎防御窗
+  (TIML f0-f12 off-key) 已关 → 防御判定失败直接挨打 (chip hook 无关, 它只影响
+  格挡成功后的掉血); gate 窗与引擎窗一致所以同步不放。**窄窗 = 0x90080000 原版
+  配方固有, 非 bug**。
+- **"没印象的特效" = 引擎原生零伤格挡呈现**: 反编译 chip=0 分支 (else, bVar5=true)
+  置 local_258 bit0 → 函数尾 FUN_140add800 (player-emitter, 与 fxNotify 0xADD670
+  同族) 播专属特效。原版阈值恒 0 该路径从未点亮, CHIP 抬阈值首次触发——即零伤
+  生效的视觉标志。強G (bVar8 分支) 放的是另一套。
+- **加宽**: 345 mFlag off-key f12→f42 (0.70s, 见切级窗感), timl-diff 仅 345 窗
+  [0,12)→[0,42), 部署 md5 `be22e28a` (上任 `898b2314`)。gate window 同步 0.70
+  (probe 配置, Shift+F7 热重载; LMT 需冷启动)。窗宽手感不合口 = blend 里改
+  off-key 帧号重导即可 (gate window 同步)。
+
+### 2026-11-01 (6) 零伤分支抑制反应实锤 + CHIP 退役改 Rollback 设计
+
+- **第二轮现象翻案 (user)**: "格挡不生效" = 0.2s 窗内吃刀触发了没见过的特效但
+  **没有 35-37 后仰**——不是防御判定失败! 结合反编译定案: **引擎零伤分支
+  (threshold≥damage) 的原生设计 = 伤害 0 → 上游不排队格挡反应**, 只走
+  local_258 bit0 → FUN_140add800 特效 (掉血路径才排 35-37)。即 force 阈值越生效
+  格挡后仰越消失——用户要的"后仰+零伤"组合引擎原生不存在 (四个互斥分支: 裸受击/
+  chip+35-37/零伤+特效无反应/強G 38-40)。
+- **翻案附注**: "偶尔生效 (按得早)" = 吃刀帧落 >0.2s (窗关, gate 没放) → 走 chip
+  路径 → 有后仰 (原版观感"生效"); 窗内反而被 force 拦成"特效+无反应" (=用户眼里
+  "不生效")。gated=0 log 两行与此吻合。
+- **方案翻转: 阈值 hook 退役 (force=0 留 A/B), 改 GuardRollback**: 格挡走完整
+  原生路径 (叮+35-37+chip), 每帧拍 HP 快照 (非反应态时刷新), **tracker 观察到
+  cur∈{35,36,37} 且 HP<快照 (快照新鲜 <800ms) → HP box+0x64 写回快照**。精准性:
+  窗外挨打走身体控制器 1:339 族 (武器 tracker 看不到), 不会误触; 反应态内连击
+  持续压回; 快照 800ms 窗外 (反应期喝药) 不覆盖。老 GUARD (8f4cfb0) 回滚式
+  GUARDBLOCK 的复活, 条件更窄 (prev 仅限刚一切入, 快照每帧刷新替代单槽覆盖缺陷)。
+  零伤特效随之消失 (不再进零伤分支)。血条会闪一下回满 (掉血数字+回写), 老方案
+  user 局内验证过的观感。
+- **实现**: chipguard.cpp 重写 (CHIP hook trace-only + PollGuardRollback 每帧,
+  overlay probe 分支调用; probe 侧内联 ProbeVitalsBox/kHpSlot=0x7630 等价访问,
+  vitals.cpp 整模块 mod-only 不搬)。配置 ValorProbe.chipguard.txt: trace=0/
+  force=0/rollback=1, Shift+F7 热重载。
+- **部署**: ValorProbe.dll md5 `21f2f5ed`。LMT 维持 `be22e28a` (f42 加宽窗,
+  0.7s)。mod 仍 hold (`.hold-chipguard-exp` = 6c3e7c62)。
+- **待 user 冷启动验证**: 刚一防御窗 (0.7s) 内吃刀 → 叮 + 35-37 后仰 + **血不掉**
+  (血条闪一下回满, log 出 CHIPROLL 行); 窗外/裸被打 → 照常掉血无 CHIPROLL;
+  98 架势強G → 原样。通过后 mod 版平移。
+
+### 2026-11-01 (7) 致死否决补全: rollback 的死亡窗口关闭 (强G 逆向结论附)
+
+- **user 判定**: 血条闪可接受, **chip 致死不可接受** (rollback 事后写回赶不上死亡
+  处理); 指令 = 看"強G 为什么不掉血"。
+- **強G 零伤机制定案 (log+反编译闭环, 不再深挖)**: 強G 吃刀**连 chip 判定
+  (FUN_1411c10c0) 都不进** = 伤害在更上游防御仲裁按载体 TIML 強G 位整条分流
+  (零伤+38-40 请求+耐力)。复制它 = 強G 化路线 = 收刀回避副作用, 死路。
+  FUN_1412192f0 (92KB 异常/反应分发) 与 FUN_141217e50 内 bVar8 (按攻击者动作
+  107/109/113 的特殊处理) 均非強G 路径。
+- **死亡问题的正解 = 复活老 GUARD 致死否决 (user 记忆中的"钩血条写入条件拒写")**:
+  VitSet `0x141216940` (leaf, 语义: flag!=0 → clamp(max(v,1),max); **flag==0 &&
+  value<1 → cur=0 = 致死写**)。detour: 本地玩家 HP box + **GuardGateActive
+  (动作=112 && 帧≤window 0.70s)** + lethal 形态 → **丢弃写入** → HP 保持 >0 →
+  死亡判定不触发 → 35-37 反应照排。非致死 chip 照常 → rollback 闪回。普通挨打
+  致死 (窗外) 照死不误。
+- **实现**: HkVitSet (sig 36B 全定值除 rel8/disp32, dump 唯一命中; HookSig
+  pattern[48] 上限内); chipguard.cpp 加 VitSetHook + GuardGateActive 公共门
+  (probe 侧 ProbeVitalsBox 前置)。坑: HookSig pattern 48B 上限 (63B 版 C2078);
+  Ghidra 助记转换两处失真 (COMISS modrm C8 非 CA / MINSS 5D 非 5C) —— sig 必须从
+  dump 实读字节构造。配置加 `lethalveto=`。
+- **部署**: ValorProbe.dll md5 `f383bf65`, 配置 rollback=1/lethalveto=1/force=0。
+- **待 user 冷启动验证**: ①刚一防御窗内小刀 → 后仰+闪回 (CHIPROLL); ②窗内致命大刀
+  → **不死**, HP 停旧值 + 正常后仰 (CHIPVETO 行); ③窗外/裸被打致死 → 照死 (veto
+  无门不放); ④98 架势強G 原样。全过后 mod 平移 (chipguard 双构建化)。
+
+### 2026-11-01 (8) 防御窗回滚 0.2s 原版窗 (user 定调)
+
+- user 选择原版 0.2s 窗 (f42→f12), blend 同步回改并保存; 导出产物 md5 = `898b2314`
+  (与回滚验证件逐字节一致, blend=导出=部署三方闭环)。部署 md5 `898b2314`。
+- probe 配置 window=0.20 (lethal veto 门=刚一前 0.2s; rollback 无窗依赖)。
+  坑: 配置文件字符串替换污染注释行 (replace 命中注释内子串拆行) → 重写干净版。
+- 待 user 局内: 0.2s 窗内小刀后仰+闪回 / 窗内致命刀 CHIPVETO 不死 / 窗外照死 /
+  強G 原样。
+
+### 2026-11-02 chipguard 定案入 mod (guard chip 保护常驻)
+
+- **第一局验证 (user, 防御最低装备)**: log 11 条 CHIPVETO 全部拦截致死写 (value 全
+  负 = 引擎写 0 形态), 零 CHIPROLL (低防下每刀都致命, veto 后 HP 未动无回滚需求)
+  —— 0.2s 窗内格挡不死实锤。
+- **mod 平移**: chipguard.cpp/.h 双构建化 (mod 侧 = VitSetHook 致死否决 +
+  PollGuardRollback; threshold hook/Shift+F7 留 probe), 配置
+  `ValorGauge.chipguard.txt` (rollback/lethalveto/window/guardId/force/trace),
+  guardId 可配 (默认 112)。mod Shift+F6 全量热重载含 chipguard; overlay mod 分支
+  加 PollGuardRollback。坑三连: InstallChipGuardHook 拆分时 replace 顺序错位出
+  悬空 #else (整函数重写解决); chipguard.h 声明仍被 probe 宏包着 (mod C3861);
+  配置文件字符串替换污染注释行。
+- **部署**: mod ValorGauge.dll md5 `26fc6fb2` (上任 hold `6c3e7c62` = 
+  .hold-pre-chipguard-final), probe 撤除, ValorGauge.chipguard.txt 在位。
+  LMT 维持 `898b2314` (0.2s 原版窗)。behavior: 刚一防御窗内 = 后仰+闪回
+  (CHIPROLL) + 致死否决 (CHIPVETO 不死); 窗外/裸被打全原版; 強G (98/306) 原样。

@@ -196,6 +196,8 @@ DWORD WINAPI InitializePlugin(void*) {
                 InstallPropHistogramHooks();
                 LoadPropWriteConfig();
                 LoadPropWatchConfig();
+                InstallChipGuardHook();
+                LoadChipGuardConfig();
 #else
                 InstallForceHook();
                 LoadForceActionConfig();
@@ -242,6 +244,8 @@ DWORD WINAPI InitializePlugin(void*) {
                 LoadFxTestConfig();
                 InstallSheathCapHook();
                 LoadRollSheatheConfig();
+                InstallChipGuardHook();
+                LoadChipGuardConfig();
 #endif
                 return 0;
             }

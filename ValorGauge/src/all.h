@@ -25,3 +25,4 @@
 #include "overlay.h"
 #include "probe.h"
 #include "probe_tools.h"
+#include "chipguard.h"

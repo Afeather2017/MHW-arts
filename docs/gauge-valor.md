@@ -175,6 +175,33 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   可 MinHook，SESSIONS 10-25 输入地图）——闸门只看请求层；若日后 FSM 要用属性边，再上
   输入层拦截（键盘需 dinput GetDeviceState COM vtable 钩，工作量中等）。
 
+## chipguard：普通格挡不掉血不死（2026-11-02 定案，mod 常驻）
+
+**需求**：刚一（3:112）普通格挡（叮+35-37 后仰）窗内不掉血、且致命 chip 不致死。
+**逆向结论**（421810）：①受击主函数 FUN_141217e50 的 chip 免伤分水岭 =
+`FUN_1411c10c0`（=PropInt 属性 0x94，原版无生产者恒 0 → 必掉 chip；damage≤阈值本可
+零伤但**零伤分支不排 35-37 反应**——伤害 0=上游无反应，只播 FUN_140add800 特效，
+user 实测"特效出现=后仰消失"）。②強G 零伤=上游防御仲裁按载体 TIML 強G 位
+（mFlag b30+mFlag1 b28）整条分流（连 chip 判定都不进）——复制=強G 化路线（收刀回避
+副作用），弃。③引擎受击四分支互斥：裸受击 / chip+35-37 / 零伤+特效无反应 / 強G 38-40。
+**"后仰+零血"组合引擎原生不存在 → DLL 合成**：
+
+- **GuardRollback**（每帧 poll）：非反应态每帧拍本地玩家 HP 快照；tracker 观察到
+  当前动作切入 {35,36,37} 且 HP<快照（新鲜 <800ms）→ HP box+0x64 写回快照
+  （log CHIPROLL）。窗外挨打走身体控制器 1:339 族（tracker 看不到）天然不误触；
+  反应态内连击持续压回；快照过期（反应期喝药）不覆盖。
+- **致死否决**（VitSet `0x141216940` hook，sig 36B）：引擎致死写形态 =
+  `flag==0 && value<1.0`（leaf：该形态直接写 0）；当前动作=guardId(112) 且动作帧
+  ≤window(0.20s) 时**丢弃写入**（log CHIPVETO）→ HP 保持>0 → 死亡判定不触发 →
+  35-37 照排。窗外致死照死不误。
+- **时序根基**：引擎先扣 chip 后排反应（10-05 live trace）+ chip 与普通伤害同
+  caller(+0x1218E18) → 写入时刻无法区分格挡 → 只能"放行+事后回滚"+"致死形态事前否决"。
+- 配置 `ValorGauge.chipguard.txt`：rollback/lethalveto/window/guardId/force(阈值
+  A/B 遗产,0=关)/trace；Shift+F6 随全量热重载。probe 侧同名模块带 threshold
+  trace/force（chipguard.cpp 双构建，`#ifdef VALOR_PROBE` 分界在安装函数与 hotkey）。
+- 坑：HookSig pattern 上限 48B；Ghidra 助记转字节有失真（COMISS modrm C8 非 CA、
+  MINSS 5D 非 5C）——sig 从 dump 实读字节构造；atomic CAS expected 须非 const。
+
 ## 退役/休眠系统（防再发明）
 
 - `hit-charge=-1`：旧"练气条→满充强制红刃"系统退役（ActivateValorMode 裸写代码保留未调）。

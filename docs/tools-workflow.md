@@ -97,6 +97,11 @@
 1. 当前工作 blend 导出（export_ops.exportNodeToFile，绕过操作符 poll；需 scn.freehk_tether）
 2. `patch_timl_defense dump`（或 `_shout_semantic_diff.py` 全量）验证目标字段
 3. 才拷贝部署；**diff 不干净不部署**（blend 分叉/漂移是最大事故源）。
+- **LMTFileNode 是注入模式（inject=True）**：filepath 必须指向一个已存在的有效 LMT
+  （惯例=拷贝部署基线再注入），否则 `G_MASTER_FILE_ERROR: invalid injection target`
+  且不写文件。无头模板 `timl-editor/_export_blend_lmt.py`（BLEND/OUT 环境变量；
+  **勿加 --factory-startup**，会卸载 freehk 插件致 freehk_tether 属性不存在）。
+  导出确定性已验证：同 blend 重导 md5 逐字节一致（2026-11-01，回退件以此法实体化）。
 - 大文件 diff 别在 Blender 里两文件同跑（MCP 30s 超时）——分两次存 JSON 再比。
 - struct 包可独立 python 跑，LmtBuffers 依赖 mathutils 只能 Blender 内解析。
 
