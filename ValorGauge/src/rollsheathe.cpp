@@ -389,9 +389,46 @@ bool SheathGateStatus(int* outId, std::uint32_t* outNib,
     return true;
 }
 
+// --- INPUTBITS 扫描 (11-02, user 提案: 监测 R 按住类条件) ----------------------
+// 动机: user 猜想纳刀键按下后"游戏觉得按的是 R"。R 按住条件的底层 = 同一输入
+// 上下文位集(逻辑 id 索引, 可查询空间 id<0x89), 全扫 +0x780(按住)/+0x7E0(边沿)
+// 137 位, 变化记行 → 一次按键测试即建 [实体键→逻辑id] 映射, R 的 id 一眼可判;
+// UI 同步显示按住位列表。comboProbe 门控。
+static std::atomic<std::uint32_t> g_inHeld[5] = {};
+static std::atomic<std::uint32_t> g_inEdge[5] = {};
+static std::atomic<bool> g_inValid{false};
+
+// SEH 批量读: 两阵列各 5 字 (id 0..159 覆盖, 4 号字按 0x1FF 截到 id<0x89)
+static bool SheathScanBitsSEH(std::uintptr_t ctx, std::uint32_t* held,
+                              std::uint32_t* edge) {
+    __try {
+        const auto* base = reinterpret_cast<const std::uint8_t*>(ctx);
+        for (int i = 0; i < 5; ++i) {
+            held[i] = *reinterpret_cast<const volatile std::uint32_t*>(base +
+                                                                       0x780 + i * 4);
+            edge[i] = *reinterpret_cast<const volatile std::uint32_t*>(base +
+                                                                       0x7E0 + i * 4);
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+int SheathHeldIds(std::uint32_t* outIds, int maxIds) {
+    if (!g_inValid.load(std::memory_order_acquire)) return -1;
+    int n = 0;
+    for (std::uint32_t id = 0; id < 0x89 && n < maxIds; ++id) {
+        if (g_inHeld[id >> 5].load(std::memory_order_relaxed) >> (id & 31) & 1u) {
+            outIds[n++] = id;
+        }
+    }
+    return n;
+}
+
 void PollSheathComboProbe(const void* entity) {
     if (!g_comboProbe.load(std::memory_order_relaxed)) return;
-    if (g_comboProbeLines.load(std::memory_order_relaxed) > 400) return;
+    if (g_comboProbeLines.load(std::memory_order_relaxed) > 1500) return;
     const void* ctrl = nullptr;
     {
         std::scoped_lock lock(g_actionMutex);
@@ -421,6 +458,41 @@ void PollSheathComboProbe(const void* entity) {
         m << "SHEATHIN23: stable ctx=0x" << std::hex << ctx << " inputId=" << std::dec
           << id << " remapPhys=" << remapPhys;
         Log(m.str().c_str());
+    }
+    // INPUTBITS 全位扫描 (每帧, 独立于 nibble 转换日志): 变化记 on=[id h/e] 行
+    {
+        std::uint32_t held[5] = {}, edge[5] = {};
+        if (SheathScanBitsSEH(ctx, held, edge)) {
+            held[4] &= 0x1FFu;
+            edge[4] &= 0x1FFu;
+            for (int i = 0; i < 5; ++i) {
+                g_inHeld[i].store(held[i], std::memory_order_relaxed);
+                g_inEdge[i].store(edge[i], std::memory_order_relaxed);
+            }
+            g_inValid.store(true, std::memory_order_release);
+            static std::uint32_t lastH[5] = {}, lastE[5] = {};
+            if (std::memcmp(held, lastH, sizeof(held)) != 0 ||
+                std::memcmp(edge, lastE, sizeof(edge)) != 0) {
+                std::memcpy(lastH, held, sizeof(held));
+                std::memcpy(lastE, edge, sizeof(edge));
+                if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) <= 600) {
+                    std::ostringstream m;
+                    m << "INPUTBITS on=[";
+                    bool first = true;
+                    for (std::uint32_t b = 0; b < 0x89; ++b) {
+                        const bool hb = held[b >> 5] >> (b & 31) & 1u;
+                        const bool eb = edge[b >> 5] >> (b & 31) & 1u;
+                        if (hb || eb) {
+                            if (!first) m << ',';
+                            m << b << (hb ? 'h' : ' ') << (eb ? 'e' : ' ');
+                            first = false;
+                        }
+                    }
+                    m << ']';
+                    Log(m.str().c_str());
+                }
+            }
+        }
     }
     const std::uint32_t nib = SheathNibbleSEH(ctx, id);
     if (nib == 0xFFFFFFFFu) return;  // 读故障帧

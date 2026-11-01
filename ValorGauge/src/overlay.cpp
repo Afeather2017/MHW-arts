@@ -272,6 +272,26 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                     shText);
             }
         }
+        // INPUTBITS line (2026-11-02): 游戏视角的实时按住位 (逻辑 id 列表) —
+        // R 按住条件监测 (user 提案): 按不同实体键建 [键→id] 映射。
+        {
+            std::uint32_t inIds[12] = {};
+            const int n = SheathHeldIds(inIds, 12);
+            if (n > 0) {
+                char inText[128]{};
+                int off2 = snprintf(inText, sizeof(inText), "IN n=%d [", n);
+                for (int i = 0; i < n && off2 > 0 && off2 < (int)sizeof(inText);
+                     ++i) {
+                    off2 += snprintf(inText + off2, sizeof(inText) - off2,
+                                     "%s%u", i ? "," : "", inIds[i]);
+                }
+                if (off2 > 0 && off2 < (int)sizeof(inText)) {
+                    snprintf(inText + off2, sizeof(inText) - off2, "]");
+                    draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(0.0f, 158.0f),
+                                  IM_COL32(120, 220, 255, 255), inText);
+                }
+            }
+        }
         // Mode line (2026-10-25): the in-game HUD gauge color never repaints
         // on mid-quest level writes, so this overlay line is the source of
         // truth - phase label (CHARGE = white charge phase, VALOR = red mode,

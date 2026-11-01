@@ -183,29 +183,39 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
   sheath-counter.txt 是死配置留盘。
 - 勇气纳刀按住检测的 DLL GetAsyncKeyState 路线：可退役（`R押してない` 纯数据边，见 fsm-input.md）。
 
-## 翻滚切勇気納刀 (ROLLSHEATHE, 2026-10-31~11-01 定稿)
+## 翻滚切勇気納刀 (ROLLSHEATHE + SHEATHGATE, 2026-11-02 定稿)
 
 **行为**：翻滚(动作 18/19=前滚 LMT11、20/21=侧滚 LMT12/13、22=后滚 LMT10)中按住
-**鼠标侧键**(VK_XBUTTON1/2 任一)且 motion 帧 ≥ 阈值 → DoAction {3,98} 勇気納刀。
+**纳刀键**(任意绑定, 默认鼠标侧键)且 motion 帧 ≥ 阈值 → DoAction {3,98} 勇気納刀。
 阈值默认 18/19=28、20/21=34、22=72(动作帧)，配置 `nativePC/plugins/
-ValorGauge.roll-sheathe.txt`(enable/各 id 阈值)，改后重启生效。
+ValorGauge.roll-sheathe.txt`(enable/`input=side|internal|any`/各 id 阈值/
+`gateMs`/`block`)，改后重启生效。
 
-**实现**：ValorGauge.dll `PollRollSheathe()`(PropIntHook=游戏更新线程)：本地玩家
-controller 读当前动作(0xAC/0xB0) + motion 时钟(anim+0x10C) + GetAsyncKeyState
-侧键 → g_originalDoAction 直呼 + tracker 同步(仿 TryQueuedForceWrite)。
+**SHEATHGATE（总闸，11-02 user 定案）**：纳刀输入被看到的时刻起 `gateMs`(3000)ms
+内，DoAction 层拒绝 `block`(默认 1,11,12,66,112 = 気刃斬1/刚一族全部观测形态)，
+98 永远放行。**为什么需要**：{3,98} 落地后，分类器(b590)/FSM 链接边/缓冲输入会在
+翻滚出招检查点把残余纳刀输入反复消费成 {3,11}(收刀态 R2=刚一, REQTRACE 实证
+callerRVA=0x26b640 每 ~1.6s 复发)；0.5s 窗口不够(后滚 f72→检查点 >0.63s)，
+3s 实测全盖住。副作用：纳刀键按下后 3s 内拔刀刚一(收刀态 R2)也被拦。
 
-**为什么是这条路 (5 轮数据侧全灭的教训，勿重蹈)**：
-1. FSM 边(居合斬り cond232/275 已铺) — 属性不走 getter(PROPTRACE 实证)，真值=
-   事件锁存(存储未定位)。
-2. TIML PI 位(mFlag b14/15、mFlag2 b22/23、mFlag6 b11) — 位喂进去组合 23 也
-   不被消费：**回避动作类不处理该组合的输入**。
-3. 分类器表行(LS 0x143F4D6A0+key18-22 子表加 (1,23,1,0,3,98)) — vanilla 消费
-   者能吃(后滚实锤)但窗口=活值即点即切，且帧位/槽值竞速难控。
-4. 组合23检查器对象调用 — 未武装态求值必崩(0xC0000005 @ .rdata, SEH 实证)，
-   按压态也不落在对象前 96B/子对象。
+**实现**：①`PollRollSheathe()`：本地玩家 controller 当前动作(0xAC/0xB0)+
+motion(anim+0x10C)+输入源 → g_originalDoAction 直呼+tracker 同步。输入源
+`input=`：side=GetAsyncKeyState 侧键(过渡版)/internal=游戏逻辑输入位集/any=并集。
+②**内部输入读取（正道，绑定无关）**：SheathCapHook(c0f0) **调用期内**同步捕获
+检查器(mgrCtx+0xD0 槽[23])的 +0x20 输入上下文/+0x28 逻辑输入 id(实证=24)，
+按 (ctx,id) 对计数 seen≥8 才可信；位集读 `ctx+0x780/0x7C0/0x7E0/0x820` 按 id
+位索引(按住/缓冲/边沿/缓冲2)。**铁律：mgrCtx 是每次调用的短命上下文，跨调用
+保留指针=UAF(崩过)**。③SHEATHGATE + 滑窗重臂(PollSheathGateRefresh)+UI 行
+(SHEATHIN, 绿=检测到/黄=闸门)。
 
-**注意**：侧键按住期间游戏侧 ○ 绑定(如_attr 派生)可能与 {3,98} 竞速，实测以
-納刀为准；気刃槽 0x2368 无门槛(气刃 0 亦切，旧观察有误)。ROOLLSHEATHE 分类器
-表行补丁仍留(vanilla 按住路径备用)，FSM 居合斬り边/LMT PI 位残留无害。
-排查工具：Log 全行时间戳；addresses.txt `propTrace=1`/`sheathClsfyProbe=1`
-探针；`patch_roll_sheathe_row.py`(exe 表补丁, 已弃用仅存档)。
+**按键检测语义（11-02 实证）**：位集位是**边沿/缓冲痕迹，游戏消费即清零**
+(h 只亮一帧)，按住不清零≠按住状态；闸门等效"按下+3s"。换绑定(T 键)检测照常
+= 逻辑动作层与键位重映射表(RVA 0x3EEABF0, 逻辑<0x89→物理键)消化了实体键。
+检查器 +0x28 的逻辑输入 id(24) ≠ 分类器 combo id(23)，两个编号空间。
+
+**为什么数据侧全灭 (5 轮教训，勿重蹈)**：FSM 边(属性不走 getter)、TIML PI 位
+(回避动作类不消费组合23)、分类器行(已禁 16 行但每键 51+ 键都有同类行, 打地鼠;
+且 FSM 链接边根本不走分类器)、检查器求值(短命上下文+未武装态必崩)。**DoAction
+总闸是唯一能盖住全部消费者的位置**。16 行补丁与 REQTRACE 保留(降噪+溯源)。
+排查：UI SHEATHIN 行；Log(SHEATHCUT[i/s]/SHEATHGATE swallow/REQTRACE)；
+addresses.txt `comboProbe=1`(SHEATHIN23 stable/位集转换)。

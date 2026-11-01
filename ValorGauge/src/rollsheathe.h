@@ -22,3 +22,5 @@ void PollSheathGateRefresh(const void* entity);
 // UI 状态查询: 稳定对收敛与否 + 逻辑输入 id + 位集 nibble + 闸门剩余毫秒。
 bool SheathGateStatus(int* outId, std::uint32_t* outNib,
                       std::int64_t* outRemainMs);
+// 当前按住的逻辑输入 id 列表 (INPUTBITS 扫描, 未收敛返回 -1)。
+int SheathHeldIds(std::uint32_t* outIds, int maxIds);
