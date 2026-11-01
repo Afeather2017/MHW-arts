@@ -133,6 +133,10 @@ std::atomic<std::uintptr_t> g_sheathMgrCtx{0};
 // 注意: 定义须在 LoadRollSheatheConfig 之前(其 block=/gateMs= 解析要写这些)。
 std::atomic<std::int64_t> g_sheathGateUntilMs{0};
 std::atomic<int> g_sheathGateMs{3000};  // user: 3s 已够绝大多数动作切换
+// 纳刀意图锁存: 翻滚中见输入位(即按即消费, 闪一帧)即锁存 gateMs 时长,
+// PollRollSheathe 在动作帧到阈值时凭锁存补发 {3,98} — 治"按早了起身站着不动"
+// (输入早被吃, 阈值帧时已无信号; user 定案 11-02: 缓存到气刃斬1 时机=起身点)。
+std::atomic<std::int64_t> g_sheathIntentUntilMs{0};
 // 仅配置加载期写入, 之后只读(钩子线程并发读安全)
 std::vector<int> g_sheathGateBlock = {1, 11, 12, 66, 112};
 
@@ -371,6 +375,29 @@ void PollSheathGateRefresh(const void* entity) {
     const std::uint32_t nib = SheathNibbleSEH(ctx, id);
     if (nib != 0 && nib != 0xFFFFFFFFu) {
         SheathGateArm();
+        // 纳刀意图锁存: 仅当前动作是翻滚(阈值表内)时记, 供阈值帧补发
+        if (ctrl != nullptr) {
+            const std::int32_t set = *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<const std::uint8_t*>(ctrl) + 0xAC);
+            const std::int32_t rid = *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<const std::uint8_t*>(ctrl) + 0xB0);
+            if (set == 3 && g_rollSheathe.thresholds.count(rid) != 0) {
+                const std::int64_t nowMs = SheathNowMs();
+                const bool was = nowMs < g_sheathIntentUntilMs.load(
+                                         std::memory_order_acquire);
+                g_sheathIntentUntilMs.store(
+                    nowMs + g_sheathGateMs.load(std::memory_order_relaxed),
+                    std::memory_order_release);
+                if (!was) {
+                    static std::atomic<int> g_intentLogs{0};
+                    if (g_intentLogs.fetch_add(1, std::memory_order_relaxed) < 20) {
+                        std::ostringstream m;
+                        m << "SHEATHINTENT armed roll=" << rid;
+                        Log(m.str().c_str());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -638,7 +665,10 @@ void PollRollSheathe(const void* entity) {
     bool held = false;
     char src = '-';
     const int inputMode = g_rollSheathe.inputMode.load(std::memory_order_relaxed);
-    if (inputMode >= 1 && InternalSheathHeld()) {
+    // 意图锁存: 翻滚中早按的纳刀输入已被游戏消费, 凭锁存在阈值帧补发
+    const bool intent =
+        SheathNowMs() < g_sheathIntentUntilMs.load(std::memory_order_acquire);
+    if (inputMode >= 1 && (InternalSheathHeld() || intent)) {
         held = true;
         src = 'i';
     }

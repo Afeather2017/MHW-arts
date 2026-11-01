@@ -6192,3 +6192,18 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   亦被拦; stance 流程内 R 走居合 101/102 不受影响; 碍事则删 block= 里的 1。
 - UI: IN 行 R 位(1/6)亮时行尾标 " R" 并转红。
 - 新 dll `ccb17fed`(游戏运行中, 后台等待部署)。
+
+### 2026-11-02(11) SHEATHINTENT 意图锁存: 早按缓存到起身时机 (user 定案设计)
+
+- **user 剩余问题**: 翻滚中途按纳刀, 起身时应纳刀而非站着不动。归因: 纳刀输入
+  即按即消费(位闪一帧), 按早于阈值帧时 SHEATHCUT 无信号可依(尤其 T 键绑定时
+  side-key 路径也失效); 3s 闸门拦住了攻击但纳刀请求根本没发 => 站着不动。
+  user 方向: 找出气刃斬1 的时机(=翻滚出招取消点), 那个时间点才是发刀点。
+- **实现**: ①g_sheathIntentUntilMs 意图锁存 = PollSheathGateRefresh 每帧见
+  纳刀位(任意 nibble 位)且当前动作在阈值表内(即翻滚中) => 锁存 gateMs 时长 +
+  首次记 SHEATHINTENT armed roll=<id>(cap20); ②PollRollSheathe 输入判定改为
+  InternalSheathHeld() || intent —— 早按 => 阈值帧凭锁存补发, 晚按/按住 => 原
+  行为不变。锁存时长复用 gateMs(3s), 跨入下一次翻滚也会补发(意图本就是纳刀)。
+- 时机微调仍走配置阈值(18/19=28 20/21=34 22=72, 即气刃斬1 窗口近似), 不用重编。
+- 部署 dll `53654369`→`6f1101a6`。待验证: 翻滚前段按纳刀 => 起身必纳刀, 无站着
+  不动; log 应见 SHEATHINTENT armed => SHEATHCUT[i] 序列。
