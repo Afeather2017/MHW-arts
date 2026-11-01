@@ -6016,3 +6016,37 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 部署 dll `d089847a`→`96912a68`(mod); ValorProbe 同步绿。addresses.txt 追加
   comboProbe=1。待 user 冷启动按键测试(见会话末测试脚本), 数据回来后钉死
   旗标语义→用内部输入态替换 GetAsyncKeyState。
+
+### 2026-11-02(2) 输入系统完全解码: 逻辑动作位集 + 键位重映射表, 内部输入源上 DLL
+
+- **首轮探针数据(11-02(1) 的局内回报)**: SHEATHCUT ×3 accepted(翻滚18@f28/21@f34/
+  21@f47, 过渡版侧键轮询工作正常); 基线扫描暴露 v1 bug——首帧全检查器数组都算
+  "新对象", 500 行额度一次吃光, 按键窗口零数据。但基线本身给了 c23 检查器真身:
+  **vtbl=0x143371ea0**(与 c13-19 同类; 大多数检查器是 0x1431c5278, 另有 0x143371f78
+  等族), t1 槽共 798 检查器; 全会话游戏从未问过组合23(SHEATHEVAL 零命中, 唯一
+  一条 c290=(1,290,0,14,-1,-1)→1)。
+- **vtable→evaluate 静态解剖(金矿链)**: c23 类 evaluate=`FUN_1417bfa90`:
+  查 `*(u32*)(ctx+0x8954) bit20` 等门禁+一个浮点阈值后, 调
+  `FUN_1417bd120(this, *(u32*)(this+0x28))` —— **检查器 +0x28 = 逻辑输入 id,
+  +0x20 = 输入上下文**。`FUN_1417bd120` 过 UI 门禁(_DAT_1451c4640+0x146d5/0x146ea)
+  后调万能查询 `FUN_1419a30d0(玩家ctx, 输入ctx, id, press=旗标bit0, mode=+0x30)`:
+  外围玩家门禁 `*(玩家ctx+0x7658)→+0xa4/a5/a6` 任一非零=拒绝(翻滚中组合23从不被
+  询问的可能原因=动作层门禁), 内层分派 press=`FUN_14122fdb0`/hold=`FUN_14122fe60`。
+- **位集结构(按逻辑 id 直接索引, id>>5 选字, id&31 选位)**:
+  `+0x780=当前按住, +0x7C0/+0x820=缓冲, +0x7E0=本帧按下沿`; 上层还有
+  +0x860/+0x8A0 "已被查询"登记写位。**键位重映射表 RVA 0x3EEABF0: 逻辑动作
+  (<0x89)→物理键, 运行时被键位配置改写**(vanilla 静态表: 逻辑23→物理9, 即默认
+  手柄 B/○ 位——"R+A 还是 R+B"因人而异 = 这张表运行时值不同, 机制定案)。
+  另: `FUN_141230000` 门禁拒绝 id≥0x89 ⇒ 逻辑动作 id 空间 <0x89(+0x9c 特例),
+  798 检查器 ≠ 798 输入动作, combo id 与输入 id 是两个空间、检查器 +0x28 持真身。
+- **COMBOPROBE v2(修额度 bug)**: 弃全量扫描, 聚焦 c23: 基线一行 `SHEATHIN23:
+  mgr/checker vtbl/flag/inputId/mode30/remapPhys/ctx` + 逐帧读四位数集(按
+  +0x28 的 id 位索引)变化才记 `SHEATHIN23 h/buf7c0/edge/buf820`。上限 400 行。
+- **PollRollSheathe 内部输入源**: 配置 `ValorGauge.roll-sheathe.txt` 新键
+  `input=side(默认)/internal/any`: internal=直读 +0x780 按住位(绑定无关, 手柄
+  A/B/键鼠全通吃), any=并集(A/B 验证期, SHEATHCUT 行带 [i]/[s] 源标签)。
+  FindPlayerMgrCtx helper 抽出共用。
+- 部署 dll `96912a68`→`59f429c3`, roll-sheathe.txt `d2e8adc3`→`fa2729a9`
+  (input=any)。待 user 冷启动: 看基线行 inputId 是否=23 + remapPhys=用户绑定;
+  按纳刀键看 edge/held 转换; 翻滚按纳刀键看 SHEATHCUT[i] 是否触发(内部源局内
+  验证)。通过后默认改 input=internal、GetAsyncKeyState 退役。

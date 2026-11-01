@@ -117,6 +117,7 @@ bool InstallSheathClsfyProbeHook() {
 // 默认 = TIML 调参近似值), 命中即经 DoAction 发 {3,98} 勇気納刀。
 struct RollSheatheCfg {
     std::atomic<int> enabled{1};
+    std::atomic<int> inputMode{0};  // 0=side 1=internal 2=any
     std::map<std::int32_t, float> thresholds{
         {18, 28.0f}, {19, 28.0f}, {20, 34.0f}, {21, 34.0f}, {22, 72.0f},
     };
@@ -140,12 +141,18 @@ void LoadRollSheatheConfig() {
         const auto key = line.substr(0, eq);
         const auto value = line.substr(eq + 1);
         if (key == "enable") g_rollSheathe.enabled.store(std::atoi(value.c_str()) != 0);
+        else if (key == "input") {
+            g_rollSheathe.inputMode.store(
+                value == "internal" ? 1 : (value == "any" ? 2 : 0),
+                std::memory_order_relaxed);
+        }
         else {
             try { g_rollSheathe.thresholds[std::stoi(key)] = std::stof(value); } catch (...) {}
         }
     }
     std::ostringstream m;
     m << "ROLLSHEATHE: config loaded (enable=" << g_rollSheathe.enabled.load()
+      << " input=" << g_rollSheathe.inputMode.load()
       << " thresholds=";
     for (auto& [id, f] : g_rollSheathe.thresholds) m << id << ':' << f << ' ';
     m << ')';
@@ -194,124 +201,128 @@ bool InstallSheathCapHook() {
     return true;
 }
 
-// --- COMBOPROBE (2026-11-02): 分类器检查器数组被动观测 + ba00 评估日志 ---------
-// 动机: 特殊納刀实体键因绑定而异(user 情报 R+A/B 因人而异) → combo 走逻辑动作
-// 层, 物理键不可枚举, GetAsyncKeyState 是死路。目标 = 游戏内部"特殊納刀输入态"。
-// 静态已知(反编译): mgrCtx type 槽 = {指针数组,数量} 对, ptr=+0xC0+type*0x10,
-// count=+0xC8+type*0x10 (FUN_14026b380 越界检查); 检查器 = ptr[comboId],
-// +8 旗标字节 bit1=本帧不可用(ba00 见 1 即弃), bit0 由 ba00 按 row.a 写;
-// 评估 = vtable+0x30, 候选胜出时对前方可用候选调 vtable+0x38 (FUN_14026b380)。
-// addresses.txt `comboProbe=1` 启用。两路信号(只记变化, 共享 500 行上限):
-//   COMBOPROBE/COMBOCHK = 逐帧扫四个 type 槽, 检查器 {obj,vtbl,+8 旗标u32} 变化
-//   SHEATHEVAL          = ba00 钩子, 游戏"问"某组合的行+评估结果(组合23或非-1)
+// --- COMBOPROBE v2 (2026-11-02): 组合23 内部输入态观测 ------------------------
+// v1 全量扫描教训: 首帧整个检查器数组都算"新对象", 500 行额度一次吃光, 按键
+// 窗口零数据。v2 聚焦: 基线一行(c23 检查器字段 + 键位重映射表值) + 逐帧读
+// 组合23 逻辑输入态位集, 变化才记 (SHEATHIN23)。
+// 本轮静态逆解码(检查器类 vtable 0x143371ea0 → evaluate FUN_1417bfa90):
+//   检查器 = mgrCtx type1[23] (mgrCtx+0xD0 槽), +0x28=逻辑输入 id,
+//   +0x20=输入上下文; 上下文位集按逻辑 id 直接索引 (FUN_14122fdb0 press /
+//   FUN_14122fe60 hold 的读法):
+//     +0x780=当前按住  +0x7C0/+0x820=缓冲  +0x7E0=本帧按下沿
+//   键位重映射表 RVA 0x3EEABF0: 逻辑动作(<0x89)→物理键, 运行时被键位配置改写
+//   (vanilla 表: 逻辑23→物理9); "R+A 还是 R+B" 的答案 = 这张表的运行时值。
+//   万能查询 FUN_1419a30d0(玩家上下文, 输入上下文, id, press, mode) 外围有
+//   玩家门禁(+0x7658→+0xa4/a5/a6) —— 翻滚中组合23 从不被游戏询问的可能原因,
+//   所以轮询直读位集, 不调查询函数。
+// addresses.txt `comboProbe=1` 启用; SHEATHEVAL(ba00 钩子)沿用, 共享行数上限。
 std::atomic<bool> g_comboProbe{false};
 std::atomic<int> g_comboProbeLines{0};
 
-struct ComboChkLast {
-    void* obj;
-    std::uintptr_t vtbl;
-    std::uint32_t flag;
+// SheathCapHook 认领表: player 实体 → 分类器 mgrCtx (probe/poll 共用)
+static std::uintptr_t FindPlayerMgrCtx(std::uintptr_t player) {
+    std::scoped_lock lock(g_sheathCtxMutex);
+    for (const auto& e : g_sheathCtx) {
+        if (e.mgr != 0 && e.actionObj == player + 0x61C8) return e.mgr;
+    }
+    return 0;
+}
+
+// 组合23 检查器速览: {vtable, +8 旗标, +0x20 输入上下文, +0x28 逻辑id, +0x30 模式}
+struct Sheath23View {
+    bool valid = false;
+    std::uintptr_t vtbl = 0;
+    std::uint8_t flag8 = 0;
+    std::uint8_t mode30 = 0;
+    std::uint32_t inputId = 0;
+    const std::uint8_t* state = nullptr;  // 输入上下文基址 (位集 +0x780..+0x820)
 };
-static ComboChkLast g_comboChkLast[4][1024] = {};
-static bool g_comboBaselineDone = false;
 
-// 扫描体放 callee: __try 函数内不得有带析构的 C++ 对象 (C2712)。
-static void ComboProbeScan(std::uintptr_t mgr) {
-    for (int type = 0; type < 4; ++type) {
-        const std::uintptr_t slot = mgr + 0xC0 + type * 0x10;
-        if (!IsReadable(reinterpret_cast<const void*>(slot), 0x10)) continue;
-        void* const* arr = *reinterpret_cast<void* const**>(slot);
-        const std::uint32_t count =
-            *reinterpret_cast<const volatile std::uint32_t*>(slot + 8);
-        if (arr == nullptr || count == 0 || count > 1024) continue;
-        if (!IsReadable(reinterpret_cast<const void*>(arr),
-                        static_cast<std::size_t>(count) * sizeof(void*))) {
-            continue;
-        }
-        for (std::uint32_t i = 0; i < count; ++i) {
-            void* obj = arr[i];
-            ComboChkLast& l = g_comboChkLast[type][i];
-            if (obj == nullptr) {
-                if (l.obj != nullptr) {
-                    l = {};
-                    if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) <= 500) {
-                        std::ostringstream m;
-                        m << "COMBOCHK t" << type << " c" << i << " cleared";
-                        Log(m.str().c_str());
-                    }
-                }
-                continue;
-            }
-            if (obj == l.obj) {
-                // 快路径: 对象未换只读旗标 u32 (+8); 游戏托管内存, 换对象才复查
-                const std::uint32_t flag = *reinterpret_cast<const std::uint32_t*>(
-                    static_cast<const std::uint8_t*>(obj) + 8);
-                if (flag == l.flag) continue;
-                l.flag = flag;
-            } else {
-                if (!IsReadable(obj, 0x10)) continue;
-                l.obj = obj;
-                l.vtbl = *reinterpret_cast<std::uintptr_t*>(obj);
-                l.flag = *reinterpret_cast<const std::uint32_t*>(
-                    static_cast<const std::uint8_t*>(obj) + 8);
-            }
-            if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) > 500) return;
-            std::ostringstream m;
-            m << "COMBOCHK t" << type << " c" << i << " obj=0x" << std::hex
-              << reinterpret_cast<std::uintptr_t>(obj) << " vtbl=0x" << l.vtbl
-              << " flag=0x" << l.flag << std::dec;
-            Log(m.str().c_str());
-        }
-    }
+static bool ReadSheath23(std::uintptr_t mgr, Sheath23View& v) {
+    v = Sheath23View{};
+    const std::uintptr_t slot = mgr + 0xD0;  // type1 {指针数组,数量} 对
+    if (!IsReadable(reinterpret_cast<const void*>(slot), 0x10)) return false;
+    void* const* arr = *reinterpret_cast<void* const**>(slot);
+    const std::uint32_t count =
+        *reinterpret_cast<const volatile std::uint32_t*>(slot + 8);
+    if (arr == nullptr || count <= 23) return false;
+    void* chk = arr[23];
+    if (chk == nullptr || !IsReadable(chk, 0x40)) return false;
+    const auto* c = static_cast<const std::uint8_t*>(chk);
+    v.vtbl = *reinterpret_cast<std::uintptr_t*>(chk);
+    v.flag8 = *reinterpret_cast<const std::uint8_t*>(c + 8);
+    v.inputId = *reinterpret_cast<const volatile std::uint32_t*>(c + 0x28);
+    v.mode30 = *reinterpret_cast<const std::uint8_t*>(c + 0x30);
+    void* ctx = *reinterpret_cast<void* const*>(c + 0x20);
+    if (ctx == nullptr || !IsReadable(ctx, 0x830)) return false;
+    v.state = static_cast<const std::uint8_t*>(ctx);
+    v.valid = true;
+    return true;
 }
 
-static long ComboProbeFilter(std::uintptr_t mgr, EXCEPTION_POINTERS* ep) {
-    const int n = g_comboProbeLines.fetch_add(1, std::memory_order_relaxed);
-    if (n < 530 && ep && ep->ExceptionRecord) {  // 超 500 也要能看见崩溃行
-        std::ostringstream m;
-        m << "COMBOPROBE: scan fault code=0x" << std::hex
-          << ep->ExceptionRecord->ExceptionCode << " mgr=0x" << mgr;
-        Log(m.str().c_str());
-    }
-    return EXCEPTION_EXECUTE_HANDLER;
+// 位集读: +0x780=按住, +0x7C0=缓冲1, +0x7E0=按下沿, +0x820=缓冲2 (逻辑 id 位索引)
+static std::uint32_t SheathStateNibble(const Sheath23View& v) {
+    if (!IsReadable(v.state, 0x830)) return 0;
+    const std::uintptr_t word = (v.inputId >> 5) * 4;
+    const std::uint32_t bit = 1u << (v.inputId & 31);
+    const auto test = [&](std::uintptr_t off) {
+        return (*reinterpret_cast<const volatile std::uint32_t*>(v.state + off + word) &
+                bit) != 0;
+    };
+    return (test(0x780) ? 1u : 0u) | (test(0x7C0) ? 2u : 0u) |
+           (test(0x7E0) ? 4u : 0u) | (test(0x820) ? 8u : 0u);
 }
 
-// SEH 层独立成函数: __try 与带析构对象同函数 = C2712。
-static void ComboProbeScanSafe(std::uintptr_t mgr) {
-    __try {
-        ComboProbeScan(mgr);
-    } __except (ComboProbeFilter(mgr, GetExceptionInformation())) {
-        g_comboProbe.store(false, std::memory_order_relaxed);  // 崩一次整体停
-    }
+// 组合23 按住位 (内部输入源, 绑定无关)。供 PollRollSheathe 用。
+static bool InternalSheathHeld(std::uintptr_t mgr) {
+    if (mgr == 0) return false;
+    Sheath23View v;
+    if (!ReadSheath23(mgr, v) || !v.valid) return false;
+    if (!IsReadable(v.state, 0x830)) return false;
+    const std::uintptr_t word = (v.inputId >> 5) * 4;
+    const std::uint32_t bit = 1u << (v.inputId & 31);
+    return (*reinterpret_cast<const volatile std::uint32_t*>(v.state + 0x780 + word) &
+            bit) != 0;
 }
 
 void PollSheathComboProbe(const void* entity) {
     if (!g_comboProbe.load(std::memory_order_relaxed)) return;
-    if (g_comboProbeLines.load(std::memory_order_relaxed) > 500) return;
+    if (g_comboProbeLines.load(std::memory_order_relaxed) > 400) return;
     const std::uintptr_t player = reinterpret_cast<std::uintptr_t>(entity);
-    std::uintptr_t mgr = 0;
-    {
-        std::scoped_lock lock(g_sheathCtxMutex);
-        for (const auto& e : g_sheathCtx) {
-            if (e.mgr != 0 && e.actionObj == player + 0x61C8) { mgr = e.mgr; break; }
-        }
-    }
+    const std::uintptr_t mgr = FindPlayerMgrCtx(player);
     if (mgr == 0) return;
-    if (!g_comboBaselineDone) {
-        g_comboBaselineDone = true;
-        std::ostringstream m;
-        m << "COMBOPROBE: mgr=0x" << std::hex << mgr << std::dec;
-        for (int type = 0; type < 4; ++type) {
-            const std::uintptr_t slot = mgr + 0xC0 + type * 0x10;
-            const std::uint32_t count =
-                IsReadable(reinterpret_cast<const void*>(slot), 0x10)
-                    ? *reinterpret_cast<const volatile std::uint32_t*>(slot + 8)
-                    : 0;
-            m << " t" << type << "n=" << count;
+    static std::uintptr_t baselineMgr = 0;
+    static Sheath23View view;
+    if (baselineMgr != mgr) {
+        if (!ReadSheath23(mgr, view)) return;
+        baselineMgr = mgr;
+        std::int32_t remapPhys = -2;
+        const std::uintptr_t base = ModuleBaseAddr();
+        if (base != 0 && view.inputId < 0x89 &&
+            IsReadable(reinterpret_cast<const void*>(
+                           base + 0x3EEABF0 + view.inputId * 4), 4)) {
+            remapPhys = *reinterpret_cast<const volatile std::int32_t*>(
+                base + 0x3EEABF0 + view.inputId * 4);
         }
+        std::ostringstream m;
+        m << "SHEATHIN23: mgr=0x" << std::hex << mgr << " checker vtbl=0x"
+          << view.vtbl << " flag=0x" << static_cast<int>(view.flag8)
+          << " inputId=" << std::dec << view.inputId
+          << " mode30=" << static_cast<int>(view.mode30)
+          << " remapPhys=" << remapPhys << " ctx=0x" << std::hex
+          << reinterpret_cast<std::uintptr_t>(view.state);
         Log(m.str().c_str());
     }
-    ComboProbeScanSafe(mgr);
+    if (!view.valid) return;
+    const std::uint32_t nib = SheathStateNibble(view);
+    static std::uint32_t lastNib = 0xFFFFFFFFu;
+    if (nib == lastNib) return;
+    lastNib = nib;
+    if (g_comboProbeLines.fetch_add(1, std::memory_order_relaxed) > 400) return;
+    std::ostringstream m;
+    m << "SHEATHIN23 h=" << (nib & 1) << " buf7c0=" << ((nib >> 1) & 1)
+      << " edge=" << ((nib >> 2) & 1) << " buf820=" << ((nib >> 3) & 1);
+    Log(m.str().c_str());
 }
 
 // ba00 钩子: (mgrCtx, stateCtx, row, flag) -> int32 (-1 = 组合不可用/未中)
@@ -382,8 +393,8 @@ bool InstallSheathEvalProbe() {
     } else {
         Log("COMBOPROBE: sheathEval hook installed (comboProbe=1)");
     }
-    Log("COMBOPROBE: passive checker-array watcher active - COMBOCHK=state "
-        "changes, SHEATHEVAL=game queries (cap 500 lines)");
+    Log("COMBOPROBE: SHEATHIN23 watcher active (baseline + input-state "
+        "transitions, cap 400 lines)");
     return true;
 }
 
@@ -437,11 +448,26 @@ void PollRollSheathe(const void* entity) {
     const auto thIt = g_rollSheathe.thresholds.find(id);
     if (thIt == g_rollSheathe.thresholds.end()) return;
 
-    // 输入: 鼠标侧键 (VK_XBUTTON1/2) 任一按住 = 特殊納刀意图。
-    // 游戏内部读键的路线(检查器/属性/分类器)已判死, 物理侧键是确定性信号。
-    const short x1 = GetAsyncKeyState(VK_XBUTTON1);
-    const short x2 = GetAsyncKeyState(VK_XBUTTON2);
-    const bool held = (x1 & 0x8000) != 0 || (x2 & 0x8000) != 0;
+    // 输入源 (roll-sheathe.txt `input=`): side=鼠标侧键(过渡版) /
+    // internal=游戏组合23逻辑输入态(+0x780 按住位, 绑定无关) / any=两者并集
+    // (内部源 A/B 验证期)。读法 = FindPlayerMgrCtx → mgrCtx type1[23] 检查器
+    // → +0x20 输入上下文 → +0x780 位集 [inputId] 位 (COMBOPROBE 节注释)。
+    bool held = false;
+    char src = '-';
+    const int inputMode = g_rollSheathe.inputMode.load(std::memory_order_relaxed);
+    if (inputMode >= 1 &&
+        InternalSheathHeld(FindPlayerMgrCtx(reinterpret_cast<std::uintptr_t>(player)))) {
+        held = true;
+        src = 'i';
+    }
+    if (!held && inputMode != 1) {
+        const short x1 = GetAsyncKeyState(VK_XBUTTON1);
+        const short x2 = GetAsyncKeyState(VK_XBUTTON2);
+        if ((x1 & 0x8000) != 0 || (x2 & 0x8000) != 0) {
+            held = true;
+            src = 's';
+        }
+    }
     if (!held) return;
 
     // motion 帧 (anim+0x10C)
@@ -464,8 +490,8 @@ void PollRollSheathe(const void* entity) {
     force.actionId = 98;
     const bool ok = g_originalDoAction(ctrl, &force) != 0;
     std::ostringstream m;
-    m << "SHEATHCUT: roll " << id << " f" << mot << " -> DoAction(3:98) "
-      << (ok ? "accepted" : "rejected");
+    m << "SHEATHCUT[" << src << "]: roll " << id << " f" << mot
+      << " -> DoAction(3:98) " << (ok ? "accepted" : "rejected");
     Log(m.str().c_str());
     if (ok) {
         fired = true;
