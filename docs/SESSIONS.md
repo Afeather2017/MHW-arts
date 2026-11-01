@@ -5957,3 +5957,29 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   (捕获 hook 仍装但无害), gaugeGate/pressEdge 配置废除。config 重写(阈值表)。
 - 部署 dll `d089847a`; 配置 d2e8adc3。LMT 898b2314 / FSM f25256e2 维持。
 - 结论入 gauge-valor.md 翻滚切勇気納刀节。代码整理归 user。
+
+### 2026-11-01(5) dllmain.cpp 模块化拆分: 8925 行单文件 → 23 模块 (行为零改动, 双 target 构建通过)
+
+- **拆分方式**: `ValorGauge/tools/split_dllmain.py` 按段表搬运行(逐字节 verbatim),
+  不是手抄。脚本自带三重校验: 段首行断言(防错位)、原始 #ifdef 守卫深度逐行核对
+  (含 #else 分支翻转、双层嵌套)、全文覆盖审计(8925 行全部要么进模块、进头文件、
+  手工补定义、要么是守卫/空行/注释)。生成物 git 6c630fc 的 dllmain.cpp。
+- **布局**: src/ 下 log/util/memorymap/player/env/art/valor/spirit/gauge/sheath/
+  actions/damage/trigger/fx/motion/prop/rollsheathe/sound/vitals/overlay/probe/
+  probe_tools 22 个模块 .cpp+.h + prelude.h(统一 include)/all.h(声明伞)/
+  game_types.h(ActionInfo); dllmain.cpp 只剩 LoadForceActionConfig/Install*/
+  InitializePlugin/DllMain。CMakeLists 用 VG_SOURCES 列表双 target 共享。
+- **纪律**: 函数体零改动(唯 mechanical 修正=SetSpiritLevel 默认实参移到 spirit.h、
+  MotionTraceTick/AtkScanArm/PollAtkTrace/ApplySheatheMotionPatch/g_atkKeyWasDown
+  去 static 改跨 TU、PropInt 三指针定义移 prop.cpp 头部); mod/probe 分界仍靠
+  #ifdef VALOR_PROBE, 各模块重包守卫(原文嵌套结构经脚本验证)。
+- **两处有意偏差(均无行为差异)**: ① spirit.cpp(SetSpiritLevel/ExtendLevelDropTimer)
+  从 mod-only 改为双构建编译——原 probe 靠 Release /OPT:REF 丢弃未引用的
+  PollValorLifecycle 才没炸链接, 现在显式可链接(叶函数无 probe 专属依赖);
+  ② FormatHex32/FormatFloat32 同理落 probe_tools.cpp(原在 probe 区)。
+- **坑记**: 首轮类型重定义(C2011)=头文件已带类型定义而段表没切掉原文定义行
+  → HookId/ArtChargeRow/GaugeRule/MotionBind/ClkRegion/ActionSoundRule/五组
+  fn-ptr 别名全部改为"类型在头文件、段表剔除"; prop.cpp 三 getter 指针定义被
+  连带切掉 → LNK2019, 生成器手工补定义块。
+- 构建验证: ValorGauge.dll + ValorProbe.dll Release 全绿 0 警告。部署未动
+  (nativePC 仍是 d089847a), 待 user 冷启动后按需部署新 dll。

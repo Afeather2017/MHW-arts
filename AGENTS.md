@@ -69,9 +69,13 @@
 & 'E:\MSVC2022\...\cmake.exe' --build ValorGauge\build --config Release
 ```
 
-- 一源码两 target：ValorGauge.dll（mod）/ ValorProbe.dll（VALOR_PROBE=1，纯研究）。
+- 一源码树两 target：ValorGauge.dll（mod）/ ValorProbe.dll（VALOR_PROBE=1，纯研究）。
   **绝不同装**（双 MinHook 崩溃）。auto-install 已移除——显式拷贝到
   `nativePC/plugins/`，游戏必须关闭，记 md5。
+- **源码按模块分文件（2026-11-01 拆分）**：`ValorGauge/src/` 下 22 个功能域 .cpp+.h
+  （prelude.h=include 环境、all.h=声明伞、game_types.h=ActionInfo），dllmain.cpp 只剩
+  安装编排；mod/probe 分界仍是文件内 `#ifdef VALOR_PROBE`。改动落对应模块；模块清单
+  见 `docs/tools-workflow.md`。
 - CMakeLists 已含 `/utf-8`（勿删）；配置文件路径一律正斜杠。
 - 配置在 `nativePC/plugins/ValorGauge.*.txt`；**Shift+F6 = 全量热重载**。清单见
   `docs/tools-workflow.md`。

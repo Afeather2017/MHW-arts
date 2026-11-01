@@ -1,0 +1,27 @@
+#pragma once
+// Umbrella header: every split translation unit includes this so no cpp has
+// to track which cross-module declarations it uses. Headers only declare -
+// there are no circular definitions.
+#include "game_types.h"
+#include "log.h"
+#include "util.h"
+#include "memorymap.h"
+#include "player.h"
+#include "env.h"
+#include "art.h"
+#include "valor.h"
+#include "spirit.h"
+#include "gauge.h"
+#include "sheath.h"
+#include "actions.h"
+#include "damage.h"
+#include "trigger.h"
+#include "fx.h"
+#include "motion.h"
+#include "prop.h"
+#include "rollsheathe.h"
+#include "sound.h"
+#include "vitals.h"
+#include "overlay.h"
+#include "probe.h"
+#include "probe_tools.h"

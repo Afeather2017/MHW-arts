@@ -22,8 +22,23 @@
 & 'E:\MSVC2022\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe' --build ValorGauge\build --config Release
 ```
 
-- **一个源码两个 target**：ValorGauge.dll（mod）/ ValorProbe.dll（VALOR_PROBE=1 纯研究）。
+- **一个源码树两个 target**：ValorGauge.dll（mod）/ ValorProbe.dll（VALOR_PROBE=1 纯研究）。
   **绝不同时装两个**（双 MinHook 实例互踩崩溃；两边有 sibling 自检兜底）。
+- **源码布局（2026-11-01 拆分定案）**：曾经的单文件 `src/dllmain.cpp`（8925 行）拆成
+  `src/` 下 23 个模块 .cpp + 同名声明头；`prelude.h`=统一 include 环境，
+  `all.h`=全量声明伞（各 cpp 都 include 它），`game_types.h`=ActionInfo，
+  `dllmain.cpp` 只剩 LoadForceActionConfig/Install*/InitializePlugin/DllMain 编排。
+  模块：log/util/memorymap（钩子签名+地址解析+守卫）/player（锁链+tracker+武器门）/
+  env（任务·区判定）/art（战技条）/valor（生命周期+gauge-lock）/spirit（SetSpiritLevel
+  配方）/gauge（规则引擎+GaugeAddHook+GAUGEWATCH）/sheath（收刀刚1+gang1+DRAWGANG1+
+  SHEATHWATCH）/actions（DoActionHook）/damage（伤害层钩子+全部充能）/trigger（弹反
+  窗口+CondEval+force）/fx/motion（motionbind+帧seek+时钟矿机）/prop（属性钩子+
+  PROPTRACE+F11 直方图）/rollsheathe（翻滚切納刀+分类器补丁）/sound/vitals/overlay
+  （ImGui）/probe+probe_tools（纯研究：RXN/POOLDIFF/miner/diff/ATKTRACE）。
+  mod/probe 行为分界仍在各文件内 `#ifdef VALOR_PROBE` 守卫。**改动落在对应模块 .cpp**；
+  跨模块符号 = 该模块 .h 里的 extern/声明。`tools/split_dllmain.py` 保留原文→模块的
+  段落映射与守卫校验（原文在 git 6c630fc，可
+  `git show 6c630fc:ValorGauge/src/dllmain.cpp > src/_dllmain_orig.cpp` 后复现拆分）。
 - **POST_POST auto-install 已移除**——部署显式拷贝：游戏关闭后拷
   `ValorGauge/build/Release/ValorGauge.dll` → `nativePC/plugins/ValorGauge.dll`，
   记 md5 链。运行中 DLL 被锁。
@@ -91,5 +106,6 @@
   （现规则：结论进 docs/ 主题手册，过程进 docs/SESSIONS.md，见 AGENTS.md 文档纪律节）。
 - 部署备份命名 `*.bak-<日期>-<用途>`；col 改前先 diff 基准；LMT 事故档留证不删
   （如 w03_00-curled-20260928-2000.lmt）。
-- 实验代码退场纪律：会话结束把一次性实验从 dllmain.cpp checkout 回 HEAD，知识留文档，
-  签名成果进 sig_check.py/signatures.json（10-25 追捕收尾先例）。
+- 实验代码退场纪律：会话结束把一次性实验从对应模块 .cpp checkout 回 HEAD，知识留文档，
+  签名成果进 sig_check.py/signatures.json（10-25 追捕收尾先例；2026-11-01 起源码按模块
+  分文件，不再有单一 dllmain.cpp）。

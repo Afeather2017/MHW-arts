@@ -18,8 +18,38 @@ file(COPY "${ROOT}/external/kiero/kiero.cpp" DESTINATION "${CMAKE_CURRENT_BINARY
 
 add_subdirectory("${ROOT}/MHW-QuestLoader/external/minhook" "${CMAKE_BINARY_DIR}/minhook")
 
-add_library(ValorGauge SHARED
+# Split modules (2026-11-01, tools/split_dllmain.py): one .cpp per feature
+# domain, shared declarations in the matching .h; dllmain.cpp keeps only the
+# install/bootstrap orchestration. Both targets compile the same set - the
+# mod/probe behavior split stays inside the files via VALOR_PROBE guards.
+set(VG_SOURCES
     src/dllmain.cpp
+    src/log.cpp
+    src/util.cpp
+    src/memorymap.cpp
+    src/player.cpp
+    src/env.cpp
+    src/art.cpp
+    src/valor.cpp
+    src/spirit.cpp
+    src/gauge.cpp
+    src/sheath.cpp
+    src/actions.cpp
+    src/damage.cpp
+    src/trigger.cpp
+    src/fx.cpp
+    src/motion.cpp
+    src/prop.cpp
+    src/rollsheathe.cpp
+    src/sound.cpp
+    src/vitals.cpp
+    src/overlay.cpp
+    src/probe.cpp
+    src/probe_tools.cpp
+)
+
+add_library(ValorGauge SHARED
+    ${VG_SOURCES}
     "${CMAKE_CURRENT_BINARY_DIR}/generated/kiero/kiero.cpp"
     "${ROOT}/external/imgui/imgui.cpp"
     "${ROOT}/external/imgui/imgui_draw.cpp"
@@ -58,7 +88,7 @@ set_target_properties(ValorGauge PROPERTIES OUTPUT_NAME "ValorGauge")
 # (and remove ValorGauge.dll) only while researching. Both DLLs refuse to
 # co-install.
 add_library(ValorProbe SHARED
-    src/dllmain.cpp
+    ${VG_SOURCES}
     "${CMAKE_CURRENT_BINARY_DIR}/generated/kiero/kiero.cpp"
     "${ROOT}/external/imgui/imgui.cpp"
     "${ROOT}/external/imgui/imgui_draw.cpp"
