@@ -81,11 +81,26 @@
   加路由只接线不建节点。
 - XFsm（游戏内）崩溃修复史与空 render-error.log=原生 crash 的判读见 SESSIONS 09-14。
 
-## 输入系统（逆向地图，10-25）
+## 输入系统（逆向地图，10-25 初版 / 11-02 全解码）
 
 - 轮询模型：DirectInput GetDeviceState（键盘）+ XInputGetState（手柄）每帧拉状态；
   键鼠→手柄位 = 游戏内部映射。静态导入经 delay-load 包装（XInputGetState@0x14273DCC9、
   DirectInput8Create@0x14273DC3E 固定 VA 可 MinHook）。
+- **逻辑动作层（11-02 解码，DLL 读输入的正道）**：物理键 →（键位重映射表
+  **RVA 0x3EEABF0**，逻辑动作 <0x89 每项 4 字节物理键号，运行时被键位配置改写；
+  vanilla 静态表逻辑 23=特殊納刀→物理 9=默认手柄 B/○ 位）→ **逻辑动作位集**，
+  按逻辑 id 直接索引（id>>5 选字 / id&31 选位）：`输入上下文 +0x780=当前按住、
+  +0x7C0/+0x820=缓冲、+0x7E0=本帧按下沿`（另有 +0x860/+0x8A0 被查询登记位）。
+  特殊納刀 = 逻辑动作 23；"R+A 还是 R+B 因人而异" = 重映射表运行时值不同。
+- 分类器检查器（mgrCtx type1[combo]，mgrCtx+0xD0 槽）= 逻辑动作条件的对象化：
+  +0x28=逻辑输入 id、+0x20=输入上下文、+8 旗标 bit0=按下/持续；评估链
+  evaluate→`FUN_1417bd120`→万能查询 `FUN_1419a30d0`，外围玩家门禁
+  （+0x7658→+0xa4/a5/a6）+ UI 门禁，动作层再叠 PlMotionInput 使能位——**翻滚中
+  组合 23 从不被游戏询问 = 这些门禁叠出来的，不是输入层没收到键**。
+  **DLL 读输入直读位集，不调查询函数**（绕开全部门禁）；实装见
+  `ValorGauge/src/rollsheathe.cpp` COMBOPROBE 节 + roll-sheathe.txt `input=internal`。
+- 分类器静态表 0x143F4D6A0（LS 行，113 键）；(1,23,1,0,3,98) 行 = 特殊納刀切入；
+  翻滚 18-22 原无此行（DLL PatchRollSheatheRows 进程内补过，未证实有消费者）。
 - DLL 侧自动按键：纯 SendInput 扫描码（虚拟键窗口消息游戏不认）；counter-repeat.txt
   Ctrl 脉冲、gameio.py（tools/game-control/）同通道。
 - 分工定案（user）：LLM 实时玩游戏不现实——user 物理操作 + 程序化时机/内存/断点控制。
