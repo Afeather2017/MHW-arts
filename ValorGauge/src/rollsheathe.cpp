@@ -132,7 +132,7 @@ std::atomic<std::uintptr_t> g_sheathMgrCtx{0};
 // 起 gateMs(默认500)ms, 窗口内拒绝 block 表(默认 1,11,12,66,112), 98 本体放行。
 // 注意: 定义须在 LoadRollSheatheConfig 之前(其 block=/gateMs= 解析要写这些)。
 std::atomic<std::int64_t> g_sheathGateUntilMs{0};
-std::atomic<int> g_sheathGateMs{3000};  // user: 3s 已够绝大多数动作切换
+std::atomic<int> g_sheathGateMs{1000};  // user: 1s(3000 过长, 11-02 定案)
 // 纳刀意图锁存: 翻滚中见输入位(即按即消费, 闪一帧)即锁存 gateMs 时长,
 // PollRollSheathe 在动作帧到阈值时凭锁存补发 {3,98} — 治"按早了起身站着不动"
 // (输入早被吃, 阈值帧时已无信号; user 定案 11-02: 缓存到气刃斬1 时机=起身点)。
