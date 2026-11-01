@@ -135,6 +135,20 @@ void __fastcall VitSetHook(void* box, float value, bool flag) {
         }
         auto* player = static_cast<std::uint8_t*>(controller) - 0x61C8;
         if (ProbeVitalsBox(player, kHpSlot) == box) {
+#ifdef VALOR_PROBE
+            // DIAG: event-bit window around 0xDC(220)/0xDD(221) at the write
+            // moment, for the front/back A/B that decides the direction gate.
+            if (IsReadable(player + 0x8950, 8)) {
+                std::ostringstream d;
+                d << "CHIPDIAG lethal=" << lethal << " value=" << value
+                  << " bits[0x8950..]=" ;
+                for (int i = 0; i < 6; ++i) {
+                    d << std::hex << std::uppercase << (int)player[0x8950 + i]
+                      << (i < 5 ? ' ' : ' ');
+                }
+                Log(d.str());
+            }
+#endif
             // vetoAll: any decreasing write (lethal or chip) is dropped - the
             // guard lands with the HP bar untouched; lethal veto keeps the
             // death check from ever firing. Increasing writes (heals) pass.
