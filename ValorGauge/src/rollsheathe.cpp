@@ -415,6 +415,55 @@ void PollSheathGateRefresh(const void* entity) {
             }
         }
     }
+    // 起身补发 (user 定案 "起身时能纳刀"): 意图存续中, 翻滚动作结束(离开阈值表)
+    // 而纳刀链尚未开始 => 立即补发 {3,98}。盖住 阈值帧未到翻滚已结束 的漏缝
+    // (后摇末段按压/翻滚被取消, 局内实证 18:00:12 意图过期 = 观感"站着不动")。
+    if (ctrl != nullptr) {
+        static std::int32_t s_prevId = -999;
+        static bool s_getupFired = false;
+        const std::int32_t curSet =
+            *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<const std::uint8_t*>(ctrl) + 0xAC);
+        const std::int32_t curId =
+            *reinterpret_cast<const volatile std::int32_t*>(
+                static_cast<const std::uint8_t*>(ctrl) + 0xB0);
+        const bool intentActive =
+            SheathNowMs() < g_sheathIntentUntilMs.load(std::memory_order_acquire);
+        if (!intentActive) {
+            s_getupFired = false;
+        }
+        const bool curIsRoll =
+            curSet == 3 && g_rollSheathe.thresholds.count(curId) != 0;
+        const bool prevIsRoll = g_rollSheathe.thresholds.count(s_prevId) != 0;
+        const bool alreadySheathing = curSet == 3 &&
+            (curId == 98 || curId == 5 || curId == 6 || curId == 9 || curId == 10);
+        if (intentActive && prevIsRoll && !curIsRoll && !alreadySheathing &&
+            !s_getupFired && !g_insideDoAction.load(std::memory_order_acquire)) {
+            s_getupFired = true;
+            ActionInfo force{};
+            force.actionSet = 3;
+            force.actionId = 98;
+            const bool ok = g_originalDoAction(const_cast<void*>(ctrl),
+                                               &force) != 0;
+            std::ostringstream m;
+            m << "SHEATHGETUP fire (prev=" << s_prevId << " cur=" << curId
+              << ") -> " << (ok ? "accepted" : "rejected");
+            Log(m.str().c_str());
+            if (ok) {
+                SheathGateArm();
+                std::scoped_lock lock(g_actionMutex);
+                ActionInfo forced{};
+                forced.actionSet = 3;
+                forced.actionId = 98;
+                g_lastLongSwordAction = forced;
+            }
+        }
+        if (curSet == 3) {
+            s_prevId = curId;
+        } else {
+            s_prevId = -999;
+        }
+    }
 }
 
 // UI 状态查询 (overlay 每帧): 稳定对未收敛返回 false。nib 位 = h1|buf7c02|e4|buf8208。

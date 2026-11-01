@@ -6224,3 +6224,20 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   0x26b640 = 分类器自发 = (1,23,→98) 行命中实证), intentCombos 含 23 双覆盖。
 - 部署 dll `6f1101a6`→`b7b6042f`, roll-sheathe.txt 加 intentCombos 行。待验证:
   翻滚任意时刻(尤其后摇首按)按纳刀 => 必纳刀; log SHEATHEINTENT armed c<combo>。
+
+### 2026-11-02(13) log 证据反转: 纳刀链其实几乎每次都走, 漏的是"阈值帧未到翻滚已结束" => 起身补发
+
+- **log 全量复盘(17:58-18:00 会话)**: 14 个 SHEATHINTENT 里 9 个走到 SHEATHCUT
+  accepted, 2 个由分类器自发 98 完成(34.856 同毫秒 action=98, 故无 SHEATHCUT 行)
+  —— **纳刀机制本身近乎全中**。所谓"失败"= 剩余几个意图过期无 98: 按压落在
+  阈值帧之后/翻滚提前结束, PollRollSheathe 的 {动作∈阈值表 && mot>=阈值} 窗口
+  被跳过 => 意图过期 => 观感"站着不动"。
+- **另一发现**: 纳刀成功后 user 按住翻滚+方向/R => 收刀态触发出 拔刀系动作
+  (id 7 移動抜刀 / id 11 收刀R2, 36.3-37.9s 实证) —— 部分观感"没纳刀"实为
+  纳刀后残余输入拉出的拔刀动作, 非纳刀失败。
+- **起身补发 (SHEATHGETUP, user 定案"起身时能纳刀"的直译)**: 意图存续期间,
+  动作从翻滚(阈值表)离开且纳刀链(98/5/6/9/10)未开始 => 立即补发 {3,98}+
+  tracker 同步+拉闸, 每意图一次(s_getupFired 门闩, 意图过期复位)。
+  PollSheathGateRefresh 每帧执行(不依赖 StableSheathPair 之外的门)。
+- 部署 dll `b7b6042f`→`fcad1aeb`(游戏运行中, 后台等待部署)。
+- 待验证: 翻滚任意时刻按纳刀 => 起身必纳刀, log SHEATHGETUP fire => accepted。
