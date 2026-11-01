@@ -101,6 +101,28 @@
   `ValorGauge/src/rollsheathe.cpp` COMBOPROBE 节 + roll-sheathe.txt `input=internal`。
 - 分类器静态表 0x143F4D6A0（LS 行，113 键）；(1,23,1,0,3,98) 行 = 特殊納刀切入；
   翻滚 18-22 原无此行（DLL PatchRollSheatheRows 进程内补过，未证实有消费者）。
+- **实测键→逻辑 id 映射（INPUTBITS，11-02 局内）**：R={1,6}（`R按住/R押してない`
+  条件底层位）、特殊納刀快捷键=24（remap→物理 15；**边沿型，被消费即清零**，
+  无常驻按住位）、16/120=常驻状态位非按键、127/116/125=方向类。可查询空间
+  id<0x89（0x9c 特例）。
+- **发现方法 recipe（游戏更新后按此重找，约一轮逆向+一轮局内）**：
+  1. 分类器入口 `FUN_14026c0f0`(RVA 0x26C0F0, 签名见 memorymap kHookSigs
+     sheathCap)：param_1=mgrCtx、param_2=动作对象(+0xAC/+0xB0 当前请求)。
+  2. 匹配链全在 0x26Bxxx 邻域：b670(驱动)/b830(0x26B830 候选匹配)/ba00(0x26BA00
+     检查器评估)/b380(胜出消费)。mgrCtx type 槽 {指针数组,数量} 对 =
+     +0xC0+type*0x10 / +0xC8+type*0x10；检查器=数组[comboId]，+0x28=逻辑输入
+     id、+0x20=输入上下文、+8 旗标。
+  3. 检查器类（c23 实测 vtable 0x143371ea0）evaluate → `FUN_1417bd120` →
+     万能查询 `FUN_1419a30d0(玩家ctx,输入ctx,id,press,mode)` → press
+     `FUN_14122fdb0` / hold `FUN_14122fe60` → 位集读法（上条）+ 重映射查表
+     `FUN_141230070`（表 RVA 0x3EEABF0）。
+  4. **运行期实测（关键一步，纯静态定不了位语义）**：DLL 在 c0f0 钩子**调用期内**
+     捕获检查器（跨调用保留指针=UAF 崩过），按 (ctx,id) 对计数 seen≥8 过滤，
+     位集全扫 + UI/日志显示 → 用户逐个按键 → [实体键→逻辑 id] 映射当场建表。
+     工具已留在 `rollsheathe.cpp`（COMBOPROBE/INPUTBITS/SHEATHIN UI 行，
+     addresses.txt `comboProbe=1`）。
+  5. 门禁参考（读位集可全绕）：UI `_DAT_1451c4640`+0x146d5/0x146ea、玩家
+     +0x7658→+0xa4/a5/a6、查询空间门 `FUN_141230000`。
 - DLL 侧自动按键：纯 SendInput 扫描码（虚拟键窗口消息游戏不认）；counter-repeat.txt
   Ctrl 脉冲、gameio.py（tools/game-control/）同通道。
 - 分工定案（user）：LLM 实时玩游戏不现实——user 物理操作 + 程序化时机/内存/断点控制。
