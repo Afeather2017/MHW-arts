@@ -14,3 +14,6 @@ bool InstallSheathClsfyProbeHook();
 // 评估钩子, 钉死"游戏内部特殊納刀输入态"用; 详见 rollsheathe.cpp 该节注释。
 void PollSheathComboProbe(const void* entity);
 bool InstallSheathEvalProbe();
+// SHEATHGATE: 纳刀触发后窗口期内拒绝気刃斬1/刚一族 DoAction 请求 (user 定案)。
+void SheathGateArm();
+bool SheathGateShouldBlock(int id);

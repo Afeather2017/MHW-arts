@@ -6111,3 +6111,23 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - kPatches 重写: 7 条修正地址 + 4 条 combo52 = 16 条(原 5 不动)。部署 dll
   `6b358efa`→`6ef7d2e4`。待验证: boot 应见 "16/16 classifier rows patched";
   翻滚按纳刀键 {3,98} 后不应再有任何 REQTRACE 抢招, 动作应走 98→勇気納刀。
+
+### 2026-11-02(6) SHEATHGATE 总闸落地 (user 定案方案): 纳刀后 0.5s 拒绝気刃斬1/刚一族
+
+- **user 定案**: 别再追分类器行了——DoAction 总闸, 触发纳刀后 0.5s 内拒绝所有
+  気刃斬1/刚一, 其他情况不拦。理由充分: v5 会话 REQTRACE 实锤 3:112 每 ~1.6s
+  从分类器(b590)复发且 98 落地 +16ms 必跟发, 行禁用是打地鼠; FSM 链接边/缓冲
+  输入还不走分类器。
+- **实现**: ①rollsheathe.cpp 定义 g_sheathGateUntilMs/gateMs(500)/block 表
+  (默认 1,11,12,66,112 = 观测到的全部劫持形态 + 気刃斬1 请求号推断值 66),
+  SheathGateArm/SheathGateShouldBlock; ②actions.cpp DoActionHook 在
+  ApplySheathRewrite **之前**拦(原始 11/12 直接拒, 否则被改写成 112 绕过字面),
+  return false + 限频日志 SHEATHGATE swallow; ③窗口触发双路 = SHEATHCUT 落地
+  或 动作层 tracker 看到 3:98(覆盖分类器自发 98), probe 构建无此逻辑。
+- 配置: roll-sheathe.txt `gateMs=500` / `block=1,11,12,66,112` (热重载可用)。
+- 16 行补丁与 REQTRACE 保留(行禁用降噪 + 溯源留证)。
+- 坑记: 首轮编译双错 — SHEATHGATE 全局定义放在 LoadRollSheatheConfig 之后
+  (C2065), probe 构建 tracker 也调 SheathGateArm(LNK2019, 用 #ifndef 守卫)。
+- 部署 dll `6ef7d2e4`→`516ef594`, roll-sheathe.txt→`1059129a`。待验证: 翻滚按
+  纳刀键 → 98 后 0.5s 内任何 112/11/66 请求被吞(日志 SHEATHGATE swallow),
+  动作稳定落在勇気納刀。

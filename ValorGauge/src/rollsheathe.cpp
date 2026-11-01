@@ -125,6 +125,38 @@ struct RollSheatheCfg {
 RollSheatheCfg g_rollSheathe;
 std::atomic<std::uintptr_t> g_sheathMgrCtx{0};
 
+// --- SHEATHGATE (11-02, user 定案): 纳刀触发后 0.5s 拒绝気刃斬1/刚一族请求 -----
+// 分类器行禁用追不平: REQTRACE 实锤分类器(b590, callerRVA=0x26b640)每 ~1.6s
+// 反复发 3:112(=52 行 3:11 经 SheathRewrite 转换), FSM 链接边/缓冲输入也绕过
+// 分类器行。DoAction 总闸一刀切: 窗口 = SHEATHCUT 落地 或 动作层观察到 3:98
+// 起 gateMs(默认500)ms, 窗口内拒绝 block 表(默认 1,11,12,66,112), 98 本体放行。
+// 注意: 定义须在 LoadRollSheatheConfig 之前(其 block=/gateMs= 解析要写这些)。
+std::atomic<std::int64_t> g_sheathGateUntilMs{0};
+std::atomic<int> g_sheathGateMs{500};
+// 仅配置加载期写入, 之后只读(钩子线程并发读安全)
+std::vector<int> g_sheathGateBlock = {1, 11, 12, 66, 112};
+
+std::int64_t SheathNowMs() {
+    return static_cast<std::int64_t>(GetTickCount64());
+}
+
+void SheathGateArm() {
+    g_sheathGateUntilMs.store(
+        SheathNowMs() + g_sheathGateMs.load(std::memory_order_relaxed),
+        std::memory_order_release);
+}
+
+bool SheathGateShouldBlock(int id) {
+    if (SheathNowMs() > g_sheathGateUntilMs.load(std::memory_order_acquire)) {
+        return false;
+    }
+    if (id == 98) return false;  // 纳刀本体永远放行
+    for (const int b : g_sheathGateBlock) {
+        if (b == id) return true;
+    }
+    return false;
+}
+
 void LoadRollSheatheConfig() {
     std::ifstream input("nativePC/plugins/ValorGauge.roll-sheathe.txt");
     if (!input) {
@@ -145,6 +177,21 @@ void LoadRollSheatheConfig() {
             g_rollSheathe.inputMode.store(
                 value == "internal" ? 1 : (value == "any" ? 2 : 0),
                 std::memory_order_relaxed);
+        }
+        else if (key == "gateMs") {
+            g_sheathGateMs.store(std::atoi(value.c_str()), std::memory_order_relaxed);
+        }
+        else if (key == "block") {
+            g_sheathGateBlock.clear();
+            std::size_t pos = 0;
+            while (pos < value.size()) {
+                const std::size_t comma = value.find(',', pos);
+                const std::string tok = comma == std::string::npos
+                    ? value.substr(pos) : value.substr(pos, comma - pos);
+                try { g_sheathGateBlock.push_back(std::stoi(tok)); } catch (...) {}
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
+            }
         }
         else {
             try { g_rollSheathe.thresholds[std::stoi(key)] = std::stof(value); } catch (...) {}
@@ -519,6 +566,7 @@ void PollRollSheathe(const void* entity) {
     Log(m.str().c_str());
     if (ok) {
         fired = true;
+        SheathGateArm();
         std::scoped_lock lock(g_actionMutex);
         ActionInfo forced{};
         forced.actionSet = 3;

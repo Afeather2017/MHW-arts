@@ -112,6 +112,22 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
 #endif
 
 #ifndef VALOR_PROBE
+    // SHEATHGATE (11-02 user 定案): 纳刀触发后 0.5s 内拒绝気刃斬1/刚一族请求。
+    // 分类器行禁用追不平(REQTRACE 实锤分类器每 ~1.6s 反复发 3:112), 且 FSM
+    // 链接边/缓冲输入绕过分类器; DoAction 总闸一刀切, 98 本体放行。置于
+    // SheathRewrite 之前 = 原始 11/12 直接拒(否则会被改写成 112 绕过字面)。
+    if (validAction && action->actionSet == 3 &&
+        SheathGateShouldBlock(action->actionId)) {
+        static std::atomic<int> g_sheathGateLogs{0};
+        const int gn = g_sheathGateLogs.fetch_add(1, std::memory_order_relaxed);
+        if (gn < 8 || (gn % 600) == 0) {
+            std::ostringstream gm;
+            gm << "SHEATHGATE swallow 3:" << action->actionId << " (n=" << gn << ")";
+            Log(gm.str().c_str());
+        }
+        g_insideDoAction.store(false, std::memory_order_release);
+        return false;
+    }
     // 收刀拔刀刚1: vanilla routes sheathed R2 to {3,11} in code; rewrite the
     // request BEFORE the tracker copies it so latch/rules/logs see the new id.
     if (validAction && action->actionSet == 3 && IsLongSwordController(controller)) {
@@ -205,6 +221,12 @@ bool __fastcall DoActionHook(void* controller, ActionInfo* action) {
             if (changed) {
                 g_lastLongSwordController = controller;
                 g_lastLongSwordAction = current;
+                // 纳刀请求落地(含分类器自发 98)也拉闸 — 覆盖非 SHEATHCUT 路径
+                if (current.actionSet == 3 && current.actionId == 98) {
+#ifndef VALOR_PROBE
+                    SheathGateArm();
+#endif
+                }
 #ifndef VALOR_PROBE
                 // Re-arm the clang latch only when a NEW foresight slash starts;
                 // resetting on every action change caused a force loop (the
