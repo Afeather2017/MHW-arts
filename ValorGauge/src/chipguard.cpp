@@ -21,6 +21,8 @@
 
 int (__fastcall *g_originalChipThreshold)(void* propMgr) = nullptr;
 
+static std::atomic<int> g_chipEnabled{1};  // master switch: 0 = install nothing
+
 static std::atomic<int> g_chipForce{0};   // 0 = vanilla; >0 = max(orig, N)
 static std::atomic<int> g_chipTrace{1};   // ungated-call logging
 static std::atomic<int> g_rbEnabled{1};   // GuardRollback switch
@@ -72,33 +74,24 @@ float ReadHpCur(std::uint8_t* player) {
 
 // Guard gate shared by lethal-veto: local LS player + current set-3 action in
 // the configured guard family + action frame inside the window (seconds).
+// HOT PATH (runs once per damage write game-wide): no mutex, no manager-chain
+// walk. g_lockedPlayerController / g_lastLongSwordAction are read racily
+// (benign: worst case the gate misses one write); the stale-lock scene-swap
+// cross-check lives in the per-frame PollGuardRollback, and a stale gate here
+// just lets a write through (vanilla behavior, safe direction).
 static bool GuardGateActive(std::int32_t guardId, double windowSec) {
     if (!ModWeaponActive()) {
         return false;
     }
-    void* controller = nullptr;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        controller = g_lockedPlayerController;
-    }
-    std::uint8_t* chainPlayer =
-        static_cast<std::uint8_t*>(ResolveLocalPlayerViaManager());
-    if (chainPlayer && controller &&
-        static_cast<std::uint8_t*>(controller) - 0x61C8 != chainPlayer) {
-        controller = nullptr;
-    }
+    void* controller = g_lockedPlayerController;
     if (!controller) {
         return false;
     }
-    std::int32_t curSet = -1;
-    std::int32_t curId = -1;
-    {
-        std::scoped_lock lock(g_actionMutex);
-        if (g_lastLongSwordAction.has_value()) {
-            curSet = g_lastLongSwordAction->actionSet;
-            curId = g_lastLongSwordAction->actionId;
-        }
+    if (!g_lastLongSwordAction.has_value()) {
+        return false;
     }
+    const std::int32_t curSet = g_lastLongSwordAction->actionSet;
+    const std::int32_t curId = g_lastLongSwordAction->actionId;
     if (curSet != 3 || curId != guardId) {
         return false;
     }
@@ -209,6 +202,10 @@ int __fastcall ChipThresholdHook(void* propMgr) {
 }
 
 void InstallChipGuardHook() {
+    if (g_chipEnabled.load(std::memory_order_relaxed) == 0) {
+        Log("CHIP disabled by config (enabled=0) - no hooks installed");
+        return;
+    }
 #ifndef VALOR_PROBE
     if (g_hookAddr[HkVitSet] == 0) {
         Log("CHIP vitSet unavailable: target unresolved (addresses.txt vitSet=0xRVA)");
@@ -334,6 +331,7 @@ void LoadChipGuardConfig() {
         return;
     }
     std::string line;
+    int enabled = -1;
     int force = -1;
     int trace = -1;
     int rollback = -1;
@@ -351,7 +349,9 @@ void LoadChipGuardConfig() {
         }
         const std::string key = line.substr(0, eq);
         const int value = atoi(line.c_str() + eq + 1);
-        if (key == "force") {
+        if (key == "enabled") {
+            enabled = value;
+        } else if (key == "force") {
             force = value;
         } else if (key == "trace") {
             trace = value;
@@ -364,6 +364,9 @@ void LoadChipGuardConfig() {
         } else if (key == "vetoall") {
             vetoall = value;
         }
+    }
+    if (enabled >= 0) {
+        g_chipEnabled.store(enabled, std::memory_order_relaxed);
     }
     if (force >= 0) {
         g_chipForce.store(force, std::memory_order_relaxed);
@@ -384,7 +387,8 @@ void LoadChipGuardConfig() {
         g_vetoAll.store(vetoall, std::memory_order_relaxed);
     }
     std::ostringstream m;
-    m << "CHIP config: trace=" << g_chipTrace.load()
+    m << "CHIP config: enabled=" << g_chipEnabled.load()
+      << " trace=" << g_chipTrace.load()
       << " force=" << g_chipForce.load()
       << " rollback=" << g_rbEnabled.load()
       << " lethalveto=" << g_lethalVeto.load()

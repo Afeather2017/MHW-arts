@@ -6505,3 +6505,25 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   lethalveto 独立于方向保留 (致死写不论方向都丢——背后致命一击也保命, user
   已接受该形态)。vetoall 留配置档 (想要血条零闪可自行开启, 接受背后 0.2s 免伤)。
 - mod 恢复 md5 `408bfc5b` (配置 vetoall=0/rollback=1/lethalveto=1), probe 撤除。
+
+### 2026-11-02 (4) 终局重排: 強G 化刚一 + 勇气纳刀普通化 + 钩子性能修复 (user 定案)
+
+- **rollback 局内未生效**: user 实测格挡成功仍受伤——CHIPROLL 路径自实现以来从未
+  被 log 命中过 (前两轮窗内刀全为致死被 veto 拦, 非致死场景未测过), rollback 本体
+  首个真实测试即失败 (切入检测或时序有问题, 未及排查——**user 直接定案换路线**)。
+- **user 终局重排**: **刚一 (345) = 強G 化** (三件套零伤, 接受 38-40 定格反应及播完
+  落收刀回避); **勇气纳刀 (306 架势) = 普通防御** (削韧掉血, 不再零伤白嫖)。強G 零伤
+  = 引擎原生, chipguard 钩子整个不需要。
+- **卡顿根因与修复**: user 报告特效多时游戏卡顿——VitSet 钩子热路径 (全游戏每次
+  伤害写入, 含打怪) 每次做 ResolveLocalPlayerViaManager 链解析 + 两次 g_actionMutex
+  抢锁, 伤害事件风暴 = 锁竞争放大。修: ①GuardGateActive 去锁去链 (良性竞争读,
+  陈旧锁最坏=门放行一次=原版行为, 安全方向); ②**enabled= 主开关** (0=不装任何
+  钩子), dllmain 改为先 Load 配置后 Install。強G 化后配置 enabled=0 = 零钩子零开销。
+- **blend 双改** (dodge-sheath.blend): 345 = 三件套 (mFlag f0 0xD0080000→f12 off +
+  mFlag1 b28 窗 f0→f12 + staminaParam=10, 复刻 d31946aa 已验证配方);
+  306 = mFlag 0x52400006→**0x92400006** (-b30+b31, 普通格挡核) + 删 mFlag1 b28 轨
+  (staminaParam=10 保留闲置)。timl-diff 恰 306+345 两 entry 差异。
+- **部署**: LMT md5 `7f60cefd` (上任 `898b2314`); mod md5 `37ab8fa6` (enabled=0,
+  钩子全关但代码保留, 未来要防死/闪回改 enabled=1 即开)。
+- 待 user 冷启动: 刚一防御窗吃刀 → 38/39/40 零伤強G 反应 (播完落收刀回避为已知
+  形态); 306 架势吃刀 → 普通 35-37 后仰+掉血; 卡顿应消失 (零钩子)。
