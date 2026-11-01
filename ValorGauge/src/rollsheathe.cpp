@@ -805,6 +805,23 @@ void PollRollSheathe(const void* entity) {
             src = 's';
         }
     }
+    // SHEATHDIAG (意图存活 + 翻滚表内 + 未发刀 时每 30 帧记门状态): 定位
+    // "意图在、阈值帧过、却不发刀" 的吃门者。mot=anim+0x10C 实况。
+    if (g_rollSheathe.thresholds.count(id) != 0) {
+        const bool intentNow =
+            SheathNowMs() < g_sheathIntentUntilMs.load(std::memory_order_acquire);
+        static int s_diagTick = 0;
+        if (intentNow && (s_diagTick++ % 30) == 0) {
+            std::ostringstream m;
+            m << "SHEATHDIAG id=" << id << " set=" << set << " inDA="
+              << g_insideDoAction.load(std::memory_order_acquire)
+              << " mwa=" << ModWeaponActive()
+              << " heldInt=" << InternalSheathHeld()
+              << " ent=" << (entity == static_cast<const void*>(player) ? 1 : 0)
+              << " im=" << inputMode;
+            Log(m.str().c_str());
+        }
+    }
     if (!held) return;
 
     // motion 帧 (anim+0x10C)
@@ -821,6 +838,16 @@ void PollRollSheathe(const void* entity) {
     if (mot < lastMot - 5.0f) fired = false;
     lastMot = mot;
     if (fired) return;
+    // 补一发尾段诊断: 过了全部门、临开火前一刻的 mot 实况
+    {
+        static int s_fireDiagTick = 0;
+        if ((s_fireDiagTick++ % 30) == 0) {
+            std::ostringstream m;
+            m << "SHEATHDIAG fire-path id=" << id << " mot=" << mot
+              << " thr=" << thIt->second;
+            Log(m.str().c_str());
+        }
+    }
 
     ActionInfo force{};
     force.actionSet = 3;
