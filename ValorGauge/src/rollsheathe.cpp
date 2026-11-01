@@ -132,7 +132,7 @@ std::atomic<std::uintptr_t> g_sheathMgrCtx{0};
 // 起 gateMs(默认500)ms, 窗口内拒绝 block 表(默认 1,11,12,66,112), 98 本体放行。
 // 注意: 定义须在 LoadRollSheatheConfig 之前(其 block=/gateMs= 解析要写这些)。
 std::atomic<std::int64_t> g_sheathGateUntilMs{0};
-std::atomic<int> g_sheathGateMs{500};
+std::atomic<int> g_sheathGateMs{3000};  // user: 3s 已够绝大多数动作切换
 // 仅配置加载期写入, 之后只读(钩子线程并发读安全)
 std::vector<int> g_sheathGateBlock = {1, 11, 12, 66, 112};
 
@@ -348,6 +348,45 @@ static bool InternalSheathHeld() {
     std::uint32_t id = 0;
     if (!StableSheathPair(ctx, id)) return false;
     return (SheathNibbleSEH(ctx, id) & 1u) != 0;
+}
+
+// 滑窗重臂 (PropIntHook 每帧, 独立于 comboProbe): 纳刀输入位(按住/缓冲/边沿
+// 任一)每被看到一次就把闸门窗口再延 gateMs。治本: 局内实证 98→6→5 收刀链成功
+// 后 1-3s, 仍挂着的纳刀输入在后续翻滚出招检查点被分类器反复消费成 3:11(刚一),
+// 固定 0.5s 窗口盖不住; 松键 0.5s 后闸门自然关闭, 拔刀刚一(收刀态 R2)不受影响。
+void PollSheathGateRefresh(const void* entity) {
+    const void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (ctrl == nullptr) return;
+    if (entity != static_cast<const void*>(
+                      static_cast<const std::uint8_t*>(ctrl) - 0x61C8)) {
+        return;
+    }
+    std::uintptr_t ctx = 0;
+    std::uint32_t id = 0;
+    if (!StableSheathPair(ctx, id)) return;
+    const std::uint32_t nib = SheathNibbleSEH(ctx, id);
+    if (nib != 0 && nib != 0xFFFFFFFFu) {
+        SheathGateArm();
+    }
+}
+
+// UI 状态查询 (overlay 每帧): 稳定对未收敛返回 false。nib 位 = h1|buf7c02|e4|buf8208。
+bool SheathGateStatus(int* outId, std::uint32_t* outNib,
+                      std::int64_t* outRemainMs) {
+    std::uintptr_t ctx = 0;
+    std::uint32_t id = 0;
+    if (!StableSheathPair(ctx, id)) return false;
+    if (outId != nullptr) *outId = static_cast<int>(id);
+    if (outNib != nullptr) *outNib = SheathNibbleSEH(ctx, id);
+    if (outRemainMs != nullptr) {
+        *outRemainMs =
+            g_sheathGateUntilMs.load(std::memory_order_acquire) - SheathNowMs();
+    }
+    return true;
 }
 
 void PollSheathComboProbe(const void* entity) {

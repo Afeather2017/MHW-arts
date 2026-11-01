@@ -17,3 +17,8 @@ bool InstallSheathEvalProbe();
 // SHEATHGATE: 纳刀触发后窗口期内拒绝気刃斬1/刚一族 DoAction 请求 (user 定案)。
 void SheathGateArm();
 bool SheathGateShouldBlock(int id);
+// 滑窗重臂: 纳刀输入位每帧见到即续期(PropIntHook 调)。
+void PollSheathGateRefresh(const void* entity);
+// UI 状态查询: 稳定对收敛与否 + 逻辑输入 id + 位集 nibble + 闸门剩余毫秒。
+bool SheathGateStatus(int* outId, std::uint32_t* outNib,
+                      std::int64_t* outRemainMs);

@@ -249,6 +249,29 @@ void DrawGauge(IDXGISwapChain* swapChain) {
                               lockText);
             }
         }
+        // SHEATHIN line (2026-11-02): 纳刀输入检测实时显示 — 稳定对 (逻辑 id) +
+        // 位集 nibble (h/b/e/b2) + 闸门剩余。检测到输入=绿, 闸门生效=黄。
+        {
+            int sheathId = 0;
+            std::uint32_t nib = 0;
+            std::int64_t remainMs = 0;
+            if (SheathGateStatus(&sheathId, &nib, &remainMs)) {
+                const bool detected =
+                    nib != 0 && nib != 0xFFFFFFFFu;
+                char shText[96]{};
+                snprintf(shText, sizeof(shText),
+                         "SHEATHIN id=%d h=%u b=%u e=%u%s GATE %.1fs",
+                         sheathId, nib & 1u, (nib >> 1) & 1u, (nib >> 2) & 1u,
+                         (nib & 8u) ? " b2" : "",
+                         remainMs > 0 ? remainMs / 1000.0 : 0.0);
+                draw->AddText(
+                    ImGui::GetFont(), 18.0f, ImVec2(0.0f, 136.0f),
+                    detected ? IM_COL32(80, 255, 120, 255)
+                             : (remainMs > 0 ? IM_COL32(255, 220, 80, 255)
+                                             : IM_COL32(160, 160, 160, 200)),
+                    shText);
+            }
+        }
         // Mode line (2026-10-25): the in-game HUD gauge color never repaints
         // on mid-quest level writes, so this overlay line is the source of
         // truth - phase label (CHARGE = white charge phase, VALOR = red mode,
