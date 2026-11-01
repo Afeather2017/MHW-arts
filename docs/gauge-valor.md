@@ -191,12 +191,20 @@ ActionNo=82/83/84；连段按键路径同招=请求 id 7/8/9。ctx 行按入口�
 ValorGauge.roll-sheathe.txt`(enable/`input=side|internal|any`/各 id 阈值/
 `gateMs`/`block`)，改后重启生效。
 
-**SHEATHGATE（总闸，11-02 user 定案）**：纳刀输入被看到的时刻起 `gateMs`(3000)ms
+**SHEATHGATE（总闸，11-02 user 定案）**：纳刀输入被看到的时刻起 `gateMs`(1000)ms
 内，DoAction 层拒绝 `block`(默认 1,11,12,66,112 = 気刃斬1/刚一族全部观测形态)，
 98 永远放行。**为什么需要**：{3,98} 落地后，分类器(b590)/FSM 链接边/缓冲输入会在
 翻滚出招检查点把残余纳刀输入反复消费成 {3,11}(收刀态 R2=刚一, REQTRACE 实证
 callerRVA=0x26b640 每 ~1.6s 复发)；0.5s 窗口不够(后滚 f72→检查点 >0.63s)，
-3s 实测全盖住。副作用：纳刀键按下后 3s 内拔刀刚一(收刀态 R2)也被拦。
+1s 实测够盖。副作用：纳刀键按下后 1s 内拔刀刚一(收刀态 R2)也被拦。
+
+**fired 复位死锁（11-02(16) 最终真凶，SHEATHDIAG 实证）**：发刀一次性旗标的
+复位代码 `mot < lastMot-5` 原本位于阈值门(mot≥threshold)之后 → 上一发后
+lastMot 冻结≈阈值，复位条件与门条件永久矛盾 → fired 置位即卡死，后续翻滚按压
+全被吃（"首按有效之后概率失效"真因）。修复 = mot 读数前置到实体检查后，回卷
+复位随之前置（98/6/5/idle 的 mot 均从 0 起，任何动作切换落差即复位）。
+九轮修复链：行补丁(5→16 条)→竞速免疫锁存→SHEATHINTENT→起身补发→24=0→
+fired 前置，全部在 SESSIONS 11-02 系列。
 
 **实现**：①`PollRollSheathe()`：本地玩家 controller 当前动作(0xAC/0xB0)+
 motion(anim+0x10C)+输入源 → g_originalDoAction 直呼+tracker 同步。输入源
