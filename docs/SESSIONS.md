@@ -6207,3 +6207,20 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
 - 时机微调仍走配置阈值(18/19=28 20/21=34 22=72, 即气刃斬1 窗口近似), 不用重编。
 - 部署 dll `53654369`→`6f1101a6`。待验证: 翻滚前段按纳刀 => 起身必纳刀, 无站着
   不动; log 应见 SHEATHINTENT armed => SHEATHCUT[i] 序列。
+
+### 2026-11-02(12) SHEATHEINTENT 竞速免疫布防: 分类器评估命中即锁存 (user 实测定案)
+
+- **user 实测补充**: ①vanilla 双键组合与快捷键的 UI 显示不同(IN 列表不同但
+  SHEATHIN 都黄) = 双键点亮原始键位(R={1,6}+○), 组合层再合成逻辑动作 — 逻辑层
+  与组合层分开, 符合预期; ②**意图锁存有漏**: 首按大概率无效, "3s 倒计时中按才
+  有效" => 位闪现 vs 轮询存在消费竞速: 分类器在出招检查点先消费 => PollRollSheathe
+  (InternalSheathHeld)与 PollSheathGateRefresh 两位点都没看到 => 既无 SHEATHCUT
+  也无锁存; 倒计时中有效 = 上一次锁存还活着, 与本次按压无关。
+- **修复(竞速免疫)**: SheathEvalProbeHook(ba00 钩子)内, 分类器自己报告纳刀族
+  combo 命中(result != -1 且 combo ∈ intentCombos 默认 23,52,144 可配)且
+  mgrCtx 属玩家且当前动作在阈值表内 => 同步锁存意图+拉闸。分类器调用栈内同步
+  执行, 输入此刻必然存在, 消费竞速不可能发生。位集 sighting 路径保留兜底。
+- 双键组合说明: 双键 vs 快捷键路径不同但都汇入 c23(REQTRACE 3:98 callerRVA=
+  0x26b640 = 分类器自发 = (1,23,→98) 行命中实证), intentCombos 含 23 双覆盖。
+- 部署 dll `6f1101a6`→`b7b6042f`, roll-sheathe.txt 加 intentCombos 行。待验证:
+  翻滚任意时刻(尤其后摇首按)按纳刀 => 必纳刀; log SHEATHEINTENT armed c<combo>。

@@ -137,6 +137,10 @@ std::atomic<int> g_sheathGateMs{3000};  // user: 3s 已够绝大多数动作切�
 // PollRollSheathe 在动作帧到阈值时凭锁存补发 {3,98} — 治"按早了起身站着不动"
 // (输入早被吃, 阈值帧时已无信号; user 定案 11-02: 缓存到气刃斬1 时机=起身点)。
 std::atomic<std::int64_t> g_sheathIntentUntilMs{0};
+// 纳刀族 combo 表 (intentCombos=, 分类器评估命中即锁存意图 — 竞速免疫:
+// 分类器同步亲见输入, 免除 位闪现vs轮询 的消费竞速; 局内实证 c23=快捷键,
+// c52/c144=纳刀 combo 在翻滚子表的行)。288=R 不入表。
+std::vector<int> g_sheathIntentCombos = {23, 52, 144};
 // 仅配置加载期写入, 之后只读(钩子线程并发读安全)
 std::vector<int> g_sheathGateBlock = {1, 11, 12, 66, 112};
 
@@ -193,6 +197,18 @@ void LoadRollSheatheConfig() {
                 const std::string tok = comma == std::string::npos
                     ? value.substr(pos) : value.substr(pos, comma - pos);
                 try { g_sheathGateBlock.push_back(std::stoi(tok)); } catch (...) {}
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
+            }
+        }
+        else if (key == "intentCombos") {
+            g_sheathIntentCombos.clear();
+            std::size_t pos = 0;
+            while (pos < value.size()) {
+                const std::size_t comma = value.find(',', pos);
+                const std::string tok = comma == std::string::npos
+                    ? value.substr(pos) : value.substr(pos, comma - pos);
+                try { g_sheathIntentCombos.push_back(std::stoi(tok)); } catch (...) {}
                 if (comma == std::string::npos) break;
                 pos = comma + 1;
             }
@@ -550,6 +566,66 @@ std::int64_t __fastcall SheathEvalProbeHook(void* mgrCtx, void* stateCtx,
     const std::int64_t raw =
         g_originalSheathEvalProbe(mgrCtx, stateCtx, row, flag);
     const std::int32_t result = static_cast<std::int32_t>(raw & 0xFFFFFFFFu);
+    // SHEATHINTENT 竞速免疫布防 (独立于 comboProbe): 分类器同步报告纳刀族 combo
+    // 命中 —— 输入此刻必然存在, 免除 位闪现 vs 轮询 的消费竞速 (11-02 user 实测
+    // 首按大概率被分类器先消费 => 两个轮询位点都看不到 => 既无 SHEATHCUT 也无
+    // 锁存; "倒计时中按才有效" = 上一次的锁存还活着)。锁存后仍由 PollRollSheathe
+    // 在阈值帧统一发刀。
+    if (row != nullptr && result != -1) {
+        const std::int32_t combo = row[1];
+        bool sheatheCombo = false;
+        for (const int c : g_sheathIntentCombos) {
+            if (c == combo) { sheatheCombo = true; break; }
+        }
+        if (sheatheCombo) {
+            const void* ectrl = nullptr;
+            {
+                std::scoped_lock lock(g_actionMutex);
+                ectrl = g_lockedPlayerController;
+            }
+            if (ectrl != nullptr) {
+                bool mine = false;
+                {
+                    std::scoped_lock lock(g_sheathCtxMutex);
+                    for (const auto& e : g_sheathCtx) {
+                        if (e.mgr == reinterpret_cast<std::uintptr_t>(mgrCtx) &&
+                            e.actionObj ==
+                                reinterpret_cast<std::uintptr_t>(ectrl)) {
+                            mine = true;
+                            break;
+                        }
+                    }
+                }
+                if (mine) {
+                    const std::int32_t aset =
+                        *reinterpret_cast<const volatile std::int32_t*>(
+                            static_cast<const std::uint8_t*>(ectrl) + 0xAC);
+                    const std::int32_t arid =
+                        *reinterpret_cast<const volatile std::int32_t*>(
+                            static_cast<const std::uint8_t*>(ectrl) + 0xB0);
+                    if (aset == 3 && g_rollSheathe.thresholds.count(arid) != 0) {
+                        const std::int64_t nowMs = SheathNowMs();
+                        const bool was = nowMs < g_sheathIntentUntilMs.load(
+                                                     std::memory_order_acquire);
+                        g_sheathIntentUntilMs.store(
+                            nowMs + g_sheathGateMs.load(std::memory_order_relaxed),
+                            std::memory_order_release);
+                        SheathGateArm();
+                        if (!was) {
+                            static std::atomic<int> g_evalIntentLogs{0};
+                            if (g_evalIntentLogs.fetch_add(
+                                    1, std::memory_order_relaxed) < 20) {
+                                std::ostringstream m;
+                                m << "SHEATHEINTENT armed c" << combo
+                                  << " roll=" << arid;
+                                Log(m.str().c_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (!g_comboProbe.load(std::memory_order_relaxed) || row == nullptr) {
         return raw;
     }
