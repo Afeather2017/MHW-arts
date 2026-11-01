@@ -6050,3 +6050,23 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   (input=any)。待 user 冷启动: 看基线行 inputId 是否=23 + remapPhys=用户绑定;
   按纳刀键看 edge/held 转换; 翻滚按纳刀键看 SHEATHCUT[i] 是否触发(内部源局内
   验证)。通过后默认改 input=internal、GetAsyncKeyState 退役。
+
+### 2026-11-02(3) 崩溃复盘: mgrCtx 是每次调用的短命上下文, v3 改调用期捕获
+
+- **v2 崩溃(59f429c3)**: log 实证 c0f0 的 param_1 (mgrCtx) 1 秒内 8+ 个不同值
+  交替(全部 actionObj==玩家), 部分读出 vtbl=0x0 全零 ⇒ **mgrCtx = 每次调用
+  不同的短命上下文**(此前 10-31 evaluate 0xC0000005 @.rdata 同根因)。探针跨
+  调用保留指针再读 = UAF, IsReadable 挡不住"已提交但已释放"的堆页, 撞未映射
+  即崩。v2 还漏了实体过滤(全部实体的 tick 都在跑探针)加剧。v1 全量扫描没崩
+  纯属运气。
+- **有价值的临终数据**: slot23 检查器 +0x28 = **24**(combo id ≠ 逻辑输入 id,
+  又一个编号空间); 该 mgr 的 remap(24)=15; 玩家门禁外的输入上下文指针在多个
+  mgr 间重复出现 ⇒ ctx 可能稳定, 但要按 (ctx,id) 对+出现次数过滤验证。
+- **v3 修复(d2c46973)**: ①捕获移进 SheathCapHook 调用期内(参数有效期=调用期),
+  只认玩家 actionObj; ②跨调用只留 (输入上下文, 逻辑id) 值对, map 按 (ctx,id)
+  计数, 上限 8 键裁弱, **seen>=8 才可信**(StableSheathPair); ③一切保留指针读
+  走 SEH(SheathNibbleSEH, 无 C++ 对象函数内); ④probe/poll 加实体过滤。
+  internal 源在未见稳定对时静默回退(input=any 下侧键兜底, 功能不死)。
+- 待验证: SHEATHIN23 stable 行(ctx/id 是否收敛、id 到底=23 还是 24)+按键
+  edge/held 转换+SHEATHCUT[i]。若 ctx 不收敛 ⇒ ctx 也是短命 ⇒ 内部源要换
+  钩子期同步读方案再做一轮。

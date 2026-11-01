@@ -162,6 +162,8 @@ void LoadRollSheatheConfig() {
 using SheathCapFn = void (*)(void*, std::int64_t, void*, std::uint32_t);
 SheathCapFn g_originalSheathCap = nullptr;
 
+static void CaptureSheath23(std::uintptr_t mgr);  // COMBOPROBE 节, 调用期捕获
+
 // 多实体各自有分类器 mgrCtx (日志实证 4+ 个交替), 必须按 actionObj 认领玩家的:
 // actionObj = *(owner+0xD90)+0x61C8 与 mod controller(player+0x61C8) 同源同偏移。
 struct SheathCtxEntry {
@@ -173,6 +175,16 @@ static SheathCtxEntry g_sheathCtx[8] = {};
 
 void __fastcall SheathCapHook(void* mgrCtx, std::int64_t actionObj, void* p3,
                               std::uint32_t p4) {
+    // mgrCtx 只在本次调用期有效 (11-02 崩溃复盘): 同步捕获 (输入上下文, 逻辑id),
+    // 只认玩家 actionObj 的调用; 跨调用保留指针再读 = UAF。
+    {
+        std::scoped_lock lock(g_actionMutex);
+        if (g_lockedPlayerController != nullptr &&
+            static_cast<std::uintptr_t>(actionObj) ==
+                reinterpret_cast<std::uintptr_t>(g_lockedPlayerController)) {
+            CaptureSheath23(reinterpret_cast<std::uintptr_t>(mgrCtx));
+        }
+    }
     {
         std::scoped_lock lock(g_sheathCtxMutex);
         const auto m = reinterpret_cast<std::uintptr_t>(mgrCtx);
@@ -201,120 +213,131 @@ bool InstallSheathCapHook() {
     return true;
 }
 
-// --- COMBOPROBE v2 (2026-11-02): 组合23 内部输入态观测 ------------------------
-// v1 全量扫描教训: 首帧整个检查器数组都算"新对象", 500 行额度一次吃光, 按键
-// 窗口零数据。v2 聚焦: 基线一行(c23 检查器字段 + 键位重映射表值) + 逐帧读
-// 组合23 逻辑输入态位集, 变化才记 (SHEATHIN23)。
-// 本轮静态逆解码(检查器类 vtable 0x143371ea0 → evaluate FUN_1417bfa90):
-//   检查器 = mgrCtx type1[23] (mgrCtx+0xD0 槽), +0x28=逻辑输入 id,
-//   +0x20=输入上下文; 上下文位集按逻辑 id 直接索引 (FUN_14122fdb0 press /
-//   FUN_14122fe60 hold 的读法):
-//     +0x780=当前按住  +0x7C0/+0x820=缓冲  +0x7E0=本帧按下沿
-//   键位重映射表 RVA 0x3EEABF0: 逻辑动作(<0x89)→物理键, 运行时被键位配置改写
-//   (vanilla 表: 逻辑23→物理9); "R+A 还是 R+B" 的答案 = 这张表的运行时值。
-//   万能查询 FUN_1419a30d0(玩家上下文, 输入上下文, id, press, mode) 外围有
-//   玩家门禁(+0x7658→+0xa4/a5/a6) —— 翻滚中组合23 从不被游戏询问的可能原因,
-//   所以轮询直读位集, 不调查询函数。
-// addresses.txt `comboProbe=1` 启用; SHEATHEVAL(ba00 钩子)沿用, 共享行数上限。
+// --- COMBOPROBE v3 (2026-11-02): 输入上下文调用期捕获 -------------------------
+// 崩溃复盘(v2): c0f0 的 param_1 (mgrCtx) 是每次调用不同的短命上下文(局内实证
+// 1 秒内 8+ 个交替, 部分 vtb l=0 全零), 跨调用保留指针再读 = UAF, IsReadable
+// 挡不住已提交却已释放的堆页 → 未映射读 → 崩。v1 全量扫描没崩只是运气。
+// 铁律: **mgrCtx 只在钩子调用期内有效**; 跨调用只保留 (输入上下文, 逻辑id) 值对,
+// 且同一对反复出现(seen>=8)才可信; 一切保留指针的读走 SEH。
+// 已知语义(静态): 检查器+0x20=输入上下文, +0x28=逻辑输入 id(combo id ≠ 输入 id,
+// 局内实证 slot23 检查器 id=24); 上下文位集按逻辑 id 索引:
+//   +0x780=当前按住, +0x7C0/+0x820=缓冲, +0x7E0=本帧按下沿
+//   (FUN_14122fdb0 press / FUN_14122fe60 hold 的读法);
+//   键位重映射表 RVA 0x3EEABF0: 逻辑动作(<0x89)→物理键, 运行时被键位配置改写。
 std::atomic<bool> g_comboProbe{false};
 std::atomic<int> g_comboProbeLines{0};
 
-// SheathCapHook 认领表: player 实体 → 分类器 mgrCtx (probe/poll 共用)
-static std::uintptr_t FindPlayerMgrCtx(std::uintptr_t player) {
-    std::scoped_lock lock(g_sheathCtxMutex);
-    for (const auto& e : g_sheathCtx) {
-        if (e.mgr != 0 && e.actionObj == player + 0x61C8) return e.mgr;
-    }
-    return 0;
-}
+static std::mutex g_capMutex;
+// (ctx, id) -> 出现次数; 键对为主, 值对为辅, 上限 8 防脏数据滚雪球
+static std::map<std::pair<std::uintptr_t, std::uint32_t>, int> g_capCounts;
 
-// 组合23 检查器速览: {vtable, +8 旗标, +0x20 输入上下文, +0x28 逻辑id, +0x30 模式}
-struct Sheath23View {
-    bool valid = false;
-    std::uintptr_t vtbl = 0;
-    std::uint8_t flag8 = 0;
-    std::uint8_t mode30 = 0;
-    std::uint32_t inputId = 0;
-    const std::uint8_t* state = nullptr;  // 输入上下文基址 (位集 +0x780..+0x820)
-};
-
-static bool ReadSheath23(std::uintptr_t mgr, Sheath23View& v) {
-    v = Sheath23View{};
+// SheathCapHook 内调用: 参数只在本次调用期有效, 同步提取 (输入上下文, 逻辑id)。
+static void CaptureSheath23(std::uintptr_t mgr) {
     const std::uintptr_t slot = mgr + 0xD0;  // type1 {指针数组,数量} 对
-    if (!IsReadable(reinterpret_cast<const void*>(slot), 0x10)) return false;
+    if (!IsReadable(reinterpret_cast<const void*>(slot), 0x10)) return;
     void* const* arr = *reinterpret_cast<void* const**>(slot);
     const std::uint32_t count =
         *reinterpret_cast<const volatile std::uint32_t*>(slot + 8);
-    if (arr == nullptr || count <= 23) return false;
+    if (arr == nullptr || count <= 23 ||
+        !IsReadable(reinterpret_cast<const void*>(arr), 24 * sizeof(void*))) {
+        return;
+    }
     void* chk = arr[23];
-    if (chk == nullptr || !IsReadable(chk, 0x40)) return false;
+    if (chk == nullptr || !IsReadable(chk, 0x40)) return;
     const auto* c = static_cast<const std::uint8_t*>(chk);
-    v.vtbl = *reinterpret_cast<std::uintptr_t*>(chk);
-    v.flag8 = *reinterpret_cast<const std::uint8_t*>(c + 8);
-    v.inputId = *reinterpret_cast<const volatile std::uint32_t*>(c + 0x28);
-    v.mode30 = *reinterpret_cast<const std::uint8_t*>(c + 0x30);
     void* ctx = *reinterpret_cast<void* const*>(c + 0x20);
-    if (ctx == nullptr || !IsReadable(ctx, 0x830)) return false;
-    v.state = static_cast<const std::uint8_t*>(ctx);
-    v.valid = true;
+    const std::uint32_t id =
+        *reinterpret_cast<const volatile std::uint32_t*>(c + 0x28);
+    if (ctx == nullptr || id >= 0x400 ||
+        !IsReadable(ctx, 0x830)) {
+        return;
+    }
+    std::scoped_lock lock(g_capMutex);
+    auto& n = g_capCounts[{reinterpret_cast<std::uintptr_t>(ctx), id}];
+    n = n < 100000 ? n + 1 : n;
+    if (g_capCounts.size() > 8) {
+        auto victim = g_capCounts.begin();
+        for (auto it = g_capCounts.begin(); it != g_capCounts.end(); ++it) {
+            if (it->second < victim->second) victim = it;
+        }
+        g_capCounts.erase(victim);
+    }
+}
+
+// SEH 位集读 (无 C++ 对象; ctx 为保留指针, 读故障按无效帧处理)
+static std::uint32_t SheathNibbleSEH(std::uintptr_t ctx, std::uint32_t id) {
+    __try {
+        const auto* base = reinterpret_cast<const std::uint8_t*>(ctx);
+        const std::uintptr_t word = (id >> 5) * 4;
+        const std::uint32_t bit = 1u << (id & 31);
+        std::uint32_t nib = 0;
+        if (*reinterpret_cast<const volatile std::uint32_t*>(base + 0x780 + word) & bit) nib |= 1;
+        if (*reinterpret_cast<const volatile std::uint32_t*>(base + 0x7C0 + word) & bit) nib |= 2;
+        if (*reinterpret_cast<const volatile std::uint32_t*>(base + 0x7E0 + word) & bit) nib |= 4;
+        if (*reinterpret_cast<const volatile std::uint32_t*>(base + 0x820 + word) & bit) nib |= 8;
+        return nib;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0xFFFFFFFFu;
+    }
+}
+
+// 稳定 (ctx,id) 对: 出现次数最高且 seen>=8 才算可信。probe/poll 共用。
+static bool StableSheathPair(std::uintptr_t& ctx, std::uint32_t& id) {
+    std::scoped_lock lock(g_capMutex);
+    auto best = g_capCounts.end();
+    for (auto it = g_capCounts.begin(); it != g_capCounts.end(); ++it) {
+        if (it->second < 8) continue;
+        if (best == g_capCounts.end() || it->second > best->second) best = it;
+    }
+    if (best == g_capCounts.end()) return false;
+    ctx = best->first.first;
+    id = best->first.second;
     return true;
 }
 
-// 位集读: +0x780=按住, +0x7C0=缓冲1, +0x7E0=按下沿, +0x820=缓冲2 (逻辑 id 位索引)
-static std::uint32_t SheathStateNibble(const Sheath23View& v) {
-    if (!IsReadable(v.state, 0x830)) return 0;
-    const std::uintptr_t word = (v.inputId >> 5) * 4;
-    const std::uint32_t bit = 1u << (v.inputId & 31);
-    const auto test = [&](std::uintptr_t off) {
-        return (*reinterpret_cast<const volatile std::uint32_t*>(v.state + off + word) &
-                bit) != 0;
-    };
-    return (test(0x780) ? 1u : 0u) | (test(0x7C0) ? 2u : 0u) |
-           (test(0x7E0) ? 4u : 0u) | (test(0x820) ? 8u : 0u);
-}
-
 // 组合23 按住位 (内部输入源, 绑定无关)。供 PollRollSheathe 用。
-static bool InternalSheathHeld(std::uintptr_t mgr) {
-    if (mgr == 0) return false;
-    Sheath23View v;
-    if (!ReadSheath23(mgr, v) || !v.valid) return false;
-    if (!IsReadable(v.state, 0x830)) return false;
-    const std::uintptr_t word = (v.inputId >> 5) * 4;
-    const std::uint32_t bit = 1u << (v.inputId & 31);
-    return (*reinterpret_cast<const volatile std::uint32_t*>(v.state + 0x780 + word) &
-            bit) != 0;
+static bool InternalSheathHeld() {
+    std::uintptr_t ctx = 0;
+    std::uint32_t id = 0;
+    if (!StableSheathPair(ctx, id)) return false;
+    return (SheathNibbleSEH(ctx, id) & 1u) != 0;
 }
 
 void PollSheathComboProbe(const void* entity) {
     if (!g_comboProbe.load(std::memory_order_relaxed)) return;
     if (g_comboProbeLines.load(std::memory_order_relaxed) > 400) return;
-    const std::uintptr_t player = reinterpret_cast<std::uintptr_t>(entity);
-    const std::uintptr_t mgr = FindPlayerMgrCtx(player);
-    if (mgr == 0) return;
-    static std::uintptr_t baselineMgr = 0;
-    static Sheath23View view;
-    if (baselineMgr != mgr) {
-        if (!ReadSheath23(mgr, view)) return;
-        baselineMgr = mgr;
+    const void* ctrl = nullptr;
+    {
+        std::scoped_lock lock(g_actionMutex);
+        ctrl = g_lockedPlayerController;
+    }
+    if (ctrl == nullptr) return;
+    if (entity != static_cast<const void*>(
+                      static_cast<const std::uint8_t*>(ctrl) - 0x61C8)) {
+        return;
+    }
+    std::uintptr_t ctx = 0;
+    std::uint32_t id = 0;
+    if (!StableSheathPair(ctx, id)) return;
+    static std::uintptr_t lastCtx = 0;
+    static std::uint32_t lastId = 0;
+    if (ctx != lastCtx || id != lastId) {
+        lastCtx = ctx;
+        lastId = id;
         std::int32_t remapPhys = -2;
         const std::uintptr_t base = ModuleBaseAddr();
-        if (base != 0 && view.inputId < 0x89 &&
-            IsReadable(reinterpret_cast<const void*>(
-                           base + 0x3EEABF0 + view.inputId * 4), 4)) {
+        if (base != 0 && id < 0x89 &&
+            IsReadable(reinterpret_cast<const void*>(base + 0x3EEABF0 + id * 4), 4)) {
             remapPhys = *reinterpret_cast<const volatile std::int32_t*>(
-                base + 0x3EEABF0 + view.inputId * 4);
+                base + 0x3EEABF0 + id * 4);
         }
         std::ostringstream m;
-        m << "SHEATHIN23: mgr=0x" << std::hex << mgr << " checker vtbl=0x"
-          << view.vtbl << " flag=0x" << static_cast<int>(view.flag8)
-          << " inputId=" << std::dec << view.inputId
-          << " mode30=" << static_cast<int>(view.mode30)
-          << " remapPhys=" << remapPhys << " ctx=0x" << std::hex
-          << reinterpret_cast<std::uintptr_t>(view.state);
+        m << "SHEATHIN23: stable ctx=0x" << std::hex << ctx << " inputId=" << std::dec
+          << id << " remapPhys=" << remapPhys;
         Log(m.str().c_str());
     }
-    if (!view.valid) return;
-    const std::uint32_t nib = SheathStateNibble(view);
+    const std::uint32_t nib = SheathNibbleSEH(ctx, id);
+    if (nib == 0xFFFFFFFFu) return;  // 读故障帧
     static std::uint32_t lastNib = 0xFFFFFFFFu;
     if (nib == lastNib) return;
     lastNib = nib;
@@ -393,8 +416,8 @@ bool InstallSheathEvalProbe() {
     } else {
         Log("COMBOPROBE: sheathEval hook installed (comboProbe=1)");
     }
-    Log("COMBOPROBE: SHEATHIN23 watcher active (baseline + input-state "
-        "transitions, cap 400 lines)");
+    Log("COMBOPROBE: SHEATHIN23 watcher active (capture-stable ctx + input "
+        "state transitions, cap 400 lines)");
     return true;
 }
 
@@ -449,14 +472,13 @@ void PollRollSheathe(const void* entity) {
     if (thIt == g_rollSheathe.thresholds.end()) return;
 
     // 输入源 (roll-sheathe.txt `input=`): side=鼠标侧键(过渡版) /
-    // internal=游戏组合23逻辑输入态(+0x780 按住位, 绑定无关) / any=两者并集
-    // (内部源 A/B 验证期)。读法 = FindPlayerMgrCtx → mgrCtx type1[23] 检查器
-    // → +0x20 输入上下文 → +0x780 位集 [inputId] 位 (COMBOPROBE 节注释)。
+    // internal=游戏逻辑输入态(+0x780 按住位, 绑定无关) / any=两者并集
+    // (内部源 A/B 验证期)。读法 = SheathCapHook 调用期捕获的稳定 (输入上下文,
+    // 逻辑id) 对 → +0x780 位集 (COMBOPROBE v3 节注释); seen<8 不可信则静默回退。
     bool held = false;
     char src = '-';
     const int inputMode = g_rollSheathe.inputMode.load(std::memory_order_relaxed);
-    if (inputMode >= 1 &&
-        InternalSheathHeld(FindPlayerMgrCtx(reinterpret_cast<std::uintptr_t>(player)))) {
+    if (inputMode >= 1 && InternalSheathHeld()) {
         held = true;
         src = 'i';
     }
