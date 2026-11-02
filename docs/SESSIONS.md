@@ -6627,3 +6627,27 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   /`.hold-safe-mod` 两份 user 备份不动。mod 本就禁用 → 游戏行为无任何变化。
 - 提交接 5eb6e69。若日后要研究 chip 方向: git checkout 0b8fbd4 -- ValorGauge/src/chipguard.*
   + 回补接线 (dllmain/overlay/memorymap 三处), 机制文档在 gauge-valor.md chipguard 节。
+
+### 2026-11-02 (9) blend 文件退出 git 历史 (user 要求, filter-branch 重写尾 5 commit)
+
+- **范围实锤**: 全史唯一入库 blend = `MHW-valor-blender/MHW-Valor-0.0.2-dodge-sheath.blend`
+  (93MB, 0b8fbd4 引入, 0b8fbd4/e5e8f42/967f341 三 commit 携带, HEAD 原本仍跟踪);
+  tag v0.0.1 在重写范围外 (0b8fbd4^ 的祖先) 且树内无 .blend 二进制 (只有同名 .py
+  脚本), 未动。
+- **重写**: `git filter-branch --index-filter "git rm --cached --ignore-unmatch
+  <blend>" --prune-empty -- 0b8fbd4^..master`; hash 链 0b8fbd4→f6bd8e5 /
+  e5e8f42→1e7991f / 967f341→6d7acc3 / 5eb6e69→0f694f2 / 4a4b963→251635f, 提交
+  信息原样保留; 新旧 master `git diff --stat` 恰一处 = 该 blend 删除, 零其他
+  内容变化。
+- **备份链**: 全史 bundle `E:\MHW-arts-blend-history-backup.bundle` (200MB,
+  user 确认无误后可删); 工作区 blend 的未提交修改先拷
+  `MHW-Valor-0.0.2-dodge-sheath.blend.bak-1102-pre-history-removal` 再 checkout,
+  重写后从备份恢复为 untracked, cmp 逐字节一致。
+- **回收**: refs/original 删 + origin/master 远程跟踪分支删 (旧史可达性清零,
+  force push 后自动重建) + reflog expire --expire=now --all + `git gc
+  --prune=now` → 仓库 2.07GiB loose + 282MiB pack (9 pack) → **单 pack
+  11.90MiB, garbage 0** (顺带清掉此前积累的全部松散对象)。
+- **防再入库**: .gitignore 全局加 `*.blend` / `*.blend1` / `*.blend.bak-*`
+  (工作区全部 blend 文件转忽略态, git status 不再刷屏)。
+- **待办**: `git push --force origin master` (远程仍指旧 967f341; GitHub 服务端
+  旧对象在其自身 GC 前可能仍被缓存引用, 不影响本地瘦身与后续使用)。

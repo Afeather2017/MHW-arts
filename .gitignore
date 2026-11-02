@@ -1,2 +1,5 @@
 ValorGauge/dist/
 ValorGauge/build/
+*.blend
+*.blend1
+*.blend.bak-*
