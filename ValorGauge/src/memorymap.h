@@ -15,8 +15,7 @@ enum HookId {
     HkPropInt, HkPropBool, HkPropFloat,
     HkGaugeAdd, HkFxNotify,
     HkDealDamage, HkDmgFormula, HkAtkCtxBuilder,
-    HkSheathClsfy, HkSheathCap, HkSheathEval,
-    HkChipThreshold, HkVitSet, HkCount
+    HkSheathClsfy, HkSheathCap, HkSheathEval, HkCount
 };
 
 extern std::uintptr_t g_hookAddr[HkCount];

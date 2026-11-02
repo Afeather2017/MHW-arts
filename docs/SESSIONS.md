@@ -6606,3 +6606,24 @@ f96 全量 0x3C39) 部署确认在游戏文件里 (typeCount=7) 但局内无效�
   纳刀载体带它加载即崩; b28 单独核即路由 35-37, "b28 无 b31=武器自定义"旧模型作废);
   `guard_route_lines` b31/无b31 分支标签同步更新。副本 scratch 试跑 → 真身应用 →
   导出闭环全通过。
+
+### 2026-11-02 (8) chipguard 现役代码退场: 源码树整体删除 (user 定案, git 历史留档)
+
+- **依据 (user 定案)**: VitSet 热路径 (全游戏每次伤害写入) = 11-02(4) 卡顿根因;
+  強G 化刚一已在数据侧终结掉血问题, DLL 那套 (rollback/lethalveto/vetoall) 无用武
+  之地——现役源码不留 (连 enabled=0 开关形态也不留), 只留 git 历史。
+- **删除清单**: `chipguard.cpp`(411 行)/`chipguard.h` + 全部接线——all.h include、
+  dllmain.cpp 两处 LoadChipGuardConfig/InstallChipGuardHook (probe+mod 双分支)、
+  overlay.cpp PollChipGuardHotkey/PollGuardRollback (probe+mod 双分支)/Shift+F6
+  重载里的 LoadChipGuardConfig、memorymap.h 枚举 HkChipThreshold+HkVitSet、
+  memorymap.cpp chipThreshold(0x11C10C0)/vitSet(0x1216940) 双 sig+kHookNames 两名、
+  CMakeLists.txt 源清单。全树大小写不敏感扫 chip|rollback = **零残留**;
+  GuardGateActive/VitSetHook/CHIPVETO/CHIPROLL 均为 chipguard.cpp 内 static/局部
+  符号, 随文件消失不伤他模块 (vitals.cpp 是共享老模块未动)。
+- **重建 (双 target)**: ValorGauge.dll `fbb8e2ab` (941056B ≈ 回到 pre-chipguard
+  体积量级) / ValorProbe.dll `b1e705e2`, 编译零警告通过。
+- **部署 (行为零变化)**: plugins `ValorGauge.dl l` (空格名禁用态保持) 内容替换为
+  `fbb8e2ab`; `ValorGauge.chipguard.txt` 删除 (代码已不读); `.hold-pre-chipguard-final`
+  /`.hold-safe-mod` 两份 user 备份不动。mod 本就禁用 → 游戏行为无任何变化。
+- 提交接 5eb6e69。若日后要研究 chip 方向: git checkout 0b8fbd4 -- ValorGauge/src/chipguard.*
+  + 回补接线 (dllmain/overlay/memorymap 三处), 机制文档在 gauge-valor.md chipguard 节。

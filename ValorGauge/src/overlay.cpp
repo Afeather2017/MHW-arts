@@ -97,8 +97,6 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         MinerHandleF9();
     }
     g_f9WasDown = f5Down;
-    PollChipGuardHotkey();
-    PollGuardRollback();
     const bool f6Down = (GetAsyncKeyState(VK_F6) & 0x8000) != 0;
     if (f6Down && !g_f6WasDown) {
         TryPropertyWrite();
@@ -113,7 +111,6 @@ void DrawGauge(IDXGISwapChain* swapChain) {
     PollHpLock();
     PollHpWatch();
     PollStaminaControl();
-    PollGuardRollback();
 
     // Counter window: a spirit-key press while the window is open fires 刚1.
     const bool windowOpen = std::chrono::steady_clock::now() < g_counterWindowUntil;
@@ -133,7 +130,6 @@ void DrawGauge(IDXGISwapChain* swapChain) {
         // Hot reload: force-action.txt (+ the gauge/sheath sub-configs) is
         // otherwise only read once at plugin init.
         LoadForceActionConfig();
-        LoadChipGuardConfig();
         Log("Force action config reloaded (Shift+F6)");
     } else if (f6Down && !g_f6WasDown && ModWeaponActive()) {
         if (!g_forceArmed.exchange(true)) {

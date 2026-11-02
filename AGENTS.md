@@ -45,9 +45,11 @@
   + mFlag1 b28 窗 + staminaParam 10 → 38-40 零伤，播完落收刀回避已知形态）；勇气纳刀
   306 = **普通格挡**（PMC mFlag 单键 `0x12400006` = b28 核+基线位保留 → 35-37 削韧；
   **b31 对纳刀架势载体加载即崩（306 双轮实证），只有攻击类载体（GS/剛一）需要它**
-  ——"普通格挡=b31" 旧配方作废，翻案过程见 SESSIONS 11-02(4)~(7)）。chipguard DLL
-  退役留档（mod `37ab8fa6` enabled=0 零钩子；Rollback 切入检测有 bug 未修，机制见
-  `docs/gauge-valor.md` chipguard 节）。部署 LMT `036c1586` = blend/导出三方闭环；
+  ——"普通格挡=b31" 旧配方作废，翻案过程见 SESSIONS 11-02(4)~(7)）。**chipguard 代码
+  已整体移出现役源码树**（VitSet 热路径=卡顿根因，不留 enabled 开关；git 历史
+  `7f5fbc7`~`0b8fbd4` 留代码、`docs/gauge-valor.md` chipguard 节留机制）。mod 现役
+  `fbb8e2ab`（无 chip 版），plugins 内保持空格名 `ValorGauge.dl l` 禁用态（数据侧
+  纯数据运行；要回 mod=改名加载）。部署 LMT `036c1586` = blend/导出三方闭环；
   FreeKinetics `recipe_guard_class` 已含 sheathe 模式（纳刀安全配方封装）。
 - **进行中**：战技系统 FSM 侧接线（user）+ 战技链路局内验证 + 战技条文字→画条；
   勇气纳刀后衔接连段补充；部分招式后游戏仍认为收刀态（312 尾段，DLL force 路线待做）；

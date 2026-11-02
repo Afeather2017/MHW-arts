@@ -46,7 +46,6 @@ set(VG_SOURCES
     src/overlay.cpp
     src/probe.cpp
     src/probe_tools.cpp
-    src/chipguard.cpp
 )
 
 add_library(ValorGauge SHARED
